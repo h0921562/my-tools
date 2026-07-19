@@ -1005,6 +1005,10 @@ function applyOcrText(text, source) {
     if (!memo.value.trim()) { memo.value = "【OCR結果】\n" + parsed.rawLines.join("\n"); msg += " 読み取った全文をメモ欄に入れました。各欄へ手で移してください。"; }
     else { msg += " 読み取った全文: 「" + parsed.rawLines.join(" / ") + "」（メモは既入力のため上書きしていません）。"; }
   }
+  // ブラウザ内OCRは漢字が弱い。取りこぼしがあれば、無料のGoogle連携で精度が上がる旨を案内。
+  if (/ブラウザ内/.test(source) && (missingLabels.length || !applied.length)) {
+    msg += " ※漢字の氏名・会社名の精度が要るなら、⚙ から無料のGoogle連携を設定すると大幅に向上します。";
+  }
   setOcrStatus(msg);
 }
 
@@ -1024,10 +1028,42 @@ function loadTesseract() {
   });
   return _tesseractPromise;
 }
+// OCR前処理: グレースケール化＋（上限つき）拡大＋コントラスト・ストレッチで小さな文字を読みやすくする。
+// 失敗時は呼び出し側で元画像にフォールバックする。
+async function preprocessForOcr(blob) {
+  const bmp = await createImageBitmap(blob);
+  const maxW = 2000; // 大きすぎるとTesseractが重くなるため上限
+  let scale = Math.min(2, maxW / bmp.width);
+  if (!isFinite(scale) || scale <= 0) scale = 1;
+  const w = Math.max(1, Math.round(bmp.width * scale));
+  const h = Math.max(1, Math.round(bmp.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bmp, 0, 0, w, h);
+  bmp.close();
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const n = w * h;
+  const lum = new Uint8Array(n);
+  let mn = 255, mx = 0;
+  for (let i = 0, p = 0; p < n; i += 4, p++) {
+    const y = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0;
+    lum[p] = y; if (y < mn) mn = y; if (y > mx) mx = y;
+  }
+  const range = Math.max(1, mx - mn);
+  for (let i = 0, p = 0; p < n; i += 4, p++) {
+    const y = Math.max(0, Math.min(255, ((lum[p] - mn) * 255 / range) | 0));
+    d[i] = d[i + 1] = d[i + 2] = y;
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
 async function runBrowserOcr(blob) {
   setOcrStatus("ブラウザ内OCRを準備中…（初回は辞書データの取得に時間がかかります）");
   const T = await loadTesseract();
-  const { data } = await T.recognize(blob, "jpn+eng", {
+  const input = await preprocessForOcr(blob).catch(() => blob); // 前処理に失敗しても元画像で続行
+  const { data } = await T.recognize(input, "jpn+eng", {
     logger: (mm) => { if (mm && mm.status && typeof mm.progress === "number") setOcrStatus(`読み取り中…（${mm.status} ${Math.round(mm.progress * 100)}%）`); },
   });
   applyOcrText((data && data.text) || "", "ブラウザ内OCR");
