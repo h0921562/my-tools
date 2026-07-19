@@ -1,0 +1,15 @@
+{
+  "name": "名刺管理",
+  "short_name": "名刺管理",
+  "description": "名刺を登録・検索・タグ管理できるアプリ。データは自分のGoogle（スプレッドシート／Drive）に保存。",
+  "lang": "ja",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f4f5f7",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

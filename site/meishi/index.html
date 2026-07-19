@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>名刺管理</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="名刺管理">
+<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --text: #1f2430;
+    --text-sub: #6b7280;
+    --border: #e2e5ea;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --danger: #dc2626;
+    --chip-bg: #eef2ff;
+    --chip-text: #3730a3;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318;
+      --surface: #1c1f26;
+      --text: #e5e7eb;
+      --text-sub: #9ca3af;
+      --border: #2e323b;
+      --accent: #3b82f6;
+      --accent-hover: #60a5fa;
+      --danger: #f87171;
+      --chip-bg: #26304d;
+      --chip-text: #a5b4fc;
+      --shadow: 0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+  }
+  .header-row {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    max-width: 1100px; margin: 0 auto;
+  }
+  h1 { font-size: 18px; margin: 0; white-space: nowrap; }
+  #searchBox {
+    flex: 1; min-width: 180px;
+    padding: 8px 12px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text);
+    font-size: 14px;
+  }
+  #searchBox:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  select {
+    padding: 8px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); color: var(--text); font-size: 13px;
+  }
+  button {
+    padding: 8px 14px; border: none; border-radius: 8px;
+    font-size: 14px; cursor: pointer;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { background: var(--accent-hover); }
+  button.danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+  .tag-bar {
+    max-width: 1100px; margin: 8px auto 0;
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .tag-chip {
+    padding: 3px 10px; border-radius: 999px; font-size: 12px;
+    background: var(--chip-bg); color: var(--chip-text);
+    cursor: pointer; border: 1px solid transparent; user-select: none;
+  }
+  .tag-chip.active { border-color: var(--accent); font-weight: 700; }
+  main { max-width: 1100px; margin: 16px auto; padding: 0 16px 60px; }
+  #stats { color: var(--text-sub); font-size: 13px; margin-bottom: 10px; }
+  #cardGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+    transition: transform .1s;
+  }
+  .card:hover { transform: translateY(-2px); }
+  .card .thumb {
+    width: 100%; aspect-ratio: 91 / 55;
+    object-fit: cover; display: block;
+    background: var(--bg);
+  }
+  .card .thumb-placeholder {
+    width: 100%; aspect-ratio: 91 / 55;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 34px; font-weight: 700;
+    color: var(--text-sub); background: var(--bg);
+  }
+  .card .info { padding: 10px 12px 12px; }
+  .card .name { font-weight: 700; font-size: 15px; }
+  .card .company { color: var(--text-sub); font-size: 13px; margin-top: 2px; }
+  .card .tags { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+  .card .tags .tag-chip { cursor: default; }
+  #empty {
+    text-align: center; color: var(--text-sub); padding: 60px 0; font-size: 14px;
+  }
+  dialog {
+    border: none; border-radius: 14px;
+    background: var(--surface); color: var(--text);
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(100vh - 60px);
+    padding: 0;
+    box-shadow: 0 10px 40px rgba(0,0,0,.3);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dialog-body { padding: 20px; overflow-y: auto; max-height: calc(100vh - 60px); }
+  .dialog-body h2 { margin: 0 0 14px; font-size: 17px; }
+  form label { display: block; font-size: 12px; color: var(--text-sub); margin: 10px 0 4px; }
+  form input[type="text"], form input[type="tel"], form input[type="email"], form textarea {
+    width: 100%; padding: 8px 10px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); font-size: 14px;
+    font-family: inherit;
+  }
+  form textarea { resize: vertical; min-height: 60px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  @media (max-width: 480px) { .form-grid { grid-template-columns: 1fr; } }
+  .img-drop {
+    margin-top: 4px;
+    border: 2px dashed var(--border); border-radius: 10px;
+    padding: 10px; text-align: center; cursor: pointer;
+    color: var(--text-sub); font-size: 13px;
+  }
+  .img-drop img { max-width: 100%; max-height: 220px; border-radius: 6px; display: block; margin: 0 auto 6px; }
+  .dialog-actions {
+    display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap;
+  }
+  .detail-img { width: 100%; border-radius: 10px; margin-bottom: 14px; display: block; }
+  .detail-rows { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
+  .detail-rows dt { color: var(--text-sub); font-size: 12px; padding-top: 2px; white-space: nowrap; }
+  .detail-rows dd { margin: 0; word-break: break-word; white-space: pre-wrap; }
+  .detail-rows dd a { color: var(--accent); }
+  #importFile, #imgInput { display: none; }
+  footer {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    text-align: center; font-size: 11px; color: var(--text-sub);
+    padding: 6px; background: var(--bg); border-top: 1px solid var(--border);
+  }
+  .sync-bar {
+    max-width: 1100px; margin: 8px auto 0;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 12px; color: var(--text-sub);
+  }
+  .sync-bar .pill {
+    padding: 2px 9px; border-radius: 999px; font-size: 12px;
+    border: 1px solid var(--border);
+  }
+  .sync-bar .pill.ok { color: #15803d; border-color: #15803d55; }
+  .sync-bar .pill.warn { color: var(--danger); border-color: var(--danger); }
+  .sync-bar button { padding: 4px 10px; font-size: 12px; }
+  .card.unsynced { position: relative; }
+  .card.unsynced::after {
+    content: "未同期"; position: absolute; top: 6px; right: 6px;
+    background: var(--danger); color: #fff; font-size: 10px;
+    padding: 1px 6px; border-radius: 999px;
+  }
+  .cfg-hint { font-size: 12px; color: var(--text-sub); line-height: 1.6; margin: 4px 0 0; }
+  .cfg-hint code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+  /* スマホ幅: 検索を全幅・ボタン圧縮でタップしやすく */
+  @media (max-width: 620px) {
+    h1 { font-size: 16px; }
+    .header-row { gap: 8px; }
+    #searchBox { min-width: 100%; order: 10; }
+    button { padding: 7px 11px; font-size: 13px; }
+    #cardGrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    main { padding: 0 12px 60px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="header-row">
+    <h1>📇 名刺管理</h1>
+    <input type="search" id="searchBox" placeholder="氏名・会社・メモなどで検索">
+    <select id="sortSelect" title="並び替え">
+      <option value="updated">更新が新しい順</option>
+      <option value="name">氏名順</option>
+      <option value="company">会社名順</option>
+    </select>
+    <button class="primary" id="addBtn">＋ 新規登録</button>
+    <button id="exportBtn" title="全データをJSONファイルに書き出し">書き出し</button>
+    <button id="importBtn" title="JSONバックアップから読み込み">読み込み</button>
+    <button id="cloudSyncBtn" title="クラウド（スプレッドシート／Drive）と同期" hidden>☁ 同期</button>
+    <button id="cloudCfgBtn" title="クラウド保存の設定">⚙</button>
+    <input type="file" id="importFile" accept="application/json,.json">
+  </div>
+  <div class="tag-bar" id="tagBar"></div>
+  <div class="sync-bar" id="syncBar" hidden></div>
+</header>
+
+<main>
+  <div id="stats"></div>
+  <div id="cardGrid"></div>
+  <div id="empty" hidden>名刺がまだありません。「＋ 新規登録」から追加してください。</div>
+</main>
+
+<footer>データはこのブラウザ内（IndexedDB）にのみ保存されます。定期的に「書き出し」でバックアップを取ってください。</footer>
+
+<!-- 登録・編集ダイアログ -->
+<dialog id="editDialog">
+  <div class="dialog-body">
+    <h2 id="editTitle">名刺を登録</h2>
+    <form id="editForm">
+      <label>名刺画像</label>
+      <div class="img-drop" id="imgDrop">
+        <img id="imgPreview" alt="" hidden>
+        <span id="imgHint">クリックして画像を選択（撮影した名刺写真など）</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
+        <button type="button" id="ocrBtn" style="font-size:12px;padding:4px 10px" hidden>📷 画像から読み取る</button>
+        <button type="button" id="imgClearBtn" class="danger" style="font-size:12px;padding:4px 10px" hidden>画像を外す</button>
+      </div>
+      <p class="cfg-hint" id="ocrStatus" style="margin-top:6px" hidden></p>
+      <input type="file" id="imgInput" accept="image/*">
+      <div class="form-grid">
+        <div><label>氏名 *</label><input type="text" id="fName" required autocomplete="off"></div>
+        <div><label>ふりがな</label><input type="text" id="fKana" autocomplete="off"></div>
+        <div><label>会社名</label><input type="text" id="fCompany" autocomplete="off"></div>
+        <div><label>部署・役職</label><input type="text" id="fTitle" autocomplete="off"></div>
+        <div><label>電話番号</label><input type="tel" id="fPhone" autocomplete="off"></div>
+        <div><label>メール</label><input type="email" id="fEmail" autocomplete="off"></div>
+      </div>
+      <label>住所</label><input type="text" id="fAddress" autocomplete="off">
+      <label>タグ（カンマ区切り 例: 展示会,取引先）</label><input type="text" id="fTags" autocomplete="off">
+      <label>メモ</label><textarea id="fMemo"></textarea>
+      <div class="dialog-actions">
+        <button type="button" id="cancelEditBtn">キャンセル</button>
+        <button type="submit" class="primary" id="saveBtn">保存</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<!-- 詳細ダイアログ -->
+<dialog id="detailDialog">
+  <div class="dialog-body">
+    <img class="detail-img" id="detailImg" alt="名刺画像" hidden>
+    <h2 id="detailName"></h2>
+    <dl class="detail-rows" id="detailRows"></dl>
+    <div class="dialog-actions">
+      <button class="danger" id="deleteBtn">削除</button>
+      <button id="editBtn">編集</button>
+      <button class="primary" id="closeDetailBtn">閉じる</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- クラウド設定ダイアログ -->
+<dialog id="cfgDialog">
+  <div class="dialog-body">
+    <h2>クラウド保存の設定</h2>
+    <p class="cfg-hint">
+      Google Apps Script の <b>ウェブアプリ URL</b> を入力すると、名刺データはスプレッドシートに、
+      画像は Google Drive に保存されます（あなた自身の Google アカウント内）。<br>
+      URL は<b>実質パスワード</b>です。他人に共有しないでください。設定はこのブラウザにのみ保存されます。
+      未設定なら、これまで通りこのブラウザ内（IndexedDB）だけで動作します。
+    </p>
+    <form id="cfgForm">
+      <label>ウェブアプリ URL（…/exec）</label>
+      <input type="text" id="cfgUrl" autocomplete="off" placeholder="https://script.google.com/macros/s/XXXX/exec">
+      <label>トークン（任意・Apps Script 側で TOKEN を設定した場合のみ）</label>
+      <input type="text" id="cfgToken" autocomplete="off" placeholder="（未設定なら空欄）">
+      <div class="dialog-actions">
+        <button type="button" id="cfgTestBtn">接続テスト</button>
+        <button type="button" id="cfgClearBtn" class="danger">設定を消す</button>
+        <button type="button" id="cfgCancelBtn">閉じる</button>
+        <button type="submit" class="primary">保存</button>
+      </div>
+      <p class="cfg-hint" id="cfgResult"></p>
+    </form>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+
+/* ---------- IndexedDB ---------- */
+const DB_NAME = "meishi-db";
+const STORE = "cards";
+let db = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(STORE, { keyPath: "id" });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function tx(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const t = db.transaction(STORE, mode);
+    const store = t.objectStore(STORE);
+    const result = fn(store);
+    t.oncomplete = () => resolve(result && "result" in result ? result.result : undefined);
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error || new Error("transaction aborted"));
+  });
+}
+
+const putCard = (card) => tx("readwrite", (s) => s.put(card));
+const deleteCard = (id) => tx("readwrite", (s) => s.delete(id));
+function getAllCards() {
+  return new Promise((resolve, reject) => {
+    const t = db.transaction(STORE, "readonly");
+    const req = t.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/* ---------- 状態 ---------- */
+let cards = [];            // メモリ上の全カード
+let activeTag = null;      // タグ絞り込み
+let editingId = null;      // 編集中カードID（nullなら新規）
+let detailId = null;       // 詳細表示中カードID
+let pendingImage = null;   // 編集フォームで選択された画像Blob（undefined=変更なし, null=削除, Blob=新規）
+let objectUrls = [];       // 表示のたびに作るURLを解放するための控え
+
+const $ = (id) => document.getElementById(id);
+
+function uuid() {
+  return crypto.randomUUID ? crypto.randomUUID()
+    : "xxxx-xxxx-xxxx".replace(/x/g, () => Math.floor(Math.random() * 16).toString(16)) + Date.now();
+}
+
+/* ---------- 画像圧縮 ---------- */
+async function compressImage(file, maxDim = 1400, quality = 0.82) {
+  // EXIFの向きを明示的に適用（未対応ブラウザではオプションなしにフォールバック）
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" })
+    .catch(() => createImageBitmap(file));
+  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+  const w = Math.round(bitmap.width * scale);
+  const h = Math.round(bitmap.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+  const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+  if (!blob) throw new Error("画像の変換に失敗しました");
+  return blob;
+}
+
+/* ---------- 表示 ---------- */
+function revokeUrls() {
+  objectUrls.forEach((u) => URL.revokeObjectURL(u));
+  objectUrls = [];
+}
+function makeUrl(blob) {
+  const u = URL.createObjectURL(blob);
+  objectUrls.push(u);
+  return u;
+}
+
+function normalize(s) {
+  return (s || "").toString().toLowerCase()
+    // カタカナ→ひらがな（検索を緩くする）
+    .replace(/[ァ-ヶ]/g, (m) => String.fromCharCode(m.charCodeAt(0) - 0x60));
+}
+
+function filteredCards() {
+  const q = normalize($("searchBox").value.trim());
+  let list = cards;
+  if (activeTag) list = list.filter((c) => (c.tags || []).includes(activeTag));
+  if (q) {
+    list = list.filter((c) =>
+      [c.name, c.kana, c.company, c.title, c.phone, c.email, c.address, c.memo, (c.tags || []).join(" ")]
+        .some((v) => normalize(v).includes(q))
+    );
+  }
+  const sort = $("sortSelect").value;
+  const key = (c) => normalize(c.kana || c.name);
+  list = [...list];
+  if (sort === "name") list.sort((a, b) => key(a).localeCompare(key(b), "ja"));
+  else if (sort === "company") list.sort((a, b) => normalize(a.company).localeCompare(normalize(b.company), "ja"));
+  else list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return list;
+}
+
+function esc(s) {
+  return (s || "").toString().replace(/[&<>"']/g, (m) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
+
+function render() {
+  revokeUrls();
+  const list = filteredCards();
+  const grid = $("cardGrid");
+  grid.innerHTML = "";
+  const empty = $("empty");
+  if (cards.length === 0) {
+    empty.textContent = "名刺がまだありません。「＋ 新規登録」から追加してください。";
+    empty.hidden = false;
+  } else if (list.length === 0) {
+    empty.textContent = "該当する名刺がありません。検索条件・タグを見直してください。";
+    empty.hidden = false;
+  } else {
+    empty.hidden = true;
+  }
+  $("stats").textContent = cards.length
+    ? `${list.length}件を表示（全${cards.length}件）` : "";
+
+  for (const c of list) {
+    const el = document.createElement("div");
+    el.className = "card" + (cloudConfigured() && c.synced !== true ? " unsynced" : "");
+    el.dataset.id = c.id;
+    const thumb = c.image
+      ? `<img class="thumb" src="${makeUrl(c.image)}" alt="">`
+      : `<div class="thumb-placeholder">${esc((c.name || "?").charAt(0))}</div>`;
+    el.innerHTML = `
+      ${thumb}
+      <div class="info">
+        <div class="name">${esc(c.name)}</div>
+        <div class="company">${esc([c.company, c.title].filter(Boolean).join(" / "))}</div>
+        <div class="tags">${(c.tags || []).map((t) => `<span class="tag-chip">${esc(t)}</span>`).join("")}</div>
+      </div>`;
+    el.addEventListener("click", () => openDetail(c.id));
+    grid.appendChild(el);
+  }
+  renderTagBar();
+}
+
+function renderTagBar() {
+  const bar = $("tagBar");
+  const tags = [...new Set(cards.flatMap((c) => c.tags || []))].sort((a, b) => a.localeCompare(b, "ja"));
+  bar.innerHTML = "";
+  if (activeTag && !tags.includes(activeTag)) activeTag = null;
+  for (const t of tags) {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip" + (t === activeTag ? " active" : "");
+    chip.textContent = t;
+    chip.addEventListener("click", () => {
+      activeTag = activeTag === t ? null : t;
+      render();
+    });
+    bar.appendChild(chip);
+  }
+}
+
+/* ---------- 詳細 ---------- */
+function openDetail(id) {
+  const c = cards.find((x) => x.id === id);
+  if (!c) return;
+  detailId = id;
+  const img = $("detailImg");
+  if (c.image) { img.src = makeUrl(c.image); img.hidden = false; }
+  else { img.hidden = true; img.removeAttribute("src"); }
+  $("detailName").textContent = c.name + (c.kana ? `（${c.kana}）` : "");
+  const rows = [
+    ["会社名", esc(c.company)],
+    ["部署・役職", esc(c.title)],
+    ["電話", c.phone ? `<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>` : ""],
+    ["メール", c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : ""],
+    ["住所", esc(c.address)],
+    ["タグ", esc((c.tags || []).join(", "))],
+    ["メモ", esc(c.memo)],
+    ["登録日", c.createdAt ? new Date(c.createdAt).toLocaleDateString("ja-JP") : ""],
+  ].filter(([, v]) => v);
+  $("detailRows").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+  $("detailDialog").showModal();
+}
+
+/* ---------- 登録・編集 ---------- */
+function openEdit(card) {
+  editingId = card ? card.id : null;
+  pendingImage = undefined; // 変更なし
+  $("editTitle").textContent = card ? "名刺を編集" : "名刺を登録";
+  $("fName").value = card?.name || "";
+  $("fKana").value = card?.kana || "";
+  $("fCompany").value = card?.company || "";
+  $("fTitle").value = card?.title || "";
+  $("fPhone").value = card?.phone || "";
+  $("fEmail").value = card?.email || "";
+  $("fAddress").value = card?.address || "";
+  $("fTags").value = (card?.tags || []).join(", ");
+  $("fMemo").value = card?.memo || "";
+  const prev = $("imgPreview");
+  if (card?.image) { prev.src = makeUrl(card.image); prev.hidden = false; $("imgHint").textContent = "クリックで画像を変更"; $("imgClearBtn").hidden = false; }
+  else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "クリックして画像を選択（撮影した名刺写真など）"; $("imgClearBtn").hidden = true; }
+  setOcrStatus("");
+  updateOcrBtn();
+  $("editDialog").showModal();
+}
+
+async function saveCard(e) {
+  e.preventDefault();
+  const saveBtn = $("saveBtn");
+  saveBtn.disabled = true;
+  try {
+    const now = Date.now();
+    const existing = editingId ? cards.find((c) => c.id === editingId) : null;
+    const card = {
+      id: editingId || uuid(),
+      name: $("fName").value.trim(),
+      kana: $("fKana").value.trim(),
+      company: $("fCompany").value.trim(),
+      title: $("fTitle").value.trim(),
+      phone: $("fPhone").value.trim(),
+      email: $("fEmail").value.trim(),
+      address: $("fAddress").value.trim(),
+      tags: [...new Set($("fTags").value.split(/[,、，]/).map((t) => t.trim()).filter(Boolean))],
+      memo: $("fMemo").value.trim(),
+      image: pendingImage === undefined ? (existing?.image || null) : pendingImage,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      synced: false,
+    };
+    if (!card.name) { alert("氏名を入力してください"); return; }
+    // 画像変更の意図を確定（pendingImageは以降のUI操作で変わるため先に確保）
+    const imageArg = pendingImage === undefined ? undefined
+      : (pendingImage === null ? null : await blobToDataURL(pendingImage));
+    await putCard(card);
+    const idx = cards.findIndex((c) => c.id === card.id);
+    if (idx >= 0) cards[idx] = card; else cards.push(card);
+    $("editDialog").close();
+    render();
+    // クラウドへ反映（設定時のみ／失敗してもローカルには保存済み）
+    if (cloudConfigured()) {
+      try {
+        await pushCard(card, imageArg);
+        card.synced = true;
+        await putCard(card);
+      } catch (e) {
+        card.synced = false;
+      }
+      render();
+      updateSyncUI();
+    }
+  } catch (err) {
+    alert("保存に失敗しました: " + err.message);
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
+/* ---------- バックアップ ---------- */
+function blobToDataURL(blob) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => rej(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+async function dataURLToBlob(url) {
+  return (await fetch(url)).blob();
+}
+
+async function exportJSON() {
+  const out = [];
+  for (const c of cards) {
+    out.push({ ...c, image: c.image ? await blobToDataURL(c.image) : null });
+  }
+  const blob = new Blob([JSON.stringify({ app: "meishi", version: 1, cards: out }, null, 1)],
+    { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  a.download = `meishi-backup-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+async function importJSON(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    if (data.app !== "meishi" || !Array.isArray(data.cards)) throw new Error("このアプリのバックアップ形式ではありません");
+    let count = 0;
+    for (const c of data.cards) {
+      if (!c.id || !c.name) continue;
+      const card = {
+        id: String(c.id),
+        name: String(c.name),
+        kana: c.kana || "", company: c.company || "", title: c.title || "",
+        phone: c.phone || "", email: c.email || "", address: c.address || "",
+        tags: Array.isArray(c.tags) ? c.tags.map(String) : [],
+        memo: c.memo || "",
+        image: typeof c.image === "string" && c.image.startsWith("data:") ? await dataURLToBlob(c.image) : null,
+        createdAt: c.createdAt || Date.now(),
+        updatedAt: c.updatedAt || Date.now(),
+      };
+      await putCard(card);
+      const idx = cards.findIndex((x) => x.id === card.id);
+      if (idx >= 0) cards[idx] = card; else cards.push(card);
+      count++;
+    }
+    render();
+    alert(`${count}件を読み込みました`);
+  } catch (err) {
+    alert("読み込みに失敗しました: " + err.message);
+  }
+}
+
+/* ---------- クラウド同期（任意・Google Apps Script） ---------- */
+const CFG_URL = "meishi.cloud.url";
+const CFG_TOKEN = "meishi.cloud.token";
+const PENDING_DEL = "meishi.cloud.pendingDeletes";
+
+// https（本番: Apps Script exec URL や自ドメイン）と localhost（開発/テスト）を許可
+function validCloudUrl(u) {
+  try {
+    const x = new URL(u);
+    return x.protocol === "https:" || x.hostname === "localhost" || x.hostname === "127.0.0.1";
+  } catch { return false; }
+}
+
+const cloudUrl = () => (localStorage.getItem(CFG_URL) || "").trim();
+const cloudToken = () => (localStorage.getItem(CFG_TOKEN) || "").trim();
+const cloudConfigured = () => validCloudUrl(cloudUrl());
+
+function getPendingDeletes() {
+  try { return JSON.parse(localStorage.getItem(PENDING_DEL) || "[]"); } catch { return []; }
+}
+function setPendingDeletes(arr) { localStorage.setItem(PENDING_DEL, JSON.stringify(arr)); }
+
+async function cloudPost(payload) {
+  const url = cloudUrl();
+  if (!url) throw new Error("クラウド未設定");
+  const token = cloudToken();
+  const body = JSON.stringify(token ? { ...payload, token } : payload);
+  // Content-Type: text/plain で CORS プリフライトを回避（Apps Scriptの制約対策）
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body, redirect: "follow",
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "クラウドエラー");
+  return data;
+}
+
+function cardMeta(c) {
+  return {
+    id: c.id, name: c.name, kana: c.kana, company: c.company, title: c.title,
+    phone: c.phone, email: c.email, address: c.address, tags: c.tags || [],
+    memo: c.memo, createdAt: c.createdAt, updatedAt: c.updatedAt,
+  };
+}
+
+// imageArg: undefined=送らない(画像変更なし) / null=画像削除 / string(dataURL)=差し替え
+async function pushCard(card, imageArg) {
+  const payload = { action: "upsert", card: cardMeta(card) };
+  if (imageArg !== undefined) payload.image = imageArg;
+  await cloudPost(payload);
+}
+
+// 未同期カードをクラウドへ送る。
+// 注意: 画像は「Blobがある時だけ」送る（追加/差し替え）。nullは送らない＝クラウド画像を誤って消さない。
+// 画像の明示削除は編集フロー（オンライン即時）でのみ反映する。
+async function pushUnsynced() {
+  for (const c of cards.filter((x) => x.synced !== true)) {
+    try {
+      const payload = { action: "upsert", card: cardMeta(c) };
+      if (c.image) payload.image = await blobToDataURL(c.image);
+      await cloudPost(payload);
+      c.synced = true;
+      await putCard(c);
+    } catch (e) { /* 次回に持ち越し */ }
+  }
+}
+
+// 保留中の削除をクラウドへ流す
+async function flushPendingDeletes() {
+  const remain = [];
+  for (const id of getPendingDeletes()) {
+    try { await cloudPost({ action: "delete", id }); } catch (e) { remain.push(id); }
+  }
+  setPendingDeletes(remain);
+}
+
+// 手動「再同期」: 未送信のpushと削除キューの両方を流す
+async function retrySync() {
+  if (!cloudConfigured()) return;
+  await pushUnsynced();
+  await flushPendingDeletes();
+  render();
+  updateSyncUI();
+}
+
+// クラウド(スプレッドシート/Drive)から取り込み。クラウドを正とし、他端末の追加/更新/削除を反映。
+async function syncFromCloud() {
+  if (!cloudConfigured()) { alert("先に ⚙ からクラウドの URL を設定してください。"); return; }
+  const btn = $("cloudSyncBtn");
+  btn.disabled = true;
+  try {
+    await pushUnsynced();        // まずローカルの未送信分を上げる（消える前に確実に保存）
+    await flushPendingDeletes(); // 保留削除も反映
+    const data = await cloudPost({ action: "list" });
+    const remote = data.cards || [];
+    const remoteIds = new Set(remote.map((r) => String(r.id)));
+    const pendDel = new Set(getPendingDeletes().map(String));
+    let pulled = 0, removed = 0;
+
+    // (1) 追加・更新の取り込み
+    for (const rc of remote) {
+      const rid = String(rc.id);
+      if (pendDel.has(rid)) continue; // これから消す予定のものは取り込まない（復活防止）
+      const local = cards.find((c) => c.id === rid);
+      if (local && (rc.updatedAt || 0) <= (local.updatedAt || 0)) continue; // ローカルが新しい/同じ
+      let image = local ? local.image : null;
+      if (rc.imageFileId) {
+        try {
+          const img = await cloudPost({ action: "image", fileId: rc.imageFileId });
+          image = await dataURLToBlob(img.dataUrl);
+        } catch (e) { /* 画像取得失敗は許容（テキストは取り込む） */ }
+      } else {
+        image = null;
+      }
+      const merged = {
+        id: rid, name: rc.name || "", kana: rc.kana || "",
+        company: rc.company || "", title: rc.title || "",
+        phone: rc.phone || "", email: rc.email || "", address: rc.address || "",
+        tags: Array.isArray(rc.tags) ? rc.tags : [], memo: rc.memo || "",
+        image, createdAt: rc.createdAt || Date.now(), updatedAt: rc.updatedAt || Date.now(),
+        synced: true,
+      };
+      await putCard(merged);
+      const idx = cards.findIndex((c) => c.id === merged.id);
+      if (idx >= 0) cards[idx] = merged; else cards.push(merged);
+      pulled++;
+    }
+
+    // (2) 他端末での削除を反映: 「同期済みなのにクラウドに無い」カードは削除されたとみなす。
+    //     ローカルのみ（未同期＝まだpushできていない）カードは保護する。
+    const removeIds = cards
+      .filter((c) => c.synced === true && !remoteIds.has(c.id) && !pendDel.has(c.id))
+      .map((c) => c.id);
+    for (const id of removeIds) { await deleteCard(id); removed++; }
+    if (removeIds.length) {
+      const rm = new Set(removeIds);
+      cards = cards.filter((c) => !rm.has(c.id));
+    }
+
+    render();
+    updateSyncUI();
+    alert(`クラウドと同期しました（取り込み ${pulled} 件 / 削除反映 ${removed} 件 / クラウド全 ${remote.length} 件）`);
+  } catch (e) {
+    alert("同期に失敗しました: " + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function updateSyncUI() {
+  const bar = $("syncBar");
+  $("cloudSyncBtn").hidden = !cloudConfigured();
+  bar.hidden = false;
+  if (!cloudConfigured()) {
+    bar.innerHTML = '<span class="pill">クラウド未設定</span>' +
+      '<span>データはこのブラウザ内のみに保存されます。⚙ から Google 連携を設定できます。</span>';
+    return;
+  }
+  const unsynced = cards.filter((c) => c.synced !== true).length;
+  const pend = getPendingDeletes().length;
+  if (unsynced === 0 && pend === 0) {
+    bar.innerHTML = '<span class="pill ok">☁ 同期済み</span>';
+  } else {
+    bar.innerHTML = `<span class="pill warn">未同期 ${unsynced} 件${pend ? " ／ 削除保留 " + pend + " 件" : ""}</span>` +
+      '<button id="retryBtn">再同期</button>';
+    const rb = $("retryBtn");
+    if (rb) rb.addEventListener("click", retrySync);
+  }
+}
+
+/* ---------- クラウド設定ダイアログ ---------- */
+function openCfg() {
+  $("cfgUrl").value = cloudUrl();
+  $("cfgToken").value = cloudToken();
+  $("cfgResult").textContent = "";
+  $("cfgDialog").showModal();
+}
+function saveCfg(e) {
+  e.preventDefault();
+  const url = $("cfgUrl").value.trim();
+  const token = $("cfgToken").value.trim();
+  if (url && !validCloudUrl(url)) {
+    $("cfgResult").textContent = "有効な URL（https://… 形式）を入力してください。";
+    return;
+  }
+  if (url) localStorage.setItem(CFG_URL, url); else localStorage.removeItem(CFG_URL);
+  if (token) localStorage.setItem(CFG_TOKEN, token); else localStorage.removeItem(CFG_TOKEN);
+  $("cfgDialog").close();
+  updateSyncUI();
+}
+async function testCfg() {
+  const url = $("cfgUrl").value.trim();
+  const token = $("cfgToken").value.trim();
+  if (!validCloudUrl(url)) { $("cfgResult").textContent = "URL の形式が正しくありません。"; return; }
+  $("cfgResult").textContent = "接続中…";
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(token ? { action: "ping", token } : { action: "ping" }),
+    });
+    const data = await res.json();
+    $("cfgResult").textContent = data.ok
+      ? "✓ 接続成功。スプレッドシートを用意しました。"
+      : "✗ 応答エラー: " + (data.error || "unknown");
+  } catch (e) {
+    $("cfgResult").textContent = "✗ 接続失敗: " + e.message + "（URL・デプロイ設定を確認してください）";
+  }
+}
+function clearCfg() {
+  localStorage.removeItem(CFG_URL);
+  localStorage.removeItem(CFG_TOKEN);
+  $("cfgUrl").value = "";
+  $("cfgToken").value = "";
+  $("cfgResult").textContent = "設定を消しました（ローカルのみで動作します）。";
+  updateSyncUI();
+}
+
+/* ---------- OCR（画像から自動入力） ---------- */
+const FIELD_LABELS = { name: "氏名", kana: "ふりがな", company: "会社名", title: "役職", phone: "電話", email: "メール", address: "住所" };
+
+// OCRテキストを名刺項目に振り分ける（ヒューリスティック）。完璧ではないので空欄のみ補助する用途。
+function parseCardText(text) {
+  const res = { fields: {}, found: [], missing: [], rawLines: [], textLen: 0 };
+  const norm = (text || "").replace(/\r/g, "");
+  res.textLen = norm.replace(/\s/g, "").length;
+  const lines = norm.split("\n").map((l) => l.trim()).filter(Boolean);
+  res.rawLines = lines;
+  const joined = lines.join("\n");
+
+  const companyRe = /(株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|公益社団法人|一般財団法人|独立行政法人|\(株\)|（株）|\(有\)|（有）|Inc\.?|Corporation|Corp\.?|Co\.?,?\s?Ltd\.?|Company|LLC|K\.K\.)/i;
+  const titleRe = /(代表取締役|取締役|代表|会長|副社長|社長|専務|常務|部長|次長|課長|係長|主任|主査|参事|理事|監査役|執行役員|支店長|所長|工場長|店長|マネージャー|マネジャー|ディレクター|プロデューサー|エンジニア|デザイナー|コンサルタント|営業部|企画部|CEO|COO|CTO|CFO|President|Manager|Director|Officer|Chief)/i;
+
+  // メール
+  const email = (joined.match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/) || [])[0];
+  if (email) res.fields.email = email;
+
+  // 電話（FAX行は電話から除外。TELラベルや携帯を優先）
+  const phoneRe = /0\d{1,4}[-\s(]?\d{1,4}[-\s)]?\d{3,4}/g;
+  const labelRe = /(fax|ﾌｧｸｽ|ファックス|tel|phone|電話|携帯|mobile)/ig;
+  const telCand = [];
+  for (const line of lines) {
+    // 国番号 +81 は先頭0が省略された表記なので 0 に戻してから桁を数える
+    const scan = line.replace(/\+81[-\s]?/g, "0");
+    phoneRe.lastIndex = 0;
+    let m, prevEnd = 0;
+    while ((m = phoneRe.exec(scan))) {
+      const num = m[0].trim();
+      const digits = num.replace(/\D/g, "");
+      const gap = scan.slice(prevEnd, m.index); // この番号の直前（前の番号との間）を見てラベル判定
+      prevEnd = m.index + m[0].length;
+      if (digits.length < 9 || digits.length > 11) continue;
+      // 直前ギャップ内で最後に現れたラベルをこの番号のラベルとする（同一行の TEL/FAX 併記に対応）
+      labelRe.lastIndex = 0;
+      let lm, near = null;
+      while ((lm = labelRe.exec(gap))) near = lm[1].toLowerCase();
+      if (/fax|ﾌｧｸｽ|ファックス/.test(near || "")) continue; // FAX番号は電話候補にしない
+      const isTel = /tel|phone|電話|携帯|mobile/.test(near || "");
+      const isMobile = /^0[789]0/.test(digits) || near === "携帯" || near === "mobile";
+      telCand.push({ n: num, label: isTel ? 1 : 0, mobile: isMobile ? 1 : 0 });
+    }
+  }
+  const phone = telCand.sort((a, b) => (b.label - a.label) || (b.mobile - a.mobile))[0];
+  if (phone) res.fields.phone = phone.n;
+
+  // 会社名
+  const companyLine = lines.find((l) => companyRe.test(l) && !/@/.test(l));
+  if (companyLine) res.fields.company = companyLine.replace(/\s{2,}/g, " ").trim();
+
+  // 役職
+  const titleLine = lines.find((l) => titleRe.test(l) && !companyRe.test(l) && !/@/.test(l) && l.length <= 30);
+  if (titleLine) res.fields.title = titleLine.replace(/\s{2,}/g, " ").trim();
+
+  // 郵便番号（電話番号内の数字を誤検出しないよう、〒付き か「独立した7桁」に限定）
+  let postal = "";
+  const pm = joined.match(/〒\s?(\d{3})[-‐−ー]?(\d{4})/);
+  if (pm) {
+    postal = pm[1] + "-" + pm[2];
+  } else {
+    const standalone = lines.find((l) => /^\D{0,2}\d{3}[-‐−ー]?\d{4}\D{0,2}$/.test(l));
+    if (standalone) { const mm = standalone.match(/(\d{3})[-‐−ー]?(\d{4})/); postal = mm[1] + "-" + mm[2]; }
+  }
+  // 住所
+  const addrIdx = lines.findIndex((l) => /(東京都|北海道|京都府|大阪府|..県)/.test(l) && /(市|区|町|村|郡)/.test(l));
+  let address = "";
+  if (addrIdx >= 0) {
+    address = lines[addrIdx];
+    for (let k = addrIdx + 1; k < Math.min(addrIdx + 3, lines.length); k++) {
+      const l = lines[k];
+      if (/@|https?:|www\.|tel|fax|電話|〒/i.test(l)) break;
+      if (companyRe.test(l) || titleRe.test(l)) break;
+      if (/\d{2,4}[-\s]?\d{2,4}[-\s]?\d{3,4}/.test(l)) break;
+      address += " " + l;
+    }
+  }
+  if (postal) {
+    const p = postal.replace(/^〒\s?/, "");
+    if (address && address.indexOf(p) < 0) address = "〒" + p + " " + address;
+    else if (!address) address = "〒" + p;
+  }
+  if (address) res.fields.address = address.replace(/\s{2,}/g, " ").trim();
+
+  // 氏名・ふりがな（会社/役職/住所などに使った行は除外）
+  const used = new Set([companyLine, titleLine, addrIdx >= 0 ? lines[addrIdx] : null].filter(Boolean));
+  const isKana = (s) => /^[ぁ-ゖァ-ヶー\s]+$/.test(s) && s.replace(/\s/g, "").length >= 2;
+  let nameLine = null, kanaLine = null;
+  for (const l of lines) {
+    if (used.has(l)) continue;
+    if (/@|https?:|www\.|\d{3,}/.test(l)) continue;
+    if (companyRe.test(l) || titleRe.test(l)) continue;
+    if (/(市|区|町|村|丁目|番地|〒)/.test(l)) continue;
+    if (isKana(l)) { if (!kanaLine) kanaLine = l; continue; }
+    const compact = l.replace(/\s/g, "");
+    if (!nameLine && /^[一-鿿々〆ヶ]{2,6}$/.test(compact)) nameLine = l.replace(/\s+/g, " ").trim();
+  }
+  // 役職と氏名が同一行（例「部長 山田太郎」）なら、役職語を除いた漢字トークンを氏名として拾う
+  if (!nameLine && titleLine) {
+    for (const tok of titleLine.split(/[\s　･・|/]+/)) {
+      if (tok && !titleRe.test(tok) && /^[一-鿿々〆ヶ]{2,6}$/.test(tok)) {
+        nameLine = tok;
+        res.fields.title = titleLine.replace(tok, "").replace(/\s{2,}/g, " ").trim();
+        break;
+      }
+    }
+  }
+  if (nameLine) res.fields.name = nameLine;
+  if (kanaLine) res.fields.kana = kanaLine.replace(/\s+/g, " ").trim();
+
+  for (const k of ["name", "kana", "company", "title", "phone", "email", "address"]) {
+    if (res.fields[k]) res.found.push(k); else res.missing.push(k);
+  }
+  return res;
+}
+
+// 現在の編集フォームで対象となる名刺画像Blob（新規選択 / 既存カード）を返す。無ければnull。
+function currentEditImageBlob() {
+  if (pendingImage instanceof Blob) return pendingImage;
+  if (pendingImage === null) return null;
+  const c = editingId ? cards.find((x) => x.id === editingId) : null;
+  return c && c.image ? c.image : null;
+}
+function updateOcrBtn() {
+  const btn = $("ocrBtn");
+  if (btn) btn.hidden = !currentEditImageBlob();
+}
+function setOcrStatus(msg) {
+  const el = $("ocrStatus");
+  if (!msg) { el.hidden = true; el.textContent = ""; return; }
+  el.hidden = false; el.textContent = msg;
+}
+
+const FIELD_MAP = { name: "fName", kana: "fKana", company: "fCompany", title: "fTitle", phone: "fPhone", email: "fEmail", address: "fAddress" };
+
+// OCRで得たテキストを解析して空欄だけ埋め、結果をフィードバック表示する（クラウド/ブラウザ共通）。
+function applyOcrText(text, source) {
+  const parsed = parseCardText(text || "");
+  if (parsed.textLen < 4) {
+    setOcrStatus(`⚠ 文字をほとんど読み取れませんでした（${source}）。名刺だけを大きく・明るい場所で・正面から・ピントを合わせて撮り直すと精度が上がります。`);
+    return;
+  }
+  const applied = [], skipped = [];
+  for (const k of Object.keys(FIELD_MAP)) {
+    if (!parsed.fields[k]) continue;
+    const el = $(FIELD_MAP[k]);
+    if (el.value.trim()) { skipped.push(FIELD_LABELS[k]); continue; }
+    el.value = parsed.fields[k];
+    applied.push(FIELD_LABELS[k]);
+  }
+  const missingLabels = parsed.missing.map((k) => FIELD_LABELS[k]);
+  let msg = (applied.length ? "✓ 自動入力: " + applied.join("・") + "。" : "自動で振り分けられる項目が見つかりませんでした。") + `（${source}）`;
+  if (missingLabels.length) msg += " 読み取れず: " + missingLabels.join("・") + "（手入力してください）。";
+  if (skipped.length) msg += " 既入力のため据え置き: " + skipped.join("・") + "。";
+  if (!applied.length) {
+    const memo = $("fMemo");
+    if (!memo.value.trim()) { memo.value = "【OCR結果】\n" + parsed.rawLines.join("\n"); msg += " 読み取った全文をメモ欄に入れました。各欄へ手で移してください。"; }
+    else { msg += " 読み取った全文: 「" + parsed.rawLines.join(" / ") + "」（メモは既入力のため上書きしていません）。"; }
+  }
+  setOcrStatus(msg);
+}
+
+// ブラウザ内OCR（Tesseract.js）。Google設定不要・画像は外部送信せず端末内で完結。
+// 初回のみエンジン/辞書データをCDNから取得（Artifactやオフラインでは取得できず失敗＝その旨を案内）。
+let _tesseractPromise = null;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (_tesseractPromise) return _tesseractPromise;
+  _tesseractPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    s.async = true;
+    s.onload = () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error("OCRエンジンを初期化できませんでした"));
+    s.onerror = () => { _tesseractPromise = null; reject(new Error("OCRエンジンの取得に失敗（ネットワーク／CSP制限）")); };
+    document.head.appendChild(s);
+  });
+  return _tesseractPromise;
+}
+async function runBrowserOcr(blob) {
+  setOcrStatus("ブラウザ内OCRを準備中…（初回は辞書データの取得に時間がかかります）");
+  const T = await loadTesseract();
+  const { data } = await T.recognize(blob, "jpn+eng", {
+    logger: (mm) => { if (mm && mm.status && typeof mm.progress === "number") setOcrStatus(`読み取り中…（${mm.status} ${Math.round(mm.progress * 100)}%）`); },
+  });
+  applyOcrText((data && data.text) || "", "ブラウザ内OCR");
+}
+async function runCloudOcr(blob) {
+  setOcrStatus("読み取り中…（数秒かかります）");
+  const dataUrl = await blobToDataURL(blob);
+  const data = await cloudPost({ action: "ocr", image: dataUrl });
+  applyOcrText((data && data.text) || "", "Google OCR");
+}
+
+async function runOcr() {
+  const blob = currentEditImageBlob();
+  if (!blob) { setOcrStatus("先に名刺画像を選んでください。"); return; }
+  const btn = $("ocrBtn");
+  btn.disabled = true;
+  try {
+    if (cloudConfigured()) await runCloudOcr(blob);   // Google連携済み=高精度OCR
+    else await runBrowserOcr(blob);                    // 未設定=ブラウザ内OCR（設定不要・端末内完結）
+  } catch (err) {
+    setOcrStatus("⚠ 読み取りに失敗しました: " + (err && err.message ? err.message : err) + "（claude.aiのArtifact版はセキュリティ制限でブラウザ内OCRを取得できません。github.io版や端末保存のHTMLを、通信できる状態でお試しください）");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---------- イベント ---------- */
+async function init() {
+  db = await openDB();
+  cards = await getAllCards();
+  render();
+
+  $("addBtn").addEventListener("click", () => openEdit(null));
+  $("searchBox").addEventListener("input", render);
+  $("sortSelect").addEventListener("change", render);
+  $("editForm").addEventListener("submit", saveCard);
+  $("cancelEditBtn").addEventListener("click", () => $("editDialog").close());
+  $("closeDetailBtn").addEventListener("click", () => $("detailDialog").close());
+
+  $("imgDrop").addEventListener("click", () => $("imgInput").click());
+  $("imgInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const blob = await compressImage(file);
+      pendingImage = blob;
+      const prev = $("imgPreview");
+      prev.src = makeUrl(blob);
+      prev.hidden = false;
+      $("imgHint").textContent = "クリックで画像を変更";
+      $("imgClearBtn").hidden = false;
+      updateOcrBtn();
+      setOcrStatus("");
+    } catch (err) {
+      alert("画像の読み込みに失敗しました: " + err.message);
+    }
+  });
+  $("imgClearBtn").addEventListener("click", () => {
+    pendingImage = null; // 画像削除の意図（保存時に反映。オンライン時は即クラウドにも反映）
+    const prev = $("imgPreview");
+    prev.hidden = true;
+    prev.removeAttribute("src");
+    $("imgHint").textContent = "クリックして画像を選択（撮影した名刺写真など）";
+    $("imgClearBtn").hidden = true;
+    updateOcrBtn();
+    setOcrStatus("");
+  });
+  $("ocrBtn").addEventListener("click", runOcr);
+
+  $("editBtn").addEventListener("click", () => {
+    const c = cards.find((x) => x.id === detailId);
+    $("detailDialog").close();
+    if (c) openEdit(c);
+  });
+  $("deleteBtn").addEventListener("click", async () => {
+    const c = cards.find((x) => x.id === detailId);
+    if (!c) return;
+    if (!confirm(`「${c.name}」を削除しますか？`)) return;
+    await deleteCard(c.id);
+    cards = cards.filter((x) => x.id !== c.id);
+    $("detailDialog").close();
+    render();
+    if (cloudConfigured()) {
+      try {
+        await cloudPost({ action: "delete", id: c.id });
+      } catch (e) {
+        const p = getPendingDeletes();
+        p.push(c.id);
+        setPendingDeletes(p);
+      }
+      updateSyncUI();
+    }
+  });
+
+  $("exportBtn").addEventListener("click", exportJSON);
+  $("importBtn").addEventListener("click", () => $("importFile").click());
+  $("importFile").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (f) importJSON(f);
+  });
+
+  // クラウド設定・同期
+  $("cloudCfgBtn").addEventListener("click", openCfg);
+  $("cfgCancelBtn").addEventListener("click", () => $("cfgDialog").close());
+  $("cfgForm").addEventListener("submit", saveCfg);
+  $("cfgTestBtn").addEventListener("click", testCfg);
+  $("cfgClearBtn").addEventListener("click", clearCfg);
+  $("cloudSyncBtn").addEventListener("click", syncFromCloud);
+  updateSyncUI();
+  // 起動時は削除キューだけ静かに流す（未同期カードの一括pushは行わず、バッジ＋手動「再同期」に委ねる）
+  if (cloudConfigured()) flushPendingDeletes().then(updateSyncUI).catch(() => {});
+}
+
+init().catch((err) => {
+  document.body.innerHTML = `<p style="padding:40px;text-align:center">起動に失敗しました: ${esc(err.message)}<br>IndexedDBが使えるブラウザ（Chrome/Edge/Safari/Firefox）で開いてください。</p>`;
+});
+</script>
+</body>
+</html>

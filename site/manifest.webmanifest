@@ -1,0 +1,14 @@
+{
+  "name": "マイツール",
+  "short_name": "マイツール",
+  "description": "自分で作ったツールの入口",
+  "lang": "ja",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1120",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

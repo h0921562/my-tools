@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>マイツール</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="マイツール">
+<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<style>
+  :root {
+    --bg: #f1f5f9; --surface: #ffffff; --text: #0f172a; --sub: #64748b;
+    --border: #e2e8f0; --accent: #2563eb; --accent-ink:#fff;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b1120; --surface:#151c2c; --text:#e5e7eb; --sub:#94a3b8;
+      --border:#26304a; --accent:#3b82f6; --shadow:0 1px 3px rgba(0,0,0,.5); }
+  }
+  :root[data-theme="dark"] { --bg:#0b1120; --surface:#151c2c; --text:#e5e7eb; --sub:#94a3b8;
+    --border:#26304a; --accent:#3b82f6; --shadow:0 1px 3px rgba(0,0,0,.5); }
+  :root[data-theme="light"] { --bg:#f1f5f9; --surface:#fff; --text:#0f172a; --sub:#64748b;
+    --border:#e2e8f0; --accent:#2563eb; --shadow:0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05); }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", Meiryo, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: max(24px, env(safe-area-inset-top)) 16px calc(48px + env(safe-area-inset-bottom));
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  header { margin: 8px 0 22px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: .01em; }
+  .lead { color: var(--sub); font-size: 14px; margin: 0; line-height: 1.6; }
+  .grid { display: grid; gap: 14px; }
+  .tool {
+    display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 16px; box-shadow: var(--shadow);
+    transition: transform .08s ease, border-color .12s;
+  }
+  .tool:hover, .tool:focus-visible { transform: translateY(-2px); border-color: var(--accent); outline: none; }
+  .tool:active { transform: translateY(0); }
+  .tool .ic { width: 56px; height: 56px; border-radius: 14px; flex: none; }
+  .tool .body { flex: 1; min-width: 0; }
+  .tool .name { font-weight: 700; font-size: 17px; }
+  .tool .desc { color: var(--sub); font-size: 13px; margin-top: 3px; line-height: 1.5; }
+  .tool .go { color: var(--accent); font-size: 22px; flex: none; }
+  .tip {
+    margin-top: 26px; background: var(--surface); border: 1px dashed var(--border);
+    border-radius: 14px; padding: 14px 16px; font-size: 13px; color: var(--sub); line-height: 1.7;
+  }
+  .tip b { color: var(--text); }
+  footer { margin-top: 22px; text-align: center; color: var(--sub); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>マイツール</h1>
+    <p class="lead">自分で作ったツールの入口。スマホのホーム画面に追加すると、アプリのように使えます。</p>
+  </header>
+
+  <div class="grid">
+    <a class="tool" href="./meishi/index.html">
+      <img class="ic" src="./meishi/assets/icon.svg" alt="" width="56" height="56">
+      <div class="body">
+        <div class="name">名刺管理</div>
+        <div class="desc">名刺を登録・検索・タグ管理。画像はGoogle Drive、データはスプレッドシートに保存（要クラウド設定）。</div>
+      </div>
+      <div class="go" aria-hidden="true">›</div>
+    </a>
+    <!-- ツールを増やすときはこの形式で <a class="tool"> を追加 -->
+  </div>
+
+  <div class="tip">
+    <b>ホーム画面に追加</b><br>
+    iPhone（Safari）: 共有ボタン → 「ホーム画面に追加」。<br>
+    Android（Chrome）: ⋮メニュー → 「ホーム画面に追加」/「アプリをインストール」。<br>
+    追加後はアイコンから直接開けます。データは各端末のブラウザ内＋（設定すれば）自分のGoogleに保存されます。
+  </div>
+
+  <footer>個人用ツール置き場</footer>
+</div>
+</body>
+</html>
