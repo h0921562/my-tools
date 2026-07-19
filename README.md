@@ -8,4 +8,4 @@
 
 公開しているのはアプリのHTML/アイコンのみ。名刺データや認証情報（Apps ScriptのURL等）は含みません。
 
-サイト実体は `site/` 配下。`.github/workflows/deploy-pages.yml` が push 時に GitHub Pages へ自動デプロイします。
+サイト実体は `docs/` 配下。GitHub Pages の「Deploy from a branch」で `main` / `/docs` を配信元にすると公開されます（push で自動更新）。
