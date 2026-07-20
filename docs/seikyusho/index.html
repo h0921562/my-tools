@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>請求書作成</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1a6b54">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="請求書">
+<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<style>
+  :root {
+    --bg: #f1f5f9; --surface: #ffffff; --text: #0f172a; --sub: #64748b;
+    --border: #e2e8f0; --accent: #1a6b54; --accent-ink:#fff; --danger:#b3261e;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b1120; --surface:#151c2c; --text:#e5e7eb; --sub:#94a3b8;
+      --border:#26304a; --accent:#2f9e7c; --danger:#f2705f; --shadow:0 1px 3px rgba(0,0,0,.5); }
+  }
+  :root[data-theme="dark"] { --bg:#0b1120; --surface:#151c2c; --text:#e5e7eb; --sub:#94a3b8;
+    --border:#26304a; --accent:#2f9e7c; --danger:#f2705f; --shadow:0 1px 3px rgba(0,0,0,.5); }
+  :root[data-theme="light"] { --bg:#f1f5f9; --surface:#fff; --text:#0f172a; --sub:#64748b;
+    --border:#e2e8f0; --accent:#1a6b54; --danger:#b3261e; --shadow:0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05); }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", Meiryo, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: max(24px, env(safe-area-inset-top)) 16px calc(48px + env(safe-area-inset-bottom));
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  header { margin: 8px 0 22px; display:flex; align-items:center; gap:14px; }
+  header img { width:56px; height:56px; border-radius:14px; flex:none; }
+  h1 { font-size: 24px; margin: 0 0 3px; letter-spacing: .01em; }
+  .lead { color: var(--sub); font-size: 13px; margin: 0; line-height: 1.6; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 18px 16px; box-shadow: var(--shadow); margin-bottom: 14px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 10px; }
+  label { display:block; font-size: 13px; color: var(--sub); margin-bottom: 6px; }
+  input[type="url"] {
+    width: 100%; padding: 11px 12px; font-size: 16px; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .btn {
+    display:block; width:100%; text-align:center; text-decoration:none;
+    background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 17px;
+    border: none; border-radius: 12px; padding: 15px; cursor: pointer;
+  }
+  .btn:active { opacity: .85; }
+  .btn.sub {
+    background: transparent; color: var(--accent); font-size: 14px; font-weight: 600;
+    border: 1px solid var(--border); padding: 11px; margin-top: 10px;
+  }
+  .err { color: var(--danger); font-size: 13px; margin-top: 8px; line-height:1.6; display:none; }
+  .note { font-size: 12.5px; color: var(--sub); line-height: 1.75; }
+  .note b { color: var(--text); }
+  .hide { display: none; }
+  footer { margin-top: 20px; text-align: center; }
+  footer a { color: var(--sub); font-size: 12px; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="assets/icon.svg" alt="" width="56" height="56">
+    <div>
+      <h1>請求書作成</h1>
+      <p class="lead">登録した会社の請求書を発行します。</p>
+    </div>
+  </header>
+
+  <!-- 設定済み -->
+  <div id="ready" class="hide">
+    <div class="card">
+      <a class="btn" id="openBtn" href="#" target="_blank" rel="noopener">請求書を作る</a>
+      <button class="btn sub" id="editBtn" type="button">接続先を変更する</button>
+    </div>
+    <div class="card">
+      <div class="note">
+        <b>使い方</b><br>
+        発行元の会社を選び、宛先と明細を入れて発行します。品目名から税率(8%/10%)が自動で入りますが、
+        <b>必ず目で確認</b>してください。PDFはGoogle Driveの「請求書データ」に、履歴は台帳シートに残ります。<br><br>
+        インボイス登録番号が未設定の会社は、<b>区分記載請求書</b>の様式で発行されます(登録番号は印字されません)。
+      </div>
+    </div>
+  </div>
+
+  <!-- 未設定 -->
+  <div id="setup" class="hide">
+    <div class="card">
+      <h2>最初に接続先を設定します</h2>
+      <label for="url">請求書アプリ(Apps Script)のウェブアプリURL</label>
+      <input type="url" id="url" inputmode="url" autocomplete="off"
+             placeholder="https://script.google.com/macros/s/XXXX/exec">
+      <div class="err" id="err"></div>
+      <button class="btn" id="saveBtn" type="button" style="margin-top:12px">保存して開く</button>
+    </div>
+    <div class="card">
+      <div class="note">
+        <b>URLの調べ方</b><br>
+        スプレッドシート「請求書管理」→ 拡張機能 → Apps Script → 右上「デプロイ」→
+        「デプロイを管理」→ ウェブアプリのURLをコピー。<br><br>
+        このURLは<b>この端末のブラウザ内だけ</b>に保存され、GitHubには保存されません。
+        アプリ自体も「自分のみアクセス可」で公開しているので、URLを知られても他人は開けません。
+      </div>
+    </div>
+  </div>
+
+  <footer><a href="../index.html">← マイツールに戻る</a></footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var KEY = 'seikyusho.webAppUrl';
+  var $ = function (id) { return document.getElementById(id); };
+
+  // Apps Script のウェブアプリURLだけを受け付ける(打ち間違い・別URL貼り付けを防ぐ)
+  function normalize(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return { ok: false, msg: 'URLを入力してください。' };
+    var u;
+    try { u = new URL(s); } catch (e) { return { ok: false, msg: 'URLの形式が正しくありません。' }; }
+    if (u.protocol !== 'https:') return { ok: false, msg: 'https:// で始まるURLを入力してください。' };
+    if (u.hostname !== 'script.google.com') {
+      return { ok: false, msg: 'Apps Script のURL(script.google.com)を入力してください。' };
+    }
+    if (!/^\/macros\/s\/[^/]+\/exec$/.test(u.pathname)) {
+      return { ok: false, msg: '末尾が /exec のウェブアプリURLを入力してください(/dev や編集画面のURLではありません)。' };
+    }
+    return { ok: true, url: u.origin + u.pathname };
+  }
+
+  function saved() {
+    try { return localStorage.getItem(KEY) || ''; } catch (e) { return ''; }
+  }
+
+  function render() {
+    var url = saved();
+    var v = normalize(url);
+    if (v.ok) {
+      $('openBtn').href = v.url;
+      $('ready').classList.remove('hide');
+      $('setup').classList.add('hide');
+    } else {
+      $('ready').classList.add('hide');
+      $('setup').classList.remove('hide');
+      $('url').value = url;
+    }
+  }
+
+  $('saveBtn').addEventListener('click', function () {
+    var v = normalize($('url').value);
+    var err = $('err');
+    if (!v.ok) { err.textContent = v.msg; err.style.display = 'block'; return; }
+    err.style.display = 'none';
+    try { localStorage.setItem(KEY, v.url); }
+    catch (e) { err.textContent = 'この端末に保存できませんでした(プライベートモード等)。'; err.style.display = 'block'; return; }
+    render();
+    window.open(v.url, '_blank', 'noopener');
+  });
+
+  $('editBtn').addEventListener('click', function () {
+    $('url').value = saved();
+    $('ready').classList.add('hide');
+    $('setup').classList.remove('hide');
+    $('url').focus();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

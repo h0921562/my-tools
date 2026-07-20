@@ -5,6 +5,7 @@
 - 公開URL: https://h0921562.github.io/my-tools/
 - 収録ツール:
   - **名刺管理**（`site/meishi/`）— 名刺の登録・画像添付・検索・タグ・書き出し/読み込み。画像からのOCR自動入力（ブラウザ内OCR＝Google設定不要／Google連携時は高精度OCR）に対応。データは各端末のブラウザ内(IndexedDB)、任意で自分のGoogle(スプレッドシート/Drive)に同期。
+  - **請求書作成**（`docs/seikyusho/`）— 請求書を発行するランチャー。本体はGoogle Apps Scriptのウェブアプリ側にあり、ここに置くのは接続先URLを端末に覚えさせて開くだけの入口。品目名から税率(8%/10%)を自動判定、PDFはDriveへ、履歴は台帳シートへ。
 
 公開しているのはアプリのHTML/アイコンのみ。名刺データや認証情報（Apps ScriptのURL等）は含みません。
 
