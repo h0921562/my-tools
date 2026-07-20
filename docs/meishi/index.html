@@ -247,6 +247,7 @@
         <div><label>氏名 *</label><input type="text" id="fName" required autocomplete="off"></div>
         <div><label>ふりがな（氏名の読み）</label><input type="text" id="fKana" autocomplete="off" placeholder="例: さい かずひこ"></div>
         <div><label>会社名</label><input type="text" id="fCompany" autocomplete="off"></div>
+        <div><label>ふりがな（会社名の読み）</label><input type="text" id="fCompanyKana" autocomplete="off" placeholder="例: ぶらびっしま"></div>
         <div><label>部署・役職</label><input type="text" id="fTitle" autocomplete="off"></div>
         <div><label>電話番号</label><input type="tel" id="fPhone" autocomplete="off"></div>
         <div><label>メール</label><input type="email" id="fEmail" autocomplete="off"></div>
@@ -398,7 +399,7 @@ function filteredCards() {
   if (activeTag) list = list.filter((c) => (c.tags || []).includes(activeTag));
   if (q) {
     list = list.filter((c) =>
-      [c.name, c.kana, c.company, c.title, c.phone, c.email, c.address, c.memo, (c.tags || []).join(" ")]
+      [c.name, c.kana, c.company, c.companyKana, c.title, c.phone, c.email, c.address, c.memo, (c.tags || []).join(" ")]
         .some((v) => normalize(v).includes(q))
     );
   }
@@ -481,7 +482,7 @@ function openDetail(id) {
   else { img.hidden = true; img.removeAttribute("src"); }
   $("detailName").textContent = c.name + (c.kana ? `（${c.kana}）` : "");
   const rows = [
-    ["会社名", esc(c.company)],
+    ["会社名", c.company ? esc(c.company) + (c.companyKana ? `（${esc(c.companyKana)}）` : "") : ""],
     ["部署・役職", esc(c.title)],
     ["電話", c.phone ? `<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>` : ""],
     ["メール", c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : ""],
@@ -502,6 +503,7 @@ function openEdit(card) {
   $("fName").value = card?.name || "";
   $("fKana").value = card?.kana || "";
   $("fCompany").value = card?.company || "";
+  $("fCompanyKana").value = card?.companyKana || "";
   $("fTitle").value = card?.title || "";
   $("fPhone").value = card?.phone || "";
   $("fEmail").value = card?.email || "";
@@ -528,6 +530,7 @@ async function saveCard(e) {
       name: $("fName").value.trim(),
       kana: $("fKana").value.trim(),
       company: $("fCompany").value.trim(),
+      companyKana: $("fCompanyKana").value.trim(),
       title: $("fTitle").value.trim(),
       phone: $("fPhone").value.trim(),
       email: $("fEmail").value.trim(),
@@ -606,7 +609,7 @@ async function importJSON(file) {
       const card = {
         id: String(c.id),
         name: String(c.name),
-        kana: c.kana || "", company: c.company || "", title: c.title || "",
+        kana: c.kana || "", company: c.company || "", companyKana: c.companyKana || "", title: c.title || "",
         phone: c.phone || "", email: c.email || "", address: c.address || "",
         tags: Array.isArray(c.tags) ? c.tags.map(String) : [],
         memo: c.memo || "",
@@ -667,7 +670,7 @@ async function cloudPost(payload) {
 
 function cardMeta(c) {
   return {
-    id: c.id, name: c.name, kana: c.kana, company: c.company, title: c.title,
+    id: c.id, name: c.name, kana: c.kana, company: c.company, companyKana: c.companyKana, title: c.title,
     phone: c.phone, email: c.email, address: c.address, tags: c.tags || [],
     memo: c.memo, createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
@@ -744,7 +747,7 @@ async function syncFromCloud() {
       }
       const merged = {
         id: rid, name: rc.name || "", kana: rc.kana || "",
-        company: rc.company || "", title: rc.title || "",
+        company: rc.company || "", companyKana: rc.companyKana || "", title: rc.title || "",
         phone: rc.phone || "", email: rc.email || "", address: rc.address || "",
         tags: Array.isArray(rc.tags) ? rc.tags : [], memo: rc.memo || "",
         image, createdAt: rc.createdAt || Date.now(), updatedAt: rc.updatedAt || Date.now(),
@@ -847,7 +850,7 @@ function clearCfg() {
 }
 
 /* ---------- OCR（画像から自動入力） ---------- */
-const FIELD_LABELS = { name: "氏名", kana: "ふりがな(氏名)", company: "会社名", title: "役職", phone: "電話", email: "メール", address: "住所" };
+const FIELD_LABELS = { name: "氏名", kana: "ふりがな(氏名)", company: "会社名", companyKana: "ふりがな(会社名)", title: "役職", phone: "電話", email: "メール", address: "住所" };
 
 // OCRテキストを名刺項目に振り分ける（ヒューリスティック）。完璧ではないので空欄のみ補助する用途。
 function parseCardText(text) {
@@ -931,17 +934,35 @@ function parseCardText(text) {
   if (address) res.fields.address = address.replace(/\s{2,}/g, " ").trim();
 
   // 氏名・ふりがな（会社/役職/住所などに使った行は除外）
+  const companyIdx = companyLine ? lines.indexOf(companyLine) : -1;
   const used = new Set([companyLine, titleLine, addrIdx >= 0 ? lines[addrIdx] : null].filter(Boolean));
   const isKana = (s) => /^[ぁ-ゖァ-ヶー\s]+$/.test(s) && s.replace(/\s/g, "").length >= 2;
-  let nameLine = null, kanaLine = null;
-  for (const l of lines) {
+  let nameLine = null, nameIdx = -1;
+  const kanaCands = []; // {text, idx} かな行の候補（氏名の読み/会社名の読みを後で振り分ける）
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
     if (used.has(l)) continue;
     if (/@|https?:|www\.|\d{3,}/.test(l)) continue;
     if (companyRe.test(l) || titleRe.test(l)) continue;
     if (/(市|区|町|村|丁目|番地|〒)/.test(l)) continue;
-    if (isKana(l)) { if (!kanaLine) kanaLine = l; continue; }
+    if (isKana(l)) { kanaCands.push({ text: l.replace(/\s+/g, " ").trim(), idx: i }); continue; }
     const compact = l.replace(/\s/g, "");
-    if (!nameLine && /^[一-鿿々〆ヶ]{2,6}$/.test(compact)) nameLine = l.replace(/\s+/g, " ").trim();
+    if (!nameLine && /^[一-鿿々〆ヶ]{2,6}$/.test(compact)) { nameLine = l.replace(/\s+/g, " ").trim(); nameIdx = i; }
+  }
+  // かな行の振り分け: 氏名行に最も近いかな行=氏名の読み。会社行のほうに近い別のかな行=会社名の読み。
+  let kanaLine = null;
+  if (kanaCands.length) {
+    let nameKana = kanaCands[0];
+    if (nameIdx >= 0) nameKana = kanaCands.reduce((a, b) => Math.abs(b.idx - nameIdx) < Math.abs(a.idx - nameIdx) ? b : a);
+    kanaLine = nameKana.text;
+    const rest = kanaCands.filter((k) => k !== nameKana);
+    if (rest.length && companyIdx >= 0) {
+      const compKana = rest.reduce((a, b) => Math.abs(b.idx - companyIdx) < Math.abs(a.idx - companyIdx) ? b : a);
+      // 会社行のほうが氏名行より近い（=会社の読みらしい）ときだけ採用し、氏名の読みへの誤割当を避ける
+      if (nameIdx < 0 || Math.abs(compKana.idx - companyIdx) <= Math.abs(compKana.idx - nameIdx)) {
+        res.fields.companyKana = compKana.text;
+      }
+    }
   }
   // 役職と氏名が同一行（例「部長 山田太郎」）なら、役職語を除いた漢字トークンを氏名として拾う
   if (!nameLine && titleLine) {
@@ -979,7 +1000,7 @@ function setOcrStatus(msg) {
   el.hidden = false; el.textContent = msg;
 }
 
-const FIELD_MAP = { name: "fName", kana: "fKana", company: "fCompany", title: "fTitle", phone: "fPhone", email: "fEmail", address: "fAddress" };
+const FIELD_MAP = { name: "fName", kana: "fKana", company: "fCompany", companyKana: "fCompanyKana", title: "fTitle", phone: "fPhone", email: "fEmail", address: "fAddress" };
 
 // OCRで得たテキストを解析して空欄だけ埋め、結果をフィードバック表示する（クラウド/ブラウザ共通）。
 function applyOcrText(text, source) {
