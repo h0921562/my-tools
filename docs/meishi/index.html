@@ -646,6 +646,35 @@ const cloudUrl = () => (localStorage.getItem(CFG_URL) || "").trim();
 const cloudToken = () => (localStorage.getItem(CFG_TOKEN) || "").trim();
 const cloudConfigured = () => validCloudUrl(cloudUrl());
 
+// URLの #cfg=<exec URL>[&tok=<TOKEN>] から接続設定を取り込む（＝“実質組み込み”）。
+// 目的: exec URL を仕込んだブックマーク/ホーム画面アイコンを1つ作れば、以後は毎回手入力せず自動接続。
+// 秘密は端末のブックマーク内だけに置き、公開ソースには一切含めない（#はサーバ送信されずログにも残らない）。
+// なりすまし対策として、保存済みと異なるURLを入れるときだけ接続先ホストを確認する。
+function bootstrapConfigFromHash() {
+  try {
+    const h = location.hash || "";
+    const m = h.match(/(?:^#|&)cfg=([^&]+)/);
+    if (!m) return;
+    const url = decodeURIComponent(m[1]).trim();
+    if (validCloudUrl(url)) {
+      const cur = (localStorage.getItem(CFG_URL) || "").trim();
+      let apply = url === cur; // 既に同じURLなら黙って通す（毎回の確認を避ける）
+      if (!apply) {
+        let host = url;
+        try { host = new URL(url).host; } catch {}
+        apply = confirm("このアプリを次のクラウドに接続します:\n" + host + "\n\n自分で作ったブックマークならOKを押してください。心当たりがなければキャンセル。");
+      }
+      if (apply) {
+        localStorage.setItem(CFG_URL, url);
+        const mt = h.match(/(?:^#|&)tok=([^&]+)/);
+        if (mt) localStorage.setItem(CFG_TOKEN, decodeURIComponent(mt[1]).trim());
+      }
+    }
+  } catch (e) { /* 取り込み失敗は無視（手動設定にフォールバック） */ }
+  // 実行中画面・アドレスバーから秘密を消す（ホーム画面アイコンのURLには残るので次回も自動取り込みされる）
+  try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+}
+
 function getPendingDeletes() {
   try { return JSON.parse(localStorage.getItem(PENDING_DEL) || "[]"); } catch { return []; }
 }
@@ -896,6 +925,21 @@ function parseCardText(text) {
   const phone = telCand.sort((a, b) => (b.label - a.label) || (b.mobile - a.mobile))[0];
   if (phone) res.fields.phone = phone.n;
 
+  // 英語/国際電話フォールバック（先頭0の日本式で拾えなかったとき）。
+  // 誤検出を避けるため tel/phone 等のラベル付き か 先頭 + の行に限定して抽出する。
+  if (!res.fields.phone) {
+    for (const line of lines) {
+      if (/fax|ﾌｧｸｽ|ファックス/i.test(line)) continue; // FAX行は除外
+      const hasLabel = /(tel|phone|電話|携帯|mobile|cell|直通|代表)/i.test(line) || /(^|\s)\+\d/.test(line);
+      if (!hasLabel) continue;
+      const m = line.match(/[+(]?\d[\d\s().\-]{7,}\d/);
+      if (m) {
+        const digits = m[0].replace(/\D/g, "");
+        if (digits.length >= 8 && digits.length <= 15) { res.fields.phone = m[0].trim(); break; }
+      }
+    }
+  }
+
   // 会社名
   const companyLine = lines.find((l) => companyRe.test(l) && !/@/.test(l));
   if (companyLine) res.fields.company = companyLine.replace(/\s{2,}/g, " ").trim();
@@ -933,9 +977,29 @@ function parseCardText(text) {
   }
   if (address) res.fields.address = address.replace(/\s{2,}/g, " ").trim();
 
+  // 英語住所フォールバック（日本語住所が無いときだけ・控えめに。番地+通り種別 か US形式の州+ZIP を起点に最大3行連結）
+  const engAddrIdxs = [];
+  if (!res.fields.address) {
+    const zipRe = /\b[A-Z]{2}\s+\d{5}(-\d{4})?\b/;
+    const streetRe = /\b\d+\s+[A-Za-z].*\b(street|st|avenue|ave|road|rd|lane|ln|drive|dr|boulevard|blvd|highway|hwy|way|court|ct|place|pl|square|sq|suite|ste|floor|fl|building|bldg)\b/i;
+    const eIdx = lines.findIndex((l) => (streetRe.test(l) || zipRe.test(l)) && !/@/.test(l) && !companyRe.test(l) && !titleRe.test(l));
+    if (eIdx >= 0) {
+      let eaddr = lines[eIdx]; engAddrIdxs.push(eIdx);
+      for (let k = eIdx + 1; k < Math.min(eIdx + 3, lines.length); k++) {
+        const l = lines[k];
+        if (/@|https?:|www\.|tel|fax|phone|mobile/i.test(l)) break;
+        if (companyRe.test(l) || titleRe.test(l)) break;
+        eaddr += " " + l; engAddrIdxs.push(k);
+        if (zipRe.test(l)) break; // ZIPが出たら住所の終端とみなす
+      }
+      res.fields.address = eaddr.replace(/\s{2,}/g, " ").trim();
+    }
+  }
+
   // 氏名・ふりがな（会社/役職/住所などに使った行は除外）
   const companyIdx = companyLine ? lines.indexOf(companyLine) : -1;
-  const used = new Set([companyLine, titleLine, addrIdx >= 0 ? lines[addrIdx] : null].filter(Boolean));
+  const used = new Set([companyLine, titleLine, addrIdx >= 0 ? lines[addrIdx] : null,
+    ...engAddrIdxs.map((i) => lines[i])].filter(Boolean));
   const isKana = (s) => /^[ぁ-ゖァ-ヶー\s]+$/.test(s) && s.replace(/\s/g, "").length >= 2;
   let nameLine = null, nameIdx = -1;
   const kanaCands = []; // {text, idx} かな行の候補（氏名の読み/会社名の読みを後で振り分ける）
@@ -972,6 +1036,27 @@ function parseCardText(text) {
         res.fields.title = titleLine.replace(tok, "").replace(/\s{2,}/g, " ").trim();
         break;
       }
+    }
+  }
+  // 英語名刺: 漢字氏名が無ければ、ラテン文字の人名らしい行を氏名として拾う（会社/役職/住所/組織語は除外）
+  if (!nameLine) {
+    const addrWords = /\b(street|st|avenue|ave|road|rd|lane|ln|drive|dr|boulevard|blvd|highway|hwy|way|court|ct|place|pl|square|sq|floor|fl|suite|ste|room|rm|building|bldg|tower|box|city|state|prefecture)\b/i;
+    const orgWords = /\b(solutions?|systems?|technolog\w*|consult\w*|partners?|group|global|digital|services?|labs?|laborator\w*|studio|agency|ventures?|capital|holdings?|industr\w*|enterprises?|media|networks?|software|hardware|design|marketing|university|institute|hospital|clinic|bank|foundation|association|committee|department|division|office|store|shop|restaurant|hotel|cafe)\b/i;
+    const looksName = (s) => {
+      if (s.length < 3 || s.length > 40) return false;
+      if (/[@\d]/.test(s)) return false;                 // メール・番号を含む行は除外
+      if (/[ぁ-んァ-ヶ一-鿿]/.test(s)) return false;       // 日本語文字を含む行は英語名の対象外
+      if (companyRe.test(s) || titleRe.test(s)) return false;
+      if (addrWords.test(s) || orgWords.test(s)) return false;
+      const words = s.split(/\s+/);
+      if (words.length < 2 || words.length > 4) return false; // 姓名(＋ミドル)想定
+      // 各語が先頭大文字のラテン語（O'Brien / Anne-Marie / ミドルイニシャル A. を許容）
+      return words.every((w) => /^[A-Z][A-Za-z'’.\-]*$/.test(w) || /^[A-Z]\.$/.test(w));
+    };
+    for (const l of lines) {
+      if (used.has(l)) continue;
+      const s = l.replace(/\s+/g, " ").trim();
+      if (looksName(s)) { nameLine = s; break; }
     }
   }
   if (nameLine) res.fields.name = nameLine;
@@ -1113,6 +1198,7 @@ async function runOcr() {
 
 /* ---------- イベント ---------- */
 async function init() {
+  bootstrapConfigFromHash(); // ブックマーク/アイコンのURLにexec URLを仕込めば毎回の手入力が不要になる
   db = await openDB();
   cards = await getAllCards();
   render();
