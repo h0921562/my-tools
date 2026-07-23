@@ -1013,20 +1013,28 @@ function parseCardText(text) {
     const compact = l.replace(/\s/g, "");
     if (!nameLine && /^[一-鿿々〆ヶ]{2,6}$/.test(compact)) { nameLine = l.replace(/\s+/g, " ").trim(); nameIdx = i; }
   }
-  // かな行の振り分け: 氏名行に最も近いかな行=氏名の読み。会社行のほうに近い別のかな行=会社名の読み。
+  // かな行の振り分け:
+  //  会社名の直近(±2行以内)かつ会社行のほうが氏名行より近いかな行 = 会社名の読み。
+  //  残りのうち氏名行に最も近いかな行 = 氏名の読み。
+  //  ※人名の読みがローマ字だけの名刺（かな行が会社側にしか無い）では、氏名のふりがなは空欄のままにする
+  //    （会社の読みを氏名の読みに誤って入れない）。
   let kanaLine = null;
   if (kanaCands.length) {
-    let nameKana = kanaCands[0];
-    if (nameIdx >= 0) nameKana = kanaCands.reduce((a, b) => Math.abs(b.idx - nameIdx) < Math.abs(a.idx - nameIdx) ? b : a);
-    kanaLine = nameKana.text;
-    const rest = kanaCands.filter((k) => k !== nameKana);
-    if (rest.length && companyIdx >= 0) {
-      const compKana = rest.reduce((a, b) => Math.abs(b.idx - companyIdx) < Math.abs(a.idx - companyIdx) ? b : a);
-      // 会社行のほうが氏名行より近い（=会社の読みらしい）ときだけ採用し、氏名の読みへの誤割当を避ける
-      if (nameIdx < 0 || Math.abs(compKana.idx - companyIdx) <= Math.abs(compKana.idx - nameIdx)) {
-        res.fields.companyKana = compKana.text;
-      }
+    const dName = (k) => nameIdx >= 0 ? Math.abs(k.idx - nameIdx) : Infinity;
+    const dComp = (k) => companyIdx >= 0 ? Math.abs(k.idx - companyIdx) : Infinity;
+    let compKana = null;
+    if (companyIdx >= 0) {
+      const cc = kanaCands.filter((k) => dComp(k) <= 2 && dComp(k) < dName(k));
+      if (cc.length) compKana = cc.reduce((a, b) => dComp(b) < dComp(a) ? b : a);
     }
+    const nameCands = kanaCands.filter((k) => k !== compKana);
+    if (nameCands.length) {
+      const nameKana = nameIdx >= 0
+        ? nameCands.reduce((a, b) => dName(b) < dName(a) ? b : a)
+        : nameCands[0];
+      kanaLine = nameKana.text;
+    }
+    if (compKana) res.fields.companyKana = compKana.text;
   }
   // 役職と氏名が同一行（例「部長 山田太郎」）なら、役職語を除いた漢字トークンを氏名として拾う
   if (!nameLine && titleLine) {
