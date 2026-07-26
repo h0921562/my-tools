@@ -1102,6 +1102,20 @@ function applyOcrText(text, source) {
     setOcrStatus(`⚠ 文字をほとんど読み取れませんでした（${source}）。名刺だけを大きく・明るい場所で・正面から・ピントを合わせて撮り直すと精度が上がります。`);
     return;
   }
+  // 誤配置の自動修復: 「氏名のふりがな」に会社名の読みが入っている場合だけ取り除く。
+  // （旧版は会社の読みを氏名の読みに入れてしまうことがあった。空欄しか埋めない仕様のままだと
+  //   手で消すまで直らないため、OCRが会社の読みだと判定した値と一致するときに限り回収する。）
+  const repaired = [];
+  const norm = (s) => (s || "").replace(/\s+/g, "").trim();
+  if (parsed.fields.companyKana) {
+    const kanaEl = $(FIELD_MAP.kana);
+    const cur = norm(kanaEl.value);
+    // OCR自身が「氏名の読み」とは判定していない値＝人名の読みではないと確定できるときのみ動かす
+    if (cur && cur === norm(parsed.fields.companyKana) && norm(parsed.fields.kana) !== cur) {
+      kanaEl.value = "";
+      repaired.push(FIELD_LABELS.kana + "→" + FIELD_LABELS.companyKana);
+    }
+  }
   const applied = [], skipped = [];
   for (const k of Object.keys(FIELD_MAP)) {
     if (!parsed.fields[k]) continue;
@@ -1111,7 +1125,9 @@ function applyOcrText(text, source) {
     applied.push(FIELD_LABELS[k]);
   }
   const missingLabels = parsed.missing.map((k) => FIELD_LABELS[k]);
-  let msg = (applied.length ? "✓ 自動入力: " + applied.join("・") + "。" : "自動で振り分けられる項目が見つかりませんでした。") + `（${source}）`;
+  let msg = (applied.length ? "✓ 自動入力: " + applied.join("・") + "。"
+    : (repaired.length ? "✓ 振り分けを見直しました。" : "自動で振り分けられる項目が見つかりませんでした。")) + `（${source}）`;
+  if (repaired.length) msg += " 誤りを修正: " + repaired.join("・") + "（会社名の読みが氏名側に入っていたため移しました）。";
   if (missingLabels.length) msg += " 読み取れず: " + missingLabels.join("・") + "（手入力してください）。";
   if (skipped.length) msg += " 既入力のため据え置き: " + skipped.join("・") + "。";
   if (!applied.length) {
