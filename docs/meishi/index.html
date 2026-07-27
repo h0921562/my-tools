@@ -186,6 +186,14 @@
     padding: 1px 6px; border-radius: 999px;
   }
   .cfg-hint { font-size: 12px; color: var(--text-sub); line-height: 1.6; margin: 4px 0 0; }
+  /* 氏名の候補チップ（OCRの振り分けが外れたときの差し替え用） */
+  .name-cands { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+  .name-cands .lbl { font-size: 11px; color: var(--text-sub); }
+  .name-cands button {
+    font-size: 12px; padding: 2px 9px; border-radius: 999px;
+    background: var(--chip-bg); color: var(--chip-text); border: 1px solid transparent;
+  }
+  .name-cands button.current { border-color: var(--accent); font-weight: 700; }
   .cfg-hint code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
   /* スマホ幅: 検索を全幅・ボタン圧縮でタップしやすく */
   @media (max-width: 620px) {
@@ -251,7 +259,12 @@
       </details>
       <input type="file" id="imgInput" accept="image/*">
       <div class="form-grid">
-        <div><label>氏名 *</label><input type="text" id="fName" required autocomplete="off"></div>
+        <div>
+          <label>氏名 *</label><input type="text" id="fName" required autocomplete="off">
+          <!-- 氏名は必須項目で、誤った値のまま保存されると台帳が壊れる。
+               振り分けが外れたときにワンタップで直せるよう、候補が複数あるときだけ提示する。 -->
+          <div class="name-cands" id="nameCands" hidden></div>
+        </div>
         <div><label>ふりがな（氏名の読み）</label><input type="text" id="fKana" autocomplete="off" placeholder="例: さい かずひこ"></div>
         <div><label>会社名</label><input type="text" id="fCompany" autocomplete="off"></div>
         <div><label>ふりがな（会社名の読み）</label><input type="text" id="fCompanyKana" autocomplete="off" placeholder="例: ぶらびっしま"></div>
@@ -890,7 +903,8 @@ const FIELD_LABELS = { name: "氏名", kana: "ふりがな(氏名)", company: "�
 
 // OCRテキストを名刺項目に振り分ける（ヒューリスティック）。完璧ではないので空欄のみ補助する用途。
 function parseCardText(text) {
-  const res = { fields: {}, found: [], missing: [], rawLines: [], textLen: 0 };
+  // nameCandidates: 氏名になりうる行（採用順）。振り分けを誤ったときのUI上の復帰手段に使う。
+  const res = { fields: {}, found: [], missing: [], rawLines: [], textLen: 0, nameCandidates: [] };
   // 全角英数字・全角記号を半角へ寄せる（名刺は「ＴＥＬ ０３-１２３４-…」表記が珍しくない）
   const toHalf = (s) => s
     .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
@@ -1055,7 +1069,14 @@ function parseCardText(text) {
     // ふりがな候補として先に拾われてしまうため）
     if (deptRe.test(compact)) { if (!deptLine) deptLine = l.replace(/\s+/g, " ").trim(); continue; }
     if (isKana(l)) { kanaCands.push({ text: l.replace(/\s+/g, " ").trim(), idx: i }); continue; }
-    if (!nameLine && /^[一-鿿々〆ヶ]{2,6}$/.test(compact)) { nameLine = l.replace(/\s+/g, " ").trim(); nameIdx = i; }
+    if (/^[一-鿿々〆ヶ]{2,6}$/.test(compact)) {
+      const t = l.replace(/\s+/g, " ").trim();
+      // 氏名として採用するのは最初の1つ（従来どおり）。残りは「氏名の候補」として保持し、
+      // 誤った行が採用されたときにワンタップで差し替えられるようにする。
+      // （部署名・建物名の除外は列挙・規則ベースで原理的に漏れるため、UIでの復帰手段を用意する）
+      res.nameCandidates.push(t);
+      if (!nameLine) { nameLine = t; nameIdx = i; }
+    }
   }
   // 役職語に載っていない部署名しか無かった場合は「部署・役職」に入れる（氏名欄には入れない）
   if (!res.fields.title && deptLine) res.fields.title = deptLine;
@@ -1139,11 +1160,16 @@ function parseCardText(text) {
     for (const l of lines) {
       if (used.has(l)) continue;
       const s = l.replace(/\s+/g, " ").trim();
-      if (looksName(s)) { nameLine = s; break; }
+      // 候補は全部集めておく（キャッチコピー等が先に採用されても差し替えられるように）
+      if (looksName(s)) { res.nameCandidates.push(s); if (!nameLine) nameLine = s; }
     }
   }
   if (nameLine) res.fields.name = nameLine;
   if (kanaLine) res.fields.kana = kanaLine.replace(/\s+/g, " ").trim();
+
+  // 氏名の候補: 採用した氏名を先頭にして重複を除く（部署名として弾いた行も差し替え先として残す）
+  if (deptLine) res.nameCandidates.push(deptLine);
+  res.nameCandidates = [...new Set([res.fields.name, ...res.nameCandidates].filter(Boolean))];
 
   for (const k of ["name", "kana", "company", "title", "phone", "email", "address"]) {
     if (res.fields[k]) res.found.push(k); else res.missing.push(k);
@@ -1164,9 +1190,36 @@ function updateOcrBtn() {
 }
 function setOcrStatus(msg) {
   const el = $("ocrStatus");
-  if (!msg) { el.hidden = true; el.textContent = ""; setOcrRaw(""); return; }
+  if (!msg) { el.hidden = true; el.textContent = ""; setOcrRaw(""); setNameCandidates([]); return; }
   el.hidden = false; el.textContent = msg;
 }
+// 氏名の候補チップを描画する。候補が2つ以上ある＝どれが氏名か機械的に確定できていない場合だけ出す。
+// タップは明示的なユーザー操作なので、そのときだけ氏名欄を上書きしてよい（自動では絶対に書き換えない）。
+function setNameCandidates(cands) {
+  const box = $("nameCands");
+  if (!box) return;
+  box.innerHTML = "";
+  const list = (cands || []).filter(Boolean);
+  if (list.length < 2) { box.hidden = true; return; }
+  const lbl = document.createElement("span");
+  lbl.className = "lbl";
+  lbl.textContent = "氏名の候補:";
+  box.appendChild(lbl);
+  for (const c of list) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = c;
+    if ($("fName").value.trim() === c) b.className = "current";
+    b.addEventListener("click", () => {
+      $("fName").value = c;
+      for (const other of box.querySelectorAll("button")) other.className = "";
+      b.className = "current";
+    });
+    box.appendChild(b);
+  }
+  box.hidden = false;
+}
+
 // OCRの生テキストを「読み取った全文」欄に反映する（空なら欄ごと隠す）。
 // 振り分けの誤りを報告してもらう入口なので、成功時も常に開けるようにしておく。
 function setOcrRaw(text) {
@@ -1187,6 +1240,7 @@ function applyOcrText(text, source) {
   if (parsed.textLen < 4) {
     setOcrStatus(`⚠ 文字をほとんど読み取れませんでした（${source}）。名刺だけを大きく・明るい場所で・正面から・ピントを合わせて撮り直すと精度が上がります。`);
     setOcrRaw(parsed.rawLines.join("\n"));
+    setNameCandidates(parsed.nameCandidates);
     return;
   }
   // 誤配置の“注意喚起”のみ行う（絶対に消さない・書き換えない）。
@@ -1227,6 +1281,7 @@ function applyOcrText(text, source) {
   }
   setOcrStatus(msg);
   setOcrRaw(parsed.rawLines.join("\n"));
+  setNameCandidates(parsed.nameCandidates);
 }
 
 // ブラウザ内OCR（Tesseract.js）。Google設定不要・画像は外部送信せず端末内で完結。
