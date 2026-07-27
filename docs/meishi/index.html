@@ -889,7 +889,7 @@ function parseCardText(text) {
     .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
     // 長音「ー」は数字に挟まれたときだけ区切り記号とみなす（コート/エービーシー等の語を壊さないため）
     .replace(/[－―‐]/g, "-").replace(/(\d)ー(\d)/g, "$1-$2")
-    .replace(/＠/g, "@").replace(/　/g, " ")
+    .replace(/＠/g, "@").replace(/　/g, " ").replace(/．/g, ".").replace(/／/g, "/").replace(/：/g, ":")
     .replace(/（/g, "(").replace(/）/g, ")").replace(/＋/g, "+");
   const norm = toHalf(String(text == null ? "" : text)).replace(/\r/g, "");
   res.textLen = norm.replace(/\s/g, "").length;
@@ -899,8 +899,12 @@ function parseCardText(text) {
 
   const companyRe = /(株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|公益社団法人|一般財団法人|独立行政法人|\(株\)|（株）|\(有\)|（有）|Inc\.?|Corporation|Corp\.?|Co\.?,?\s?Ltd\.?|Company|LLC|K\.K\.)/i;
   const titleRe = /(代表取締役|取締役|代表|会長|副社長|社長|専務|常務|部長|次長|課長|係長|主任|主査|参事|理事|監査役|執行役員|支店長|所長|工場長|店長|マネージャー|マネジャー|ディレクター|プロデューサー|エンジニア|デザイナー|コンサルタント|営業部|企画部|CEO|COO|CTO|CFO|President|Manager|Director|Officer|Chief)/i;
-  // 部署・組織名（役職語リストに載らない「総務部」「経理課」「技術開発部」等）。氏名と誤認しやすいので別途弾く。
-  const deptRe = /(部|課|室|局|係|本部|支部|支社|支店|営業所|事業部|事業所|センター|グループ|チーム|統括|工場)$/;
+  // 部署・組織名（役職語リストに載らない「総務」「経営企画」「技術開発部」等）。氏名と誤認しやすいので別途弾く。
+  // ⚠ 語尾だけで判定してはいけない: 「〜部/〜室」で終わる姓（阿部・服部・渡部・小室・大室…）を
+  //   部署と誤判定して氏名を壊す。必ず部署語そのものを列挙し、接尾辞は任意とする。
+  const deptWord = "総務|人事|労務|経理|財務|会計|法務|広報|営業|販売|企画|経営企画|開発|研究開発|技術|技術開発|製造|生産|品質|品質保証|品質管理|購買|調達|物流|情報システム|システム|海外事業|事業開発|営業推進|営業企画|商品開発|マーケティング|セールス|デザイン|クリエイティブ|サポート|カスタマーサポート|カスタマーサクセス|管理|業務|第[一二三四五六七八九十０-９\\d]+(?:事業|製造|営業|技術|開発)?";
+  const deptSuffix = "部|課|室|局|係|本部|部門|支部|支社|支店|営業所|事業部|事業所|センター|グループ|チーム|ユニット|統括|工場|担当";
+  const deptRe = new RegExp(`^(?:${deptWord})(?:${deptSuffix})?$|^(?:${deptWord})?(?:${deptSuffix})$`);
 
   // メール
   const email = (joined.match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/) || [])[0];
@@ -911,8 +915,9 @@ function parseCardText(text) {
   const labelRe = /(fax|ﾌｧｸｽ|ファックス|tel|phone|電話|携帯|mobile)/ig;
   const telCand = [];
   for (const line of lines) {
-    // 国番号 +81 は先頭0が省略された表記なので 0 に戻してから桁を数える
-    const scan = line.replace(/\+81[-\s]?/g, "0");
+    // 国番号 +81 は先頭0が省略された表記なので 0 に戻してから桁を数える。
+    // 「(03)1234-5678」形式（日本の名刺で標準的）は括弧をハイフンに開いてから解析する。
+    const scan = line.replace(/\+81[-\s]?/g, "0").replace(/\((\d{2,4})\)\s*/g, "$1-");
     phoneRe.lastIndex = 0;
     let m, prevEnd = 0;
     while ((m = phoneRe.exec(scan))) {
@@ -927,8 +932,10 @@ function parseCardText(text) {
       const gapLabels = [];
       while ((lm = labelRe.exec(gap))) { near = lm[1].toLowerCase(); gapLabels.push(near); }
       // 「TEL/FAX 03-…」「Tel&Fax …」は1つの番号を電話兼FAXとして共有する表記なので電話として採用する。
-      // 一方「TEL 03-1111-1111 FAX 03-2222-2222」は直前ラベルがFAXの番号だけを除外する。
-      const sharedTelFax = gapLabels.some((g) => /tel|phone|電話/.test(g)) && gapLabels.some((g) => /fax|ﾌｧｸｽ|ファックス/.test(g));
+      // ⚠ 行内に電話語とFAX語が「ただ両方ある」だけでは共有表記とみなさない
+      //   （「※お電話はご遠慮ください FAX 03-…」でFAX番号を電話に採用してしまう）。
+      //   TEL と FAX が区切り記号で直接つながっている表記だけを共有と判定する。
+      const sharedTelFax = /(tel|phone|電話)\s*[\/&・･+＆､,・]+\s*(fax|ﾌｧｸｽ|ファックス)|(fax|ﾌｧｸｽ|ファックス)\s*[\/&・･+＆､,・]+\s*(tel|phone|電話)/i.test(gap);
       if (!sharedTelFax && /fax|ﾌｧｸｽ|ファックス/.test(near || "")) continue; // FAX番号は電話候補にしない
       if (sharedTelFax) near = "tel";
       const isTel = /tel|phone|電話|携帯|mobile/.test(near || "");
@@ -975,6 +982,7 @@ function parseCardText(text) {
   }
   // 住所
   const addrIdx = lines.findIndex((l) => /(東京都|北海道|京都府|大阪府|..県)/.test(l) && /(市|区|町|村|郡)/.test(l));
+  const jpAddrIdxs = []; // 住所として使った行（氏名候補から除外するため記録する）
   let address = "";
   if (addrIdx >= 0) {
     address = lines[addrIdx];
@@ -983,9 +991,11 @@ function parseCardText(text) {
       if (/@|https?:|www\.|tel|fax|電話|〒/i.test(l)) break;
       if (companyRe.test(l) || titleRe.test(l)) break;
       if (/\d{2,4}[-\s]?\d{2,4}[-\s]?\d{3,4}/.test(l)) break;
-      // 氏名らしい行（漢字2〜6文字・部署語でない）は住所に巻き込まない
-      if (/^[一-鿿々〆ヶ\s]{2,7}$/.test(l) && !deptRe.test(l.replace(/\s/g, ""))) break;
-      address += " " + l;
+      // 「山田 太郎」のように空白で姓名が分かれた漢字行だけを氏名とみなして打ち切る。
+      // ⚠ 空白なしの漢字行で打ち切ってはいけない: 「二丁目八番一号」「銀座第一別館」等の
+      //   住所の続き（漢数字の丁目・建物名）を氏名と誤認し、住所が欠落して氏名欄も汚れる。
+      if (/^[一-鿿々〆ヶ]{1,4}\s+[一-鿿々〆ヶ]{1,4}$/.test(l)) break;
+      address += " " + l; jpAddrIdxs.push(k);
     }
   }
   if (postal) {
@@ -1022,7 +1032,7 @@ function parseCardText(text) {
   // 氏名・ふりがな（会社/役職/住所などに使った行は除外）
   const companyIdx = companyLine ? lines.indexOf(companyLine) : -1;
   const used = new Set([companyLine, titleLine, addrIdx >= 0 ? lines[addrIdx] : null,
-    ...engAddrIdxs.map((i) => lines[i])].filter(Boolean));
+    ...jpAddrIdxs.map((i) => lines[i]), ...engAddrIdxs.map((i) => lines[i])].filter(Boolean));
   const isKana = (s) => /^[ぁ-ゖァ-ヶー\s]+$/.test(s) && s.replace(/\s/g, "").length >= 2;
   const tokens = (s) => (s || "").trim().split(/\s+/).filter(Boolean);
   let nameLine = null, nameIdx = -1, deptLine = null;
@@ -1033,19 +1043,38 @@ function parseCardText(text) {
     if (/@|https?:|www\.|\d{3,}/.test(l)) continue;
     if (companyRe.test(l) || titleRe.test(l)) continue;
     if (/(市|区|町|村|丁目|番地|〒)/.test(l)) continue;
-    if (isKana(l)) { kanaCands.push({ text: l.replace(/\s+/g, " ").trim(), idx: i }); continue; }
     const compact = l.replace(/\s/g, "");
-    // 「総務部」「経理課」「技術開発部」等は漢字2〜6文字なので氏名と誤認する。部署として扱う。
+    // 部署の判定はかな判定より先に行う（「マーケティング」等のカタカナ部署名が
+    // ふりがな候補として先に拾われてしまうため）
     if (deptRe.test(compact)) { if (!deptLine) deptLine = l.replace(/\s+/g, " ").trim(); continue; }
+    if (isKana(l)) { kanaCands.push({ text: l.replace(/\s+/g, " ").trim(), idx: i }); continue; }
     if (!nameLine && /^[一-鿿々〆ヶ]{2,6}$/.test(compact)) { nameLine = l.replace(/\s+/g, " ").trim(); nameIdx = i; }
   }
   // 役職語に載っていない部署名しか無かった場合は「部署・役職」に入れる（氏名欄には入れない）
   if (!res.fields.title && deptLine) res.fields.title = deptLine;
 
+  // 役職と氏名が同一行（例「部長 山田太郎」「代表取締役 山田 太郎」）なら、
+  // 行末に連続する漢字トークンを氏名として拾う（先頭1つだけだと姓のみになり名が役職側に残る）。
+  // ⚠ かな行の振り分けより前に行うこと（氏名行の位置が未確定だと読みを一切拾えなくなる）。
+  if (!nameLine && titleLine) {
+    const toks = titleLine.split(/[\s　･・|/]+/).filter(Boolean);
+    const isNameTok = (t) => /^[一-鿿々〆ヶ]{1,6}$/.test(t) && !titleRe.test(t) && !deptRe.test(t) && !/^(兼|及|又|並|他|付)$/.test(t);
+    // 末尾から連続する氏名トークンだけを取る（「上席 コンサルタント 山田 太郎」→「山田 太郎」）
+    let s = toks.length;
+    while (s > 0 && isNameTok(toks[s - 1])) s--;
+    const nameToks = toks.slice(s);
+    if (nameToks.length) {
+      nameLine = nameToks.join(" ");
+      nameIdx = lines.indexOf(titleLine);
+      const rest = toks.slice(0, s).join(" ").trim();
+      if (rest) res.fields.title = rest; else delete res.fields.title;
+    }
+  }
+
   // かな行の振り分け（誤配置を避けるため「分からなければどちらにも入れない」を優先する）:
-  //  氏名の読み  = 氏名行の近く(±2行)。氏名行が空白区切りなら、かな行も同じトークン数であること。
-  //                （「山田 太郎」に対し「マーケティング」「ココロ ヲ ツナグ」等のカタカナ語を排除できる）
-  //  会社名の読み = 会社行に隣接(±1行)し、氏名行には隣接せず、かつ人名の読みの形をしていないもの。
+  //  氏名の読み  = 氏名行に隣接(±1行)。複数語なら氏名行と同じトークン数であること
+  //                （「山田 太郎」に対し「ココロ ヲ ツナグ」等の複数語キャッチコピーを排除）。
+  //  会社名の読み = 会社行に隣接し、氏名行には隣接せず、社名にかながあればその読みと2文字以上一致。
   let kanaLine = null;
   if (kanaCands.length) {
     const nameToks = nameIdx >= 0 ? tokens(nameLine).length : 0;
@@ -1053,9 +1082,10 @@ function parseCardText(text) {
     const dComp = (k) => companyIdx >= 0 ? Math.abs(k.idx - companyIdx) : Infinity;
     // 氏名行と同じトークン数の複数語かな＝姓名の読みの形（会社名の読みには回さない）
     const personShaped = (k) => nameToks >= 2 && tokens(k.text).length === nameToks;
-    const nameReadable = (k) => dName(k) <= 2 && (nameToks < 2 || tokens(k.text).length === nameToks);
+    // 読みの空白はOCRで落ちやすいので、単語1つの読みはトークン数一致を要求しない
+    const nameReadable = (k) => dName(k) <= 1 && (tokens(k.text).length === 1 || nameToks < 2 || tokens(k.text).length === nameToks);
     // 社名自体がかな/カタカナを含むなら、その読みと2文字以上一致することを要求する。
-    // （「株式会社サンプル」の隣にある「オモテナシ」「マーケティング」等の無関係なカタカナ語を排除）
+    // （「株式会社サンプル」の隣にある「オモテナシ」等の無関係なカタカナ語を排除）
     // 社名が英字・漢字のみで読みを照合できない場合（例: 株式会社bravissima）は位置だけで判断する。
     const toHira = (s) => s.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
     const compKanaChars = companyLine ? toHira(companyLine).replace(/[^ぁ-ゖ]/g, "") : "";
@@ -1068,8 +1098,10 @@ function parseCardText(text) {
 
     let compKana = null;
     if (companyIdx >= 0) {
-      // 会社行に隣接し、人名の読みではありえない（姓名の形でも氏名行の読みとしても成立しない）もの
-      const cc = kanaCands.filter((k) => dComp(k) <= 1 && !personShaped(k) && !nameReadable(k) && matchesCompanyReading(k));
+      // 会社行に隣接し、氏名行には隣接しない（＝人名の読みの可能性が低い）もの。
+      // ⚠ 氏名行に隣接しているものを会社側に取ると、同姓社名（株式会社ヤマダ電機 + やまだたろう）で
+      //   人名の読みを会社名の読み欄に入れてしまう。
+      const cc = kanaCands.filter((k) => dComp(k) <= 1 && dName(k) >= 2 && !personShaped(k) && matchesCompanyReading(k));
       if (cc.length) compKana = cc.reduce((a, b) => dComp(b) < dComp(a) ? b : a);
     }
     const nameCands = kanaCands.filter((k) => k !== compKana && nameReadable(k));
@@ -1077,17 +1109,6 @@ function parseCardText(text) {
       kanaLine = nameCands.reduce((a, b) => dName(b) < dName(a) ? b : a).text;
     }
     if (compKana) res.fields.companyKana = compKana.text;
-  }
-  // 役職と氏名が同一行（例「部長 山田太郎」「代表取締役 山田 太郎」）なら、
-  // 役職語を除いた漢字トークンを“すべて”氏名として拾う（先頭1つだけだと姓のみになり名が役職側に残る）
-  if (!nameLine && titleLine) {
-    const toks = titleLine.split(/[\s　･・|/]+/).filter(Boolean);
-    const nameToks = toks.filter((t) => !titleRe.test(t) && !deptRe.test(t) && /^[一-鿿々〆ヶ]{1,6}$/.test(t));
-    if (nameToks.length) {
-      nameLine = nameToks.join(" ");
-      res.fields.title = toks.filter((t) => !nameToks.includes(t)).join(" ").trim();
-      if (!res.fields.title) delete res.fields.title;
-    }
   }
   // 英語名刺: 漢字氏名が無ければ、ラテン文字の人名らしい行を氏名として拾う（会社/役職/住所/組織語は除外）
   if (!nameLine) {
@@ -1104,21 +1125,14 @@ function parseCardText(text) {
       // 各語が先頭大文字のラテン語（O'Brien / Anne-Marie / ミドルイニシャル A. を許容）
       return words.every((w) => /^[A-Z][A-Za-z'’.\-]*$/.test(w) || /^[A-Z]\.$/.test(w));
     };
-    // 行順の先頭一致だと、氏名より上にある社名・部署・キャッチコピーが必ず勝ってしまう。
-    // 名刺では氏名はメール／役職／社名の近くに置かれるため、それらへの近さで選ぶ（除外語の列挙に頼らない）。
-    const anchorIdx = (re) => lines.findIndex((l) => re.test(l));
-    const emailIdx = email ? lines.findIndex((l) => l.indexOf(email) >= 0) : -1;
-    const titleIdxE = titleLine ? lines.indexOf(titleLine) : -1;
-    const anchors = [emailIdx, titleIdxE, companyIdx, anchorIdx(/\b(tel|phone|mobile|cell)\b/i)].filter((i) => i >= 0);
-    const cands = [];
-    for (let i = 0; i < lines.length; i++) {
-      if (used.has(lines[i])) continue;
-      const s = lines[i].replace(/\s+/g, " ").trim();
-      if (looksName(s)) cands.push({ text: s, idx: i });
-    }
-    if (cands.length) {
-      const score = (c) => anchors.length ? Math.min(...anchors.map((a) => Math.abs(c.idx - a))) : c.idx;
-      nameLine = cands.reduce((a, b) => (score(b) < score(a) ? b : a)).text;
+    // 上の行から順に最初の候補を採用する。英語名刺は氏名が最上部に置かれるのが最も一般的なため。
+    // ⚠ メール/役職/電話への「近さ」で選ぶ方式は使わない: それらは下部に固まるので、
+    //   氏名が最上段・社名がその下という普通の並び（Sarah Miller / Blue Harbor / Tel …）で社名が勝ってしまう。
+    // 既知の限界: 氏名より上にキャッチコピーがある場合は、それを氏名に拾うことがある（除外語では閉じない）。
+    for (const l of lines) {
+      if (used.has(l)) continue;
+      const s = l.replace(/\s+/g, " ").trim();
+      if (looksName(s)) { nameLine = s; break; }
     }
   }
   if (nameLine) res.fields.name = nameLine;
