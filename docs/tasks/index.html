@@ -201,6 +201,7 @@
   <div class="stats" id="stats"></div>
 
   <div class="seg" id="agentFilter" role="group" aria-label="担当で絞り込み"></div>
+  <div class="seg" id="acctFilter" role="group" aria-label="アカウントで絞り込み" hidden></div>
   <div class="seg" id="statusFilter" role="group" aria-label="状態で絞り込み"></div>
   <input class="search" id="q" type="search" placeholder="検索（タイトル・内容・リポジトリ・タグ）">
 
@@ -214,6 +215,7 @@
       <button type="button" id="importBtn">読み込み</button>
       <button type="button" id="clearDoneBtn">完了を削除</button>
       <button type="button" id="syncAllBtn">GitHubと同期</button>
+      <button type="button" id="importGhBtn">GitHubから取り込み</button>
       <button type="button" id="settingsBtn">GitHub設定</button>
     </div>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -252,6 +254,11 @@
         <label for="fStatus">状態</label>
         <select id="fStatus"></select>
       </div>
+    </div>
+    <div class="field" id="fAcctField">
+      <label for="fAcct">GitHubアカウント</label>
+      <select id="fAcct"></select>
+      <div class="hint">どのアカウントのトークンでIssueを作り、指示を送るか。「自動」はリポジトリの持ち主から判定します。</div>
     </div>
     <div class="field">
       <label for="fTags">タグ（カンマ区切り）</label>
@@ -301,31 +308,49 @@
 
 <dialog id="settings">
   <form class="dlg setup" id="sForm" method="dialog">
-    <h2>GitHub設定</h2>
-    <div class="field">
-      <label for="sToken">GitHub トークン（Fine-grained personal access token）</label>
-      <input id="sToken" type="password" autocomplete="off" placeholder="github_pat_...">
-      <div class="hint">この端末のブラウザ内だけに保存され、書き出しJSONにも含まれません。<a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">トークンを作成 ↗</a></div>
+    <h2>GitHubアカウント</h2>
+    <div class="hint" style="margin:-6px 0 10px">個人用・仕事用など複数のGitHubアカウントを登録できます。タスクごとに使うアカウントが選ばれ、そのトークンで実行・確認します。トークンはこの端末のブラウザ内だけに保存され、書き出しJSONにも含まれません。</div>
+    <div class="prs" id="acctList"></div>
+    <button type="button" class="btn sub" id="acctAdd" style="width:100%">＋ アカウントを追加</button>
+    <div id="acctForm" hidden style="margin-top:12px; border:1px solid var(--border); border-radius:12px; padding:12px">
+      <div class="field">
+        <label for="aLabel">表示名</label>
+        <input id="aLabel" placeholder="例: 個人 / 仕事">
+      </div>
+      <div class="field">
+        <label for="aToken">トークン（Fine-grained personal access token）</label>
+        <input id="aToken" type="password" autocomplete="off" placeholder="github_pat_...">
+        <div class="hint"><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">トークンを作成 ↗</a>（そのアカウントでログインした状態で開く）</div>
+      </div>
+      <div class="field">
+        <label for="aRepo">既定のリポジトリ</label>
+        <input id="aRepo" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="aOwners">このアカウントで扱う持ち主（任意・カンマ区切り）</label>
+        <input id="aOwners" placeholder="例: my-company, other-org" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <div class="hint">Organizationのリポジトリを自動でこのアカウントに振り分けたいときに。</div>
+      </div>
+      <div class="dlg-actions" style="margin-top:4px">
+        <button type="button" class="btn sub" id="aCancel">キャンセル</button>
+        <button type="button" class="btn" id="aSave">接続テストして保存</button>
+      </div>
+      <div class="hint" id="aResult"></div>
     </div>
-    <div class="field">
-      <label for="sRepo">既定のリポジトリ</label>
-      <input id="sRepo" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false">
-    </div>
-    <div class="dlg-actions" style="margin-top:4px">
-      <button type="button" class="btn sub" id="sTest">接続テスト</button>
-      <button type="submit" class="btn">保存</button>
-    </div>
-    <div class="hint" id="sResult"></div>
 
     <h2 style="margin-top:22px">リポジトリの準備（最初に1回）</h2>
     <ol>
-      <li>トークンの権限: 対象リポジトリを選び、<b>Issues</b>・<b>Pull requests</b>・<b>Contents</b>・<b>Workflows</b> を <b>Read and write</b>、<b>Actions</b> を Read に。</li>
+      <li>トークンの権限（アカウントごと）: 対象リポジトリを選び、<b>Issues</b>・<b>Pull requests</b>・<b>Contents</b>・<b>Workflows</b> を <b>Read and write</b>、<b>Actions</b> を Read に。</li>
       <li>下のボタンで、対象リポジトリに Claude / Codex 用のワークフローを入れる。</li>
-      <li>リポジトリの Settings → Secrets and variables → Actions にシークレットを登録:<br>
+      <li>リポジトリの Settings → Secrets and variables → Actions にシークレットを登録（リポジトリごとに別のClaude / OpenAIアカウントのキーを使えます）:<br>
         Claude: <code>CLAUDE_CODE_OAUTH_TOKEN</code>（PCで <code>claude setup-token</code>）または <code>ANTHROPIC_API_KEY</code><br>
         Codex: <code>OPENAI_API_KEY</code></li>
       <li>（任意）Settings → Actions → General →「Allow GitHub Actions to create and approve pull requests」をONにするとCodexがPRまで自動作成。</li>
     </ol>
+    <div class="field">
+      <label for="sInstallAcct">使うアカウント</label>
+      <select id="sInstallAcct"></select>
+    </div>
     <div class="field">
       <label for="sInstallRepo">ワークフローを入れるリポジトリ</label>
       <input id="sInstallRepo" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -367,8 +392,24 @@
 
   let tasks = load(KEY, []);
   if (!Array.isArray(tasks)) tasks = [];
-  const prefs = Object.assign({ agent: 'all', status: 'active' }, load(PREF, {}));
-  const ghCfg = Object.assign({ token: '', repo: '' }, load(GHKEY, {}));
+  const prefs = Object.assign({ agent: 'all', status: 'active', account: 'all' }, load(PREF, {}));
+  // GitHubアカウント（複数可）。旧形式 { token, repo } は1件目として移行
+  const ghCfg = (() => {
+    const c = load(GHKEY, {});
+    if (Array.isArray(c.accounts)) return c;
+    return { accounts: c.token ? [{ id: 'a' + Date.now().toString(36), label: 'メイン', token: c.token, repo: c.repo || '', login: '', owners: [] }] : [] };
+  })();
+  const saveAccounts = () => save(GHKEY, ghCfg);
+  const accounts = () => ghCfg.accounts;
+  const acctById = id => accounts().find(a => a.id === id);
+  const ownerOf = repo => (repo || '').split('/')[0].toLowerCase();
+  function acctForRepo(repo) {
+    const o = ownerOf(repo);
+    const hit = a => [a.login, ownerOf(a.repo), ...(a.owners || [])].some(x => x && x.toLowerCase() === o);
+    return accounts().find(hit) || accounts()[0] || null;
+  }
+  const acctFor = t => acctById(t.accountId) || acctForRepo(t.repo);
+  const acctName = a => a ? (a.label || a.login || 'アカウント') : '未設定';
   let editingId = null;
   let pickAgent = 'claude';
 
@@ -386,13 +427,13 @@
   }
 
   // ================= GitHub API =================
-  async function gh(path, opts = {}) {
-    if (!ghCfg.token) throw new Error('GitHub設定でトークンを登録してください');
+  async function gh(path, opts = {}, acct) {
+    if (!acct?.token) throw new Error('GitHub設定でアカウント（トークン）を登録してください');
     const r = await fetch('https://api.github.com' + path, {
       ...opts, cache: 'no-store',
       headers: {
         Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${ghCfg.token}`,
+        Authorization: `Bearer ${acct.token}`,
         'X-GitHub-Api-Version': '2022-11-28',
         ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
       },
@@ -400,41 +441,42 @@
     if (r.status === 204) return null;
     const j = await r.json().catch(() => null);
     if (!r.ok) {
-      const e = new Error(`GitHub ${r.status}: ${j?.message || r.statusText}`);
+      const e = new Error(`GitHub ${r.status}（${acctName(acct)}）: ${j?.message || r.statusText}`);
       e.status = r.status; throw e;
     }
     return j;
   }
-  const ghReady = () => !!ghCfg.token;
+  const ghReady = () => accounts().length > 0;
   const b64 = s => btoa(unescape(encodeURIComponent(s)));
   const MARK = id => `<!-- ai-tasks:${id} -->`;
 
   async function startOnGitHub(t) {
     if (!ghReady()) { openSettings(); toast('先にGitHub設定をしてください'); return; }
-    const repo = t.repo || ghCfg.repo;
+    const repo = t.repo || (acctById(t.accountId) || accounts()[0])?.repo;
     if (!REPO_RE.test(repo || '')) { toast('リポジトリ（owner/repo）を設定してください'); openDialog(t); return; }
+    const acct = acctById(t.accountId) || acctForRepo(repo);
     const a = AGENTS[t.agent];
     if (!a) { toast('担当（Claude / Codex）を選んでください'); openDialog(t); return; }
     const body = `${a.mention}\n\n${t.prompt || t.title}\n\n${MARK(t.id)}`;
-    const issue = await gh(`/repos/${repo}/issues`, { method: 'POST', body: JSON.stringify({ title: t.title, body }) });
-    Object.assign(t, { repo, issue: { number: issue.number, url: issue.html_url }, link: t.link || issue.html_url, status: 'running', updatedAt: Date.now() });
+    const issue = await gh(`/repos/${repo}/issues`, { method: 'POST', body: JSON.stringify({ title: t.title, body }) }, acct);
+    Object.assign(t, { repo, accountId: acct.id, issue: { number: issue.number, url: issue.html_url }, link: t.link || issue.html_url, status: 'running', updatedAt: Date.now() });
     persist(); render();
-    toast(`Issue #${issue.number} を作成し、${a.label}に依頼しました`);
+    toast(`Issue #${issue.number} を作成し、${a.label}に依頼しました（${acctName(acct)}）`);
     return t;
   }
 
   async function fetchThread(t) {
-    const { repo } = t, n = t.issue.number;
+    const { repo } = t, n = t.issue.number, acct = acctFor(t);
     const [issue, comments, pulls, runs] = await Promise.all([
-      gh(`/repos/${repo}/issues/${n}`),
-      gh(`/repos/${repo}/issues/${n}/comments?per_page=100`),
-      gh(`/repos/${repo}/pulls?state=all&per_page=50&sort=updated&direction=desc`),
-      gh(`/repos/${repo}/actions/runs?per_page=30`).catch(() => ({ workflow_runs: [] })),
+      gh(`/repos/${repo}/issues/${n}`, {}, acct),
+      gh(`/repos/${repo}/issues/${n}/comments?per_page=100`, {}, acct),
+      gh(`/repos/${repo}/pulls?state=all&per_page=50&sort=updated&direction=desc`, {}, acct),
+      gh(`/repos/${repo}/actions/runs?per_page=30`, {}, acct).catch(() => ({ workflow_runs: [] })),
     ]);
     const prefixes = [`claude/issue-${n}-`, `codex/issue-${n}`];
     const related = pulls.filter(p => prefixes.some(x => p.head.ref.startsWith(x)) || new RegExp(`#${n}\\b`).test(p.body || ''));
     const refs = (await Promise.all(prefixes.map(pf =>
-      gh(`/repos/${repo}/git/matching-refs/heads/${pf}`).catch(() => [])))).flat()
+      gh(`/repos/${repo}/git/matching-refs/heads/${pf}`, {}, acct).catch(() => [])))).flat()
       .map(r => r.ref.replace('refs/heads/', ''))
       .filter(b => !related.some(p => p.head.ref === b));
     const active = (runs.workflow_runs || []).filter(r =>
@@ -460,6 +502,11 @@
     const agentOpts = [['all','すべて'],['claude','Claude'],['codex','Codex'],['none','未定']];
     $('agentFilter').innerHTML = agentOpts.map(([v,l]) =>
       `<button type="button" data-v="${v}" aria-pressed="${prefs.agent===v}">${l}</button>`).join('');
+    const multi = accounts().length > 1;
+    $('acctFilter').hidden = !multi;
+    if (!multi || (prefs.account !== 'all' && !acctById(prefs.account))) prefs.account = 'all';
+    $('acctFilter').innerHTML = [['all','全アカウント'], ...accounts().map(a => [a.id, acctName(a)])].map(([v,l]) =>
+      `<button type="button" data-v="${v}" aria-pressed="${prefs.account===v}">👤 ${esc(l)}</button>`).join('');
     const statusOpts = [['active','未完了'], ...STATUSES.map(s => [s.v, s.label]), ['all','すべて']];
     $('statusFilter').innerHTML = statusOpts.map(([v,l]) =>
       `<button type="button" data-v="${v}" aria-pressed="${prefs.status===v}">${l}</button>`).join('');
@@ -467,6 +514,10 @@
   $('agentFilter').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     prefs.agent = b.dataset.v; save(PREF, prefs); renderFilters(); render();
+  });
+  $('acctFilter').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    prefs.account = b.dataset.v; save(PREF, prefs); renderFilters(); render();
   });
   $('statusFilter').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -478,9 +529,10 @@
     const q = $('q').value.trim().toLowerCase();
     return tasks.filter(t => {
       if (prefs.agent === 'none' ? t.agent : (prefs.agent !== 'all' && t.agent !== prefs.agent)) return false;
+      if (prefs.account && prefs.account !== 'all' && acctFor(t)?.id !== prefs.account) return false;
       if (prefs.status === 'active' ? t.status === 'done' : (prefs.status !== 'all' && t.status !== prefs.status)) return false;
       if (q) {
-        const hay = [t.title, t.prompt, t.repo, t.note, (t.tags||[]).join(' ')].join('\n').toLowerCase();
+        const hay = [t.title, t.prompt, t.repo, t.note, (t.tags||[]).join(' '), acctName(acctFor(t))].join('\n').toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -517,6 +569,7 @@
         ${t.prompt ? `<div class="preview" data-act="open">${esc(t.prompt)}</div>` : ''}
         <div class="meta">
           <span class="badge ${t.agent || 'none'}">${a ? a.label : '未定'}</span>
+          ${accounts().length > 1 && (t.issue || t.repo) ? `<span class="gh">👤 ${esc(acctName(acctFor(t)))}</span>` : ''}
           ${t.issue ? `<span class="gh ${t.status==='running'?'live':''}">GitHub #${t.issue.number}</span>` : ''}
           ${t.repo ? `<span>📁 ${esc(t.repo)}</span>` : ''}
           ${(t.tags||[]).map(g => `<span>#${esc(g)}</span>`).join('')}
@@ -594,13 +647,19 @@
     editingId = t ? t.id : null;
     $('dlgTitle').textContent = t ? 'タスクを編集' : 'タスクを追加';
     $('delBtn').style.display = t ? '' : 'none';
-    const repos = [...new Set([ghCfg.repo, ...tasks.map(x => x.repo)].filter(Boolean))];
+    const repos = [...new Set([...accounts().map(a => a.repo), ...tasks.map(x => x.repo)].filter(Boolean))];
+    $('fAcctField').hidden = accounts().length < 2;
+    $('fAcct').innerHTML = '<option value="">自動（リポジトリから判定）</option>' +
+      accounts().map(a => `<option value="${a.id}">${esc(acctName(a))}${a.login ? ` (@${esc(a.login)})` : ''}</option>`).join('');
+    $('fAcct').value = t?.accountId && acctById(t.accountId) ? t.accountId : (prefs.account && acctById(prefs.account) ? prefs.account : '');
+    $('fAcct').disabled = !!t?.issue;
     $('repoList').innerHTML = repos.map(r => `<option value="${esc(r)}">`).join('');
     const def = prefs.agent === 'claude' || prefs.agent === 'codex' ? prefs.agent : (prefs.lastAgent ?? 'claude');
     setPick(t ? (t.agent || '') : def);
     $('fTitle').value = t?.title || '';
     $('fPrompt').value = t?.prompt || '';
-    $('fRepo').value = t ? (t.repo || '') : (prefs.lastRepo || ghCfg.repo || '');
+    $('fRepo').value = t ? (t.repo || '') : (acctById(prefs.account)?.repo || prefs.lastRepo || accounts()[0]?.repo || '');
+    $('fRepo').disabled = !!t?.issue;
     $('fStatus').value = t?.status || 'todo';
     $('fTags').value = (t?.tags || []).join(', ');
     $('fLink').value = t?.link || '';
@@ -626,6 +685,7 @@
       title,
       prompt: $('fPrompt').value.trim(),
       repo: $('fRepo').value.trim(),
+      accountId: $('fAcct').value || null,
       status: $('fStatus').value,
       tags: $('fTags').value.split(/[,、，]/).map(s => s.trim()).filter(Boolean),
       link: $('fLink').value.trim(),
@@ -633,7 +693,11 @@
       updatedAt: Date.now(),
     };
     const wasEditing = editingId;
-    if (editingId) Object.assign(byId(editingId), data);
+    if (editingId) {
+      const cur = byId(editingId);
+      if (cur.issue) { data.accountId = cur.accountId; data.repo = cur.repo; } // Issue作成後はアカウント・リポジトリ固定
+      Object.assign(cur, data);
+    }
     else tasks.push({ id: uid(), createdAt: Date.now(), ...data });
     prefs.lastAgent = pickAgent; prefs.lastRepo = data.repo; save(PREF, prefs);
     persist(); $('dlg').close(); render();
@@ -691,7 +755,8 @@
     $('dTitle').textContent = t.title;
     $('dMeta').innerHTML = `<span class="badge ${t.agent || 'none'}">${a ? a.label : '未定'}</span>
       <span class="status" data-s="${t.status}" style="cursor:default">${statusLabel(t.status)}</span>
-      ${t.repo ? `<span>📁 ${esc(t.repo)}</span>` : ''}${t.issue ? `<span>#${t.issue.number}</span>` : ''}`;
+      ${t.repo ? `<span>📁 ${esc(t.repo)}</span>` : ''}${t.issue ? `<span>#${t.issue.number}</span>` : ''}
+      ${accounts().length > 1 ? `<span>👤 ${esc(acctName(acctFor(t)))}</span>` : ''}`;
     const open = lastThread?.issue?.state !== 'closed';
     $('dActions').innerHTML = `
       <button type="button" data-d="refresh">↻ 更新</button>
@@ -768,18 +833,18 @@
       if (d === 'refresh') await refreshDetail();
       else if (d === 'edit') openDialog(t);
       else if (d === 'close' || d === 'reopen') {
-        await gh(`/repos/${t.repo}/issues/${t.issue.number}`, { method: 'PATCH', body: JSON.stringify({ state: d === 'close' ? 'closed' : 'open' }) });
+        await gh(`/repos/${t.repo}/issues/${t.issue.number}`, { method: 'PATCH', body: JSON.stringify({ state: d === 'close' ? 'closed' : 'open' }) }, acctFor(t));
         t.status = d === 'close' ? 'done' : 'review'; touch(t); await refreshDetail();
         toast(d === 'close' ? '完了にしました' : '再開しました');
       } else if (d === 'pr') {
-        const repo = await gh(`/repos/${t.repo}`);
+        const repo = await gh(`/repos/${t.repo}`, acctFor(t));
         const who = el.dataset.b.startsWith('codex/') ? 'Codex' : 'Claude';
         const pr = await gh(`/repos/${t.repo}/pulls`, { method: 'POST', body: JSON.stringify({
-          title: `[${who}] ${t.title}`, head: el.dataset.b, base: repo.default_branch, body: `Closes #${t.issue.number}` }) });
+          title: `[${who}] ${t.title}`, head: el.dataset.b, base: repo.default_branch, body: `Closes #${t.issue.number}` }) }, acctFor(t));
         toast(`PR #${pr.number} を作成しました`); await refreshDetail();
       } else if (d === 'merge') {
         if (!confirm(`PR #${el.dataset.n} をマージしますか？`)) return;
-        await gh(`/repos/${t.repo}/pulls/${el.dataset.n}/merge`, { method: 'PUT', body: JSON.stringify({ merge_method: 'squash' }) });
+        await gh(`/repos/${t.repo}/pulls/${el.dataset.n}/merge`, { method: 'PUT', body: JSON.stringify({ merge_method: 'squash' }) }, acctFor(t));
         toast('マージしました'); await refreshDetail();
       }
     } catch (err) { toast(err.message); }
@@ -793,11 +858,11 @@
     $('dSend').disabled = true;
     try {
       await gh(`/repos/${t.repo}/issues/${t.issue.number}/comments`, { method: 'POST',
-        body: JSON.stringify({ body: a ? `${a.mention} ${text}` : text }) });
+        body: JSON.stringify({ body: a ? `${a.mention} ${text}` : text }) }, acctFor(t));
       $('dInput').value = '';
       if (a) {
         if (lastThread?.issue?.state === 'closed')
-          await gh(`/repos/${t.repo}/issues/${t.issue.number}`, { method: 'PATCH', body: JSON.stringify({ state: 'open' }) });
+          await gh(`/repos/${t.repo}/issues/${t.issue.number}`, { method: 'PATCH', body: JSON.stringify({ state: 'open' }) }, acctFor(t));
         t.agent = composeAgent; t.status = 'running'; touch(t);
         toast(`${a.label}に送りました`);
       } else toast('メモを投稿しました');
@@ -808,10 +873,30 @@
     finally { $('dSend').disabled = false; }
   });
 
-  // ================= settings =================
+  // ================= settings (accounts) =================
+  let editingAcct = null;
+  function renderAccounts() {
+    $('acctList').innerHTML = accounts().length ? accounts().map(a => `
+      <div class="pr"><span class="st open">${esc(acctName(a))}</span>
+        <span class="nm">${a.login ? '@' + esc(a.login) : '（未確認）'}${a.repo ? ` · ${esc(a.repo)}` : ''}${(a.owners || []).length ? ` · ${esc(a.owners.join(', '))}` : ''}</span>
+        <button type="button" class="iconbtn" data-a="edit" data-id="${a.id}">編集</button>
+        <button type="button" class="iconbtn" data-a="del" data-id="${a.id}">削除</button></div>`).join('')
+      : '<div class="hint">まだアカウントがありません。</div>';
+    $('sInstallAcct').innerHTML = accounts().map(a => `<option value="${a.id}">${esc(acctName(a))}${a.login ? ` (@${esc(a.login)})` : ''}</option>`).join('');
+  }
+  function openAcctForm(a) {
+    editingAcct = a ? a.id : null;
+    $('aLabel').value = a?.label || ''; $('aToken').value = a?.token || '';
+    $('aRepo').value = a?.repo || ''; $('aOwners').value = (a?.owners || []).join(', ');
+    $('aResult').textContent = ''; $('acctForm').hidden = false; $('acctAdd').hidden = true;
+    $('aLabel').focus();
+  }
+  function closeAcctForm() { $('acctForm').hidden = true; $('acctAdd').hidden = false; editingAcct = null; }
   function openSettings() {
-    $('sToken').value = ghCfg.token; $('sRepo').value = ghCfg.repo;
-    $('sInstallRepo').value = ghCfg.repo; $('sResult').textContent = ''; $('sInstallResult').textContent = '';
+    renderAccounts(); closeAcctForm();
+    if (!accounts().length) openAcctForm(null);
+    const first = accounts()[0];
+    $('sInstallRepo').value = first?.repo || ''; $('sInstallResult').textContent = '';
     updateSecretsLink(); $('settings').showModal();
   }
   function updateSecretsLink() {
@@ -819,25 +904,49 @@
     $('sSecrets').href = REPO_RE.test(r) ? `https://github.com/${r}/settings/secrets/actions` : 'https://github.com/settings';
   }
   $('sInstallRepo').addEventListener('input', updateSecretsLink);
+  $('sInstallAcct').addEventListener('change', () => { const a = acctById($('sInstallAcct').value); if (a?.repo) { $('sInstallRepo').value = a.repo; updateSecretsLink(); } });
   $('settingsBtn').addEventListener('click', openSettings);
   $('sClose').addEventListener('click', () => $('settings').close());
-  const readSettings = () => { ghCfg.token = $('sToken').value.trim(); ghCfg.repo = $('sRepo').value.trim(); save(GHKEY, ghCfg); };
-  $('sForm').addEventListener('submit', e => { e.preventDefault(); readSettings(); $('settings').close(); toast('GitHub設定を保存しました'); render(); });
-  $('sTest').addEventListener('click', async () => {
-    readSettings(); $('sResult').textContent = '確認中…';
+  $('sForm').addEventListener('submit', e => e.preventDefault());
+  $('settings').addEventListener('close', () => { renderFilters(); render(); });
+  $('acctAdd').addEventListener('click', () => openAcctForm(null));
+  $('aCancel').addEventListener('click', closeAcctForm);
+  $('acctList').addEventListener('click', e => {
+    const b = e.target.closest('[data-a]'); if (!b) return;
+    const a = acctById(b.dataset.id); if (!a) return;
+    if (b.dataset.a === 'edit') openAcctForm(a);
+    else if (confirm(`アカウント「${acctName(a)}」を削除しますか？（タスクは残り、別のアカウントで扱われます）`)) {
+      ghCfg.accounts = accounts().filter(x => x.id !== a.id); saveAccounts();
+      if (prefs.account === a.id) { prefs.account = 'all'; save(PREF, prefs); }
+      renderAccounts();
+    }
+  });
+  $('aSave').addEventListener('click', async () => {
+    const data = {
+      label: $('aLabel').value.trim(), token: $('aToken').value.trim(), repo: $('aRepo').value.trim(),
+      owners: $('aOwners').value.split(/[,、，\s]+/).map(x => x.trim()).filter(Boolean),
+    };
+    if (!data.token) { $('aResult').textContent = 'トークンを入力してください'; return; }
+    if (data.repo && !REPO_RE.test(data.repo)) { $('aResult').textContent = '既定のリポジトリは owner/repo の形で'; return; }
+    $('aResult').textContent = '確認中…';
+    let login = '', note = '';
     try {
-      const me = await gh('/user');
-      let msg = `✅ ${me.login} として接続できました。`;
-      if (ghCfg.repo) {
-        const r = await gh(`/repos/${ghCfg.repo}`);
-        msg += ` リポジトリ ${r.full_name} も見えます。`;
-      }
-      $('sResult').textContent = msg;
-    } catch (err) { $('sResult').textContent = '❌ ' + err.message; }
+      login = (await gh('/user', {}, data)).login;
+      if (data.repo) { try { await gh(`/repos/${data.repo}`, {}, data); } catch (err) { note = ` ⚠️ ${data.repo} が見えません（${err.status}）。トークンの対象リポジトリを確認してください。`; } }
+    } catch (err) { $('aResult').textContent = '❌ ' + err.message; return; }
+    const dup = accounts().find(a => a.login === login && a.id !== editingAcct);
+    if (dup && !confirm(`@${login} は「${acctName(dup)}」として登録済みです。追加しますか？`)) return;
+    const a = { ...data, login, label: data.label || login };
+    if (editingAcct) Object.assign(acctById(editingAcct), a);
+    else accounts().push({ id: 'a' + uid(), ...a });
+    saveAccounts(); renderAccounts(); closeAcctForm();
+    toast(`✅ @${login} を保存しました${note ? '（注意あり）' : ''}`);
+    if (note) $('sInstallResult').textContent = note;
   });
   $('sInstall').addEventListener('click', async () => {
-    readSettings();
+    const acct = acctById($('sInstallAcct').value);
     const repo = $('sInstallRepo').value.trim();
+    if (!acct) { $('sInstallResult').textContent = '先にアカウントを追加してください'; return; }
     if (!REPO_RE.test(repo)) { $('sInstallResult').textContent = 'owner/repo の形で入力してください'; return; }
     $('sInstallResult').textContent = '書き込み中…';
     try {
@@ -846,12 +955,12 @@
         const text = await (await fetch(`workflows/${name}`, { cache: 'no-store' })).text();
         const path = `.github/workflows/${name}`;
         let sha;
-        try { sha = (await gh(`/repos/${repo}/contents/${path}`)).sha; } catch (err) { if (err.status !== 404) throw err; }
+        try { sha = (await gh(`/repos/${repo}/contents/${path}`, {}, acct)).sha; } catch (err) { if (err.status !== 404) throw err; }
         await gh(`/repos/${repo}/contents/${path}`, { method: 'PUT', body: JSON.stringify({
-          message: `chore: ${sha ? 'update' : 'add'} ${name} for AIタスク`, content: b64(text), ...(sha ? { sha } : {}) }) });
+          message: `chore: ${sha ? 'update' : 'add'} ${name} for AIタスク`, content: b64(text), ...(sha ? { sha } : {}) }) }, acct);
         done.push(name);
       }
-      $('sInstallResult').textContent = `✅ ${done.join(' / ')} を入れました。次にシークレットを登録してください。`;
+      $('sInstallResult').textContent = `✅ ${repo} に ${done.join(' / ')} を入れました（${acctName(acct)}）。次にシークレットを登録してください。`;
     } catch (err) {
       $('sInstallResult').textContent = '❌ ' + err.message + (err.status === 403 || err.status === 404 ? '（トークンの Contents / Workflows 権限を確認）' : '');
     }
@@ -860,12 +969,44 @@
   $('syncAllBtn').addEventListener('click', async () => {
     const list = tasks.filter(t => t.issue && t.status !== 'done');
     if (!list.length) { toast('GitHub上で進行中のタスクはありません'); return; }
-    let changed = 0;
-    for (const t of list) {
+    let changed = 0, failed = 0;
+    await Promise.all(list.map(async t => {
       try { const s = deriveStatus(t, await fetchThread(t)); if (s !== t.status) { t.status = s; t.updatedAt = Date.now(); changed++; } }
-      catch (err) { toast(`${t.title}: ${err.message}`); }
-    }
-    persist(); render(); toast(`${list.length}件を確認（${changed}件の状態を更新）`);
+      catch { failed++; }
+    }));
+    persist(); render(); toast(`${list.length}件を確認（${changed}件更新${failed ? `・${failed}件失敗` : ''}）`);
+  });
+
+  // 全アカウントから @claude / @codex 宛てのIssueを取り込む（別端末で作ったタスクや、GitHubで直接頼んだものも一覧に）
+  $('importGhBtn').addEventListener('click', async e => {
+    if (!ghReady()) { openSettings(); return; }
+    const btn = e.currentTarget; btn.disabled = true;
+    let added = 0; const errors = [];
+    try {
+      for (const acct of accounts()) {
+        if (!acct.login) { try { acct.login = (await gh('/user', {}, acct)).login; saveAccounts(); } catch (err) { errors.push(err.message); continue; } }
+        let res;
+        try { res = await gh(`/search/issues?q=${encodeURIComponent(`is:issue is:open involves:${acct.login} in:body,comments claude OR codex`)}&per_page=50&sort=updated`, {}, acct); }
+        catch (err) { errors.push(err.message); continue; }
+        for (const it of res.items || []) {
+          const m = (it.body || '').match(/@(claude|codex)\b/i);
+          if (!m) continue;
+          const repo = it.repository_url.split('/repos/')[1];
+          if (tasks.some(t => t.issue && t.repo.toLowerCase() === repo.toLowerCase() && t.issue.number === it.number)) continue;
+          const mk = (it.body || '').match(/<!-- ai-tasks:([\w-]+) -->/);
+          const prompt = (it.body || '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*@(claude|codex)\b\s*/i, '').trim();
+          tasks.push({
+            id: mk && !byId(mk[1]) ? mk[1] : uid(), createdAt: Date.parse(it.created_at) || Date.now(), updatedAt: Date.parse(it.updated_at) || Date.now(),
+            agent: m[1].toLowerCase(), title: it.title, prompt, repo, accountId: acct.id, status: 'running',
+            tags: [], link: it.html_url, note: '', issue: { number: it.number, url: it.html_url },
+          });
+          added++;
+        }
+      }
+      persist(); render();
+      toast(`${added}件取り込みました${errors.length ? `（${errors.length}件エラー: ${errors[0]}）` : ''}`);
+      if (added) $('syncAllBtn').click();
+    } finally { btn.disabled = false; }
   });
 
   // ================= export / import =================
