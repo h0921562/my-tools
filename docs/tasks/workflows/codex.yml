@@ -1,0 +1,188 @@
+# AIタスク用: Issue / PR のコメントで @codex と書くと Codex が作業し、変更を codex/issue-<番号> ブランチに push して PR にします。
+# 必要なシークレット: OPENAI_API_KEY
+# PRの自動作成には Settings → Actions → General → 「Allow GitHub Actions to create and approve pull requests」をON
+# （OFFでもブランチは push され、AIタスク画面の「PRを作成」から作れます）
+name: Codex
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: codex-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  ack:
+    # リポジトリの書き込み権限を持つ人の @codex だけに反応する
+    if: |
+      github.event.sender.type != 'Bot' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event_name == 'issue_comment' && github.event.comment.author_association || github.event.issue.author_association) &&
+      ((github.event_name == 'issues' && (contains(github.event.issue.body, '@codex') || contains(github.event.issue.title, '@codex'))) ||
+       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')))
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    outputs:
+      comment_id: ${{ steps.ack.outputs.result }}
+    steps:
+      - id: ack
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { data } = await github.rest.issues.createComment({
+              ...context.repo, issue_number: context.issue.number,
+              body: `⏳ Codex が作業中です…（[ログ](${run})）\n\n<!-- codex-status -->`,
+            });
+            return data.id;
+
+  codex:
+    needs: ack
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      final_message: ${{ steps.run.outputs.final-message }}
+      branch: ${{ steps.ctx.outputs.branch }}
+      ref: ${{ steps.ctx.outputs.ref }}
+      is_pr: ${{ steps.ctx.outputs.is_pr }}
+    steps:
+      - id: ctx
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          N: ${{ github.event.issue.number }}
+          IS_PR: ${{ github.event.issue.pull_request && 'true' || 'false' }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$IS_PR" = true ]; then
+            BRANCH=$(gh api "repos/$REPO/pulls/$N" -q .head.ref)
+            REF="$BRANCH"
+          else
+            BRANCH="codex/issue-$N"
+            if gh api "repos/$REPO/branches/$BRANCH" >/dev/null 2>&1; then REF="$BRANCH"; else REF="$DEFAULT_BRANCH"; fi
+          fi
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "is_pr=$IS_PR" >> "$GITHUB_OUTPUT"
+
+          P="$RUNNER_TEMP/prompt.md"
+          {
+            echo "あなたは GitHub リポジトリ $REPO で作業するコーディングエージェントです。"
+            echo "下のスレッド（Issue/PR とコメント）のうち、最後に @codex が付いた指示に従って、作業ディレクトリ内のファイルを変更してください。"
+            echo "- git commit / push はしないでください。終了後にワークフローが自動でコミットし、ブランチ $BRANCH に push して PR にします。"
+            echo "- 質問や調査だけの依頼ならファイルは変更しなくて構いません。"
+            echo "- 最後に、行ったこと・確認してほしい点を日本語で簡潔にまとめて出力してください。その内容がそのままコメントとして投稿されます。"
+            echo
+            echo "===== スレッド ====="
+            gh api "repos/$REPO/issues/$N" --jq '"## #\(.number) \(.title)\n作成者: \(.user.login)\n\n\(.body // "")\n"'
+            gh api --paginate "repos/$REPO/issues/$N/comments" --jq '.[] | "---\n\(.user.login) (\(.created_at)):\n\(.body)\n"'
+          } > "$P"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.ctx.outputs.ref }}
+          persist-credentials: false
+
+      - name: Run Codex
+        id: run
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":workspace"
+          prompt-file: ${{ runner.temp }}/prompt.md
+
+      - name: Save changes as patch
+        run: |
+          git add -A
+          git diff --cached --binary > "$RUNNER_TEMP/codex.patch"
+          wc -c < "$RUNNER_TEMP/codex.patch"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-patch
+          path: ${{ runner.temp }}/codex.patch
+          if-no-files-found: ignore
+
+  finish:
+    needs: [ack, codex]
+    if: always() && needs.ack.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+        if: needs.codex.result == 'success'
+        with:
+          ref: ${{ needs.codex.outputs.ref }}
+
+      - uses: actions/download-artifact@v4
+        if: needs.codex.result == 'success'
+        with:
+          name: codex-patch
+          path: ${{ runner.temp }}/patch
+
+      - name: Commit, push and open PR
+        id: push
+        if: needs.codex.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          N: ${{ github.event.issue.number }}
+          TITLE: ${{ github.event.issue.title }}
+          BRANCH: ${{ needs.codex.outputs.branch }}
+          IS_PR: ${{ needs.codex.outputs.is_pr }}
+        run: |
+          set -euo pipefail
+          PATCH="$RUNNER_TEMP/patch/codex.patch"
+          if [ ! -s "$PATCH" ]; then echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git config user.name "codex[bot]"
+          git config user.email "codex-bot@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git apply --index "$PATCH"
+          git commit -m "codex: #$N $TITLE"
+          git push origin "HEAD:$BRANCH"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          if [ "$IS_PR" = true ]; then
+            echo "pr_url=$(gh api "repos/$REPO/pulls/$N" -q .html_url)" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          PR=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json url -q '.[0].url' || true)
+          if [ -z "$PR" ]; then
+            PR=$(gh pr create -R "$REPO" --head "$BRANCH" --title "[Codex] $TITLE" --body "Closes #$N（Codex による自動作成）" 2>/dev/null || true)
+          fi
+          echo "pr_url=$PR" >> "$GITHUB_OUTPUT"
+
+      - name: Report result
+        uses: actions/github-script@v7
+        env:
+          COMMENT_ID: ${{ needs.ack.outputs.comment_id }}
+          RESULT: ${{ needs.codex.result }}
+          MESSAGE: ${{ needs.codex.outputs.final_message }}
+          CHANGED: ${{ steps.push.outputs.changed }}
+          PR_URL: ${{ steps.push.outputs.pr_url }}
+          BRANCH: ${{ needs.codex.outputs.branch }}
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const e = process.env;
+            let body;
+            if (e.RESULT !== 'success') {
+              body = `❌ Codex の実行に失敗しました（[ログ](${run})）。シークレット OPENAI_API_KEY が設定されているか確認してください。`;
+            } else {
+              body = `✅ Codex が完了しました\n\n${e.MESSAGE || '（メッセージなし）'}\n\n---\n`;
+              if (e.CHANGED !== 'true') body += '変更はありませんでした。';
+              else if (e.PR_URL) body += `PR: ${e.PR_URL}`;
+              else body += `ブランチ \`${e.BRANCH}\` に push しました（PRは未作成）。`;
+              body += `　[ログ](${run})`;
+            }
+            body += '\n\n<!-- codex-status -->';
+            await github.rest.issues.updateComment({ ...context.repo, comment_id: Number(e.COMMENT_ID), body });
