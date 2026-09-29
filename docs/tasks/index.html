@@ -338,6 +338,15 @@
       <div class="hint" id="aResult"></div>
     </div>
 
+    <h2 style="margin-top:22px">Codex の実行先</h2>
+    <div class="field">
+      <select id="sCodexMode">
+        <option value="actions">GitHub Actions（codex.yml・OPENAI_API_KEYで実行）</option>
+        <option value="cloud">Codex本体（ChatGPTのCodexクラウド・公式GitHub連携）</option>
+      </select>
+      <div class="hint">「Codex本体」は chatgpt.com/codex でGitHub連携を有効にしたリポジトリで使えます。ChatGPTのプランで動き、作業は chatgpt.com/codex にも表示されます。このとき codex.yml は反応しないので、二重に動くことはありません。</div>
+    </div>
+
     <h2 style="margin-top:22px">リポジトリの準備（最初に1回）</h2>
     <ol>
       <li>トークンの権限（アカウントごと）: 対象リポジトリを選び、<b>Issues</b>・<b>Pull requests</b>・<b>Contents</b>・<b>Workflows</b> を <b>Read and write</b>、<b>Actions</b> を Read に。</li>
@@ -449,6 +458,10 @@
   const ghReady = () => accounts().length > 0;
   const b64 = s => btoa(unescape(encodeURIComponent(s)));
   const MARK = id => `<!-- ai-tasks:${id} -->`;
+  // Codex本体（公式連携）で動かすときの目印。codex.yml はこれが付いた依頼には反応しない
+  const CLOUD_MARK = '<!-- codex:cloud -->';
+  const codexCloud = () => prefs.codexMode === 'cloud';
+  const withMode = (agent, text) => agent === 'codex' && codexCloud() ? `${text}\n\n${CLOUD_MARK}` : text;
 
   async function startOnGitHub(t) {
     if (!ghReady()) { openSettings(); toast('先にGitHub設定をしてください'); return; }
@@ -457,7 +470,7 @@
     const acct = acctById(t.accountId) || acctForRepo(repo);
     const a = AGENTS[t.agent];
     if (!a) { toast('担当（Claude / Codex）を選んでください'); openDialog(t); return; }
-    const body = `${a.mention}\n\n${t.prompt || t.title}\n\n${MARK(t.id)}`;
+    const body = withMode(t.agent, `${a.mention}\n\n${t.prompt || t.title}\n\n${MARK(t.id)}`);
     const issue = await gh(`/repos/${repo}/issues`, { method: 'POST', body: JSON.stringify({ title: t.title, body }) }, acct);
     Object.assign(t, { repo, accountId: acct.id, issue: { number: issue.number, url: issue.html_url }, link: t.link || issue.html_url, status: 'running', updatedAt: Date.now() });
     persist(); render();
@@ -739,7 +752,7 @@
   }
 
   function whoClass(c) {
-    if (/codex-status/.test(c.body || '') || /codex/i.test(c.user.login)) return 'codex';
+    if (/codex-status/.test(c.body || '') || /codex/i.test(c.user.login)) return 'codex';  // chatgpt-codex-connector[bot] も含む
     if (/claude/i.test(c.user.login)) return 'claude';
     return '';
   }
@@ -761,6 +774,7 @@
     $('dActions').innerHTML = `
       <button type="button" data-d="refresh">↻ 更新</button>
       ${t.issue ? `<a href="${esc(t.issue.url)}" target="_blank" rel="noopener">GitHubで開く ↗</a>` : ''}
+      ${t.agent === 'codex' && codexCloud() ? `<a href="https://chatgpt.com/codex" target="_blank" rel="noopener">Codex本体 ↗</a>` : ''}
       <button type="button" data-d="edit">編集</button>
       ${t.issue ? (open ? `<button type="button" data-d="close">完了にする</button>` : `<button type="button" data-d="reopen">再開する</button>`) : ''}`;
   }
@@ -858,7 +872,7 @@
     $('dSend').disabled = true;
     try {
       await gh(`/repos/${t.repo}/issues/${t.issue.number}/comments`, { method: 'POST',
-        body: JSON.stringify({ body: a ? `${a.mention} ${text}` : text }) }, acctFor(t));
+        body: JSON.stringify({ body: a ? withMode(composeAgent, `${a.mention} ${text}`) : text }) }, acctFor(t));
       $('dInput').value = '';
       if (a) {
         if (lastThread?.issue?.state === 'closed')
@@ -894,6 +908,7 @@
   function closeAcctForm() { $('acctForm').hidden = true; $('acctAdd').hidden = false; editingAcct = null; }
   function openSettings() {
     renderAccounts(); closeAcctForm();
+    $('sCodexMode').value = prefs.codexMode || 'actions';
     if (!accounts().length) openAcctForm(null);
     const first = accounts()[0];
     $('sInstallRepo').value = first?.repo || ''; $('sInstallResult').textContent = '';
@@ -908,6 +923,10 @@
   $('settingsBtn').addEventListener('click', openSettings);
   $('sClose').addEventListener('click', () => $('settings').close());
   $('sForm').addEventListener('submit', e => e.preventDefault());
+  $('sCodexMode').addEventListener('change', () => {
+    prefs.codexMode = $('sCodexMode').value; save(PREF, prefs);
+    toast(codexCloud() ? 'Codexは本体（Codexクラウド）で実行します' : 'CodexはGitHub Actionsで実行します');
+  });
   $('settings').addEventListener('close', () => { renderFilters(); render(); });
   $('acctAdd').addEventListener('click', () => openAcctForm(null));
   $('aCancel').addEventListener('click', closeAcctForm);

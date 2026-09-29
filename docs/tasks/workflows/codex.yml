@@ -1,5 +1,6 @@
 # AIタスク用: Issue / PR のコメントで @codex と書くと Codex が作業し、変更を codex/issue-<番号> ブランチに push して PR にします。
 # 必要なシークレット: OPENAI_API_KEY
+# 本文に <!-- codex:cloud --> がある依頼は Codex本体（公式GitHub連携）に任せ、このワークフローは動かない
 # PRの自動作成には Settings → Actions → General → 「Allow GitHub Actions to create and approve pull requests」をON
 # （OFFでもブランチは push され、AIタスク画面の「PRを作成」から作れます）
 name: Codex
@@ -20,8 +21,8 @@ jobs:
     if: |
       github.event.sender.type != 'Bot' &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event_name == 'issue_comment' && github.event.comment.author_association || github.event.issue.author_association) &&
-      ((github.event_name == 'issues' && (contains(github.event.issue.body, '@codex') || contains(github.event.issue.title, '@codex'))) ||
-       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')))
+      ((github.event_name == 'issues' && (contains(github.event.issue.body, '@codex') || contains(github.event.issue.title, '@codex')) && !contains(github.event.issue.body, 'codex:cloud')) ||
+       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex') && !contains(github.event.comment.body, 'codex:cloud')))
     runs-on: ubuntu-latest
     permissions:
       issues: write
