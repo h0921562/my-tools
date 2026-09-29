@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AIタスク</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AIタスク">
+<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<style>
+  :root {
+    --bg: #f1f5f9; --surface: #ffffff; --text: #0f172a; --sub: #64748b;
+    --border: #e2e8f0; --accent: #4f46e5; --accent-ink:#fff; --danger:#b3261e;
+    --claude:#c2410c; --claude-bg:#fff1ea; --codex:#047857; --codex-bg:#e7f7f0;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#0b1120; --surface:#151c2c; --text:#e5e7eb; --sub:#94a3b8;
+      --border:#26304a; --accent:#818cf8; --accent-ink:#0b1120; --danger:#f2705f;
+      --claude:#fb923c; --claude-bg:#3a1d10; --codex:#34d399; --codex-bg:#0f2f25;
+      --shadow:0 1px 3px rgba(0,0,0,.5); }
+  }
+  :root[data-theme="dark"] { --bg:#0b1120; --surface:#151c2c; --text:#e5e7eb; --sub:#94a3b8;
+    --border:#26304a; --accent:#818cf8; --accent-ink:#0b1120; --danger:#f2705f;
+    --claude:#fb923c; --claude-bg:#3a1d10; --codex:#34d399; --codex-bg:#0f2f25;
+    --shadow:0 1px 3px rgba(0,0,0,.5); }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", Meiryo, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: max(24px, env(safe-area-inset-top)) 16px calc(96px + env(safe-area-inset-bottom));
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  header { margin: 8px 0 18px; display:flex; align-items:center; gap:14px; }
+  header img { width:56px; height:56px; border-radius:14px; flex:none; }
+  header .body { flex:1; min-width:0; }
+  h1 { font-size: 24px; margin: 0 0 3px; letter-spacing: .01em; }
+  .lead { color: var(--sub); font-size: 13px; margin: 0; line-height: 1.6; }
+  a.back { color: var(--sub); font-size: 13px; text-decoration:none; }
+
+  .stats { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-bottom:14px; }
+  .stat { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 8px; text-align:center; }
+  .stat .n { font-size:20px; font-weight:700; }
+  .stat .l { font-size:11px; color:var(--sub); margin-top:2px; }
+
+  .seg { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; margin-bottom:8px; scrollbar-width:none; }
+  .seg::-webkit-scrollbar { display:none; }
+  .seg button {
+    flex:none; border:1px solid var(--border); background:var(--surface); color:var(--text);
+    border-radius:999px; padding:7px 13px; font-size:13px; cursor:pointer; font-family:inherit;
+  }
+  .seg button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:700; }
+  .search {
+    width:100%; padding:10px 12px; font-size:16px; color:var(--text); background:var(--surface);
+    border:1px solid var(--border); border-radius:10px; margin:4px 0 14px; font-family:inherit;
+  }
+
+  .list { display:grid; gap:10px; }
+  .task {
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:13px 14px; box-shadow:var(--shadow);
+  }
+  .task.done { opacity:.6; }
+  .task .top { display:flex; align-items:flex-start; gap:8px; }
+  .task .title { flex:1; min-width:0; font-weight:700; font-size:15.5px; line-height:1.45; word-break:break-word; cursor:pointer; }
+  .task.done .title { text-decoration: line-through; }
+  .meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; align-items:center; font-size:12px; color:var(--sub); }
+  .badge { display:inline-block; border-radius:6px; padding:2px 7px; font-size:11.5px; font-weight:700; }
+  .badge.claude { color:var(--claude); background:var(--claude-bg); }
+  .badge.codex { color:var(--codex); background:var(--codex-bg); }
+  .badge.none { color:var(--sub); background:var(--bg); }
+  .status {
+    flex:none; border:1px solid var(--border); background:var(--bg); color:var(--text);
+    border-radius:999px; padding:4px 10px; font-size:12px; cursor:pointer; font-family:inherit; white-space:nowrap;
+  }
+  .status[data-s="running"] { border-color:var(--accent); color:var(--accent); }
+  .status[data-s="review"] { border-color:#d97706; color:#d97706; }
+  .status[data-s="done"] { border-color:var(--codex); color:var(--codex); }
+  .preview { font-size:13px; color:var(--sub); margin-top:6px; line-height:1.55;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:pre-wrap; word-break:break-word; }
+  .actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .actions button, .actions a {
+    border:1px solid var(--border); background:transparent; color:var(--text); text-decoration:none;
+    border-radius:9px; padding:7px 11px; font-size:13px; cursor:pointer; font-family:inherit;
+  }
+  .actions .run.claude { border-color:var(--claude); color:var(--claude); font-weight:700; }
+  .actions .run.codex { border-color:var(--codex); color:var(--codex); font-weight:700; }
+  .empty { text-align:center; color:var(--sub); font-size:14px; padding:36px 10px; line-height:1.8; }
+
+  .fab {
+    position:fixed; right:max(18px, env(safe-area-inset-right)); bottom:calc(20px + env(safe-area-inset-bottom));
+    background:var(--accent); color:var(--accent-ink); border:none; border-radius:999px;
+    padding:15px 22px; font-size:16px; font-weight:700; box-shadow:0 6px 20px rgba(79,70,229,.35); cursor:pointer; font-family:inherit;
+  }
+
+  dialog {
+    border:none; border-radius:18px; padding:0; width:min(560px, calc(100vw - 24px));
+    background:var(--surface); color:var(--text); box-shadow:0 20px 60px rgba(0,0,0,.3);
+  }
+  dialog::backdrop { background:rgba(15,23,42,.5); }
+  .dlg { padding:18px 16px; max-height:calc(100dvh - 40px); overflow:auto; }
+  .dlg h2 { font-size:17px; margin:0 0 14px; }
+  .field { margin-bottom:12px; }
+  .field label { display:block; font-size:13px; color:var(--sub); margin-bottom:5px; }
+  .field input, .field textarea, .field select {
+    width:100%; padding:10px 12px; font-size:16px; color:var(--text); background:var(--bg);
+    border:1px solid var(--border); border-radius:10px; font-family:inherit;
+  }
+  .field textarea { min-height:150px; resize:vertical; line-height:1.55; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .pick { display:flex; gap:6px; }
+  .pick button {
+    flex:1; border:1px solid var(--border); background:var(--bg); color:var(--text);
+    border-radius:10px; padding:10px 6px; font-size:14px; cursor:pointer; font-family:inherit;
+  }
+  .pick button[aria-pressed="true"][data-v="claude"] { border-color:var(--claude); background:var(--claude-bg); color:var(--claude); font-weight:700; }
+  .pick button[aria-pressed="true"][data-v="codex"] { border-color:var(--codex); background:var(--codex-bg); color:var(--codex); font-weight:700; }
+  .pick button[aria-pressed="true"][data-v=""] { border-color:var(--accent); color:var(--accent); font-weight:700; }
+  .dlg-actions { display:flex; gap:8px; margin-top:16px; }
+  .btn {
+    flex:1; text-align:center; background:var(--accent); color:var(--accent-ink); font-weight:700; font-size:15px;
+    border:none; border-radius:12px; padding:13px; cursor:pointer; font-family:inherit;
+  }
+  .btn.sub { background:transparent; color:var(--text); border:1px solid var(--border); font-weight:600; }
+  .btn.danger { background:transparent; color:var(--danger); border:1px solid var(--border); font-weight:600; flex:none; padding:13px 16px; }
+  .hint { font-size:12px; color:var(--sub); margin-top:5px; line-height:1.6; }
+
+  .tools { margin-top:26px; background:var(--surface); border:1px dashed var(--border);
+    border-radius:14px; padding:14px 16px; font-size:13px; color:var(--sub); line-height:1.7; }
+  .tools b { color:var(--text); }
+  .tools .actions button { font-size:12.5px; }
+
+  .toast {
+    position:fixed; left:50%; bottom:calc(88px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+    background:#0f172a; color:#fff; border-radius:10px; padding:10px 16px; font-size:13.5px;
+    opacity:0; pointer-events:none; transition:opacity .2s; max-width:calc(100vw - 32px); z-index:10;
+  }
+  .toast.show { opacity:.95; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="../index.html">‹ マイツール</a>
+  <header>
+    <img src="assets/icon.svg" alt="" width="56" height="56">
+    <div class="body">
+      <h1>AIタスク</h1>
+      <p class="lead">Claude と Codex に頼むタスクを一か所で管理。プロンプトをコピーしてそのまま開けます。</p>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="seg" id="agentFilter" role="group" aria-label="担当で絞り込み"></div>
+  <div class="seg" id="statusFilter" role="group" aria-label="状態で絞り込み"></div>
+  <input class="search" id="q" type="search" placeholder="検索（タイトル・内容・リポジトリ・タグ）">
+
+  <div class="list" id="list"></div>
+
+  <div class="tools">
+    <b>データについて</b><br>
+    タスクはこの端末のブラウザ内に保存されます。別の端末へ移すときは書き出し→読み込みを使ってください。
+    <div class="actions">
+      <button type="button" id="exportBtn">書き出し（JSON）</button>
+      <button type="button" id="importBtn">読み込み</button>
+      <button type="button" id="clearDoneBtn">完了を削除</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json,.json" hidden>
+  </div>
+</div>
+
+<button class="fab" id="addBtn" type="button">＋ タスク</button>
+
+<dialog id="dlg">
+  <form class="dlg" id="form" method="dialog">
+    <h2 id="dlgTitle">タスクを追加</h2>
+    <div class="field">
+      <label>担当</label>
+      <div class="pick" id="agentPick">
+        <button type="button" data-v="claude">Claude</button>
+        <button type="button" data-v="codex">Codex</button>
+        <button type="button" data-v="">未定</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="fTitle">タイトル</label>
+      <input id="fTitle" required maxlength="200" placeholder="例: 名刺管理にCSV書き出しを追加">
+    </div>
+    <div class="field">
+      <label for="fPrompt">依頼内容（プロンプト）</label>
+      <textarea id="fPrompt" placeholder="AIにそのまま渡す指示を書く"></textarea>
+      <div class="hint">「コピーして開く」でこの内容がクリップボードに入り、担当のサービスが開きます。</div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label for="fRepo">リポジトリ</label>
+        <input id="fRepo" list="repoList" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <datalist id="repoList"></datalist>
+      </div>
+      <div class="field">
+        <label for="fStatus">状態</label>
+        <select id="fStatus"></select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="fTags">タグ（カンマ区切り）</label>
+      <input id="fTags" placeholder="例: バグ, meishi">
+    </div>
+    <div class="field">
+      <label for="fLink">セッション / PR のURL</label>
+      <input id="fLink" type="url" placeholder="https://..." autocapitalize="off">
+      <div class="hint">実行を始めたらセッションやPRのURLを貼っておくと、あとから一発で戻れます。</div>
+    </div>
+    <div class="field">
+      <label for="fNote">メモ・結果</label>
+      <textarea id="fNote" style="min-height:70px" placeholder="結果の要約、次にやること など"></textarea>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn danger" id="delBtn">削除</button>
+      <button type="button" class="btn sub" id="cancelBtn">キャンセル</button>
+      <button type="submit" class="btn" id="saveBtn">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  const KEY = 'aiTasks.v1';
+  const PREF = 'aiTasks.prefs.v1';
+  const AGENTS = {
+    claude: { label: 'Claude', url: 'https://claude.ai/code' },
+    codex:  { label: 'Codex',  url: 'https://chatgpt.com/codex' },
+  };
+  const STATUSES = [
+    { v: 'todo',    label: 'やること' },
+    { v: 'running', label: '実行中' },
+    { v: 'review',  label: '確認待ち' },
+    { v: 'done',    label: '完了' },
+  ];
+  const statusLabel = v => (STATUSES.find(s => s.v === v) || STATUSES[0]).label;
+
+  const $ = id => document.getElementById(id);
+  const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { toast('保存できませんでした（ブラウザの保存領域を確認してください）'); } };
+
+  let tasks = load(KEY, []);
+  if (!Array.isArray(tasks)) tasks = [];
+  const prefs = Object.assign({ agent: 'all', status: 'active' }, load(PREF, {}));
+  let editingId = null;
+  let pickAgent = 'claude';
+
+  const persist = () => save(KEY, tasks);
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
+  const fmtDate = t => { const d = new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+
+  let toastTimer;
+  function toast(msg) {
+    const el = $('toast'); el.textContent = msg; el.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+  }
+
+  // ---- filters ----
+  function renderFilters() {
+    const agentOpts = [['all','すべて'],['claude','Claude'],['codex','Codex'],['none','未定']];
+    $('agentFilter').innerHTML = agentOpts.map(([v,l]) =>
+      `<button type="button" data-v="${v}" aria-pressed="${prefs.agent===v}">${l}</button>`).join('');
+    const statusOpts = [['active','未完了'], ...STATUSES.map(s => [s.v, s.label]), ['all','すべて']];
+    $('statusFilter').innerHTML = statusOpts.map(([v,l]) =>
+      `<button type="button" data-v="${v}" aria-pressed="${prefs.status===v}">${l}</button>`).join('');
+  }
+  $('agentFilter').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    prefs.agent = b.dataset.v; save(PREF, prefs); renderFilters(); render();
+  });
+  $('statusFilter').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    prefs.status = b.dataset.v; save(PREF, prefs); renderFilters(); render();
+  });
+  $('q').addEventListener('input', () => render());
+
+  // ---- list ----
+  function visible() {
+    const q = $('q').value.trim().toLowerCase();
+    return tasks.filter(t => {
+      if (prefs.agent === 'none' ? t.agent : (prefs.agent !== 'all' && t.agent !== prefs.agent)) return false;
+      if (prefs.status === 'active' ? t.status === 'done' : (prefs.status !== 'all' && t.status !== prefs.status)) return false;
+      if (q) {
+        const hay = [t.title, t.prompt, t.repo, t.note, (t.tags||[]).join(' ')].join('\n').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    }).sort((a, b) => {
+      // 実行中・確認待ちを上に、同じ状態なら新しい順
+      const rank = s => ({ running:0, review:1, todo:2, done:3 }[s] ?? 2);
+      return rank(a.status) - rank(b.status) || b.updatedAt - a.updatedAt;
+    });
+  }
+
+  function renderStats() {
+    const c = s => tasks.filter(t => t.status === s).length;
+    $('stats').innerHTML = STATUSES.map(s =>
+      `<div class="stat"><div class="n">${c(s.v)}</div><div class="l">${s.label}</div></div>`).join('');
+  }
+
+  function render() {
+    renderStats();
+    const list = visible();
+    if (!list.length) {
+      $('list').innerHTML = tasks.length
+        ? '<div class="empty">条件に合うタスクはありません。</div>'
+        : '<div class="empty">まだタスクがありません。<br>右下の「＋ タスク」から追加してください。</div>';
+      return;
+    }
+    $('list').innerHTML = list.map(t => {
+      const a = AGENTS[t.agent];
+      const link = safeUrl(t.link);
+      return `<div class="task ${t.status==='done'?'done':''}" data-id="${t.id}">
+        <div class="top">
+          <div class="title" data-act="edit">${esc(t.title)}</div>
+          <button type="button" class="status" data-act="cycle" data-s="${t.status}" title="タップで状態を進める">${statusLabel(t.status)}</button>
+        </div>
+        ${t.prompt ? `<div class="preview">${esc(t.prompt)}</div>` : ''}
+        <div class="meta">
+          <span class="badge ${t.agent || 'none'}">${a ? a.label : '未定'}</span>
+          ${t.repo ? `<span>📁 ${esc(t.repo)}</span>` : ''}
+          ${(t.tags||[]).map(g => `<span>#${esc(g)}</span>`).join('')}
+          <span>${fmtDate(t.updatedAt)}</span>
+        </div>
+        <div class="actions">
+          ${a ? `<button type="button" class="run ${t.agent}" data-act="run">コピーして${a.label}を開く</button>`
+              : `<button type="button" data-act="copy">プロンプトをコピー</button>`}
+          ${a ? `<button type="button" data-act="swap">${t.agent==='claude'?'Codex':'Claude'}に回す</button>` : ''}
+          ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">結果を開く ↗</a>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function buildPrompt(t) {
+    const head = t.repo ? `リポジトリ: ${t.repo}\n\n` : '';
+    return head + (t.prompt || t.title);
+  }
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch {
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch {}
+      ta.remove(); return ok;
+    }
+  }
+
+  function touch(t) { t.updatedAt = Date.now(); persist(); render(); }
+
+  $('list').addEventListener('click', async e => {
+    const el = e.target.closest('[data-act]'); if (!el) return;
+    const t = tasks.find(x => x.id === el.closest('.task').dataset.id); if (!t) return;
+    const act = el.dataset.act;
+    if (act === 'edit') openDialog(t);
+    else if (act === 'cycle') {
+      const i = STATUSES.findIndex(s => s.v === t.status);
+      t.status = STATUSES[(i + 1) % STATUSES.length].v;
+      touch(t);
+    } else if (act === 'copy') {
+      toast(await copyText(buildPrompt(t)) ? 'プロンプトをコピーしました' : 'コピーできませんでした');
+    } else if (act === 'run') {
+      const a = AGENTS[t.agent];
+      // ポップアップブロック回避のため、先にタブを開いてからコピー
+      const win = window.open(a.url, '_blank');
+      if (win) win.opener = null;
+      const ok = await copyText(buildPrompt(t));
+      if (t.status === 'todo') { t.status = 'running'; touch(t); }
+      toast(ok ? `コピーしました。${a.label}に貼り付けてください` : 'コピーに失敗しました');
+      if (!win) location.href = a.url;
+    } else if (act === 'swap') {
+      t.agent = t.agent === 'claude' ? 'codex' : 'claude';
+      touch(t); toast(`${AGENTS[t.agent].label}に担当を変更しました`);
+    }
+  });
+
+  // ---- dialog ----
+  $('fStatus').innerHTML = STATUSES.map(s => `<option value="${s.v}">${s.label}</option>`).join('');
+  function setPick(v) {
+    pickAgent = v;
+    $('agentPick').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
+  }
+  $('agentPick').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setPick(b.dataset.v); });
+
+  function openDialog(t) {
+    editingId = t ? t.id : null;
+    $('dlgTitle').textContent = t ? 'タスクを編集' : 'タスクを追加';
+    $('delBtn').style.display = t ? '' : 'none';
+    const repos = [...new Set(tasks.map(x => x.repo).filter(Boolean))];
+    $('repoList').innerHTML = repos.map(r => `<option value="${esc(r)}">`).join('');
+    const def = prefs.agent === 'claude' || prefs.agent === 'codex' ? prefs.agent : (prefs.lastAgent ?? 'claude');
+    setPick(t ? (t.agent || '') : def);
+    $('fTitle').value = t?.title || '';
+    $('fPrompt').value = t?.prompt || '';
+    $('fRepo').value = t ? (t.repo || '') : (prefs.lastRepo || '');
+    $('fStatus').value = t?.status || 'todo';
+    $('fTags').value = (t?.tags || []).join(', ');
+    $('fLink').value = t?.link || '';
+    $('fNote').value = t?.note || '';
+    $('dlg').showModal();
+    if (!t) setTimeout(() => $('fTitle').focus(), 50);
+  }
+
+  $('addBtn').addEventListener('click', () => openDialog(null));
+  $('cancelBtn').addEventListener('click', () => $('dlg').close());
+  $('delBtn').addEventListener('click', () => {
+    if (!editingId || !confirm('このタスクを削除しますか？')) return;
+    tasks = tasks.filter(x => x.id !== editingId); persist(); $('dlg').close(); render(); toast('削除しました');
+  });
+
+  $('form').addEventListener('submit', e => {
+    e.preventDefault();
+    const title = $('fTitle').value.trim();
+    if (!title) { $('fTitle').focus(); return; }
+    const data = {
+      agent: pickAgent,
+      title,
+      prompt: $('fPrompt').value.trim(),
+      repo: $('fRepo').value.trim(),
+      status: $('fStatus').value,
+      tags: $('fTags').value.split(/[,、，]/).map(s => s.trim()).filter(Boolean),
+      link: $('fLink').value.trim(),
+      note: $('fNote').value.trim(),
+      updatedAt: Date.now(),
+    };
+    if (editingId) Object.assign(tasks.find(x => x.id === editingId), data);
+    else tasks.push({ id: uid(), createdAt: Date.now(), ...data });
+    prefs.lastAgent = pickAgent; prefs.lastRepo = data.repo; save(PREF, prefs);
+    persist(); $('dlg').close(); render();
+    toast(editingId ? '保存しました' : '追加しました');
+  });
+
+  // ---- export / import ----
+  $('exportBtn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify({ app: 'ai-tasks', version: 1, exportedAt: new Date().toISOString(), tasks }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ai-tasks-${new Date().toISOString().slice(0,10)}.json`;
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $('importBtn').addEventListener('click', () => $('importFile').click());
+  $('importFile').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try {
+      const j = JSON.parse(await f.text());
+      const incoming = Array.isArray(j) ? j : j.tasks;
+      if (!Array.isArray(incoming)) throw new Error('形式が違います');
+      // 同じIDは更新日時が新しい方を採用（マージ）
+      const byId = new Map(tasks.map(t => [t.id, t]));
+      let added = 0, updated = 0;
+      for (const t of incoming) {
+        if (!t || !t.id || !t.title) continue;
+        const cur = byId.get(t.id);
+        if (!cur) { byId.set(t.id, t); added++; }
+        else if ((t.updatedAt || 0) > (cur.updatedAt || 0)) { byId.set(t.id, t); updated++; }
+      }
+      tasks = [...byId.values()]; persist(); render();
+      toast(`読み込みました（追加${added}件・更新${updated}件）`);
+    } catch (err) { toast('読み込めませんでした: ' + err.message); }
+  });
+  $('clearDoneBtn').addEventListener('click', () => {
+    const n = tasks.filter(t => t.status === 'done').length;
+    if (!n) { toast('完了したタスクはありません'); return; }
+    if (!confirm(`完了したタスク${n}件を削除しますか？`)) return;
+    tasks = tasks.filter(t => t.status !== 'done'); persist(); render(); toast(`${n}件削除しました`);
+  });
+
+  window.addEventListener('storage', e => { if (e.key === KEY) { tasks = load(KEY, []); render(); } });
+
+  renderFilters();
+  render();
+})();
+</script>
+</body>
+</html>
