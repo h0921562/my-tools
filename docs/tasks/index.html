@@ -1,0 +1,1073 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AIタスク</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AIタスク">
+<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<style>
+  :root {
+    --bg: #f1f5f9; --surface: #ffffff; --text: #0f172a; --sub: #64748b;
+    --border: #e2e8f0; --accent: #4f46e5; --accent-ink:#fff; --danger:#b3261e;
+    --claude:#c2410c; --claude-bg:#fff1ea; --codex:#047857; --codex-bg:#e7f7f0;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#0b1120; --surface:#151c2c; --text:#e5e7eb; --sub:#94a3b8;
+      --border:#26304a; --accent:#818cf8; --accent-ink:#0b1120; --danger:#f2705f;
+      --claude:#fb923c; --claude-bg:#3a1d10; --codex:#34d399; --codex-bg:#0f2f25;
+      --shadow:0 1px 3px rgba(0,0,0,.5); }
+  }
+  :root[data-theme="dark"] { --bg:#0b1120; --surface:#151c2c; --text:#e5e7eb; --sub:#94a3b8;
+    --border:#26304a; --accent:#818cf8; --accent-ink:#0b1120; --danger:#f2705f;
+    --claude:#fb923c; --claude-bg:#3a1d10; --codex:#34d399; --codex-bg:#0f2f25;
+    --shadow:0 1px 3px rgba(0,0,0,.5); }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", Meiryo, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: max(24px, env(safe-area-inset-top)) 16px calc(96px + env(safe-area-inset-bottom));
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  header { margin: 8px 0 18px; display:flex; align-items:center; gap:14px; }
+  header img { width:56px; height:56px; border-radius:14px; flex:none; }
+  header .body { flex:1; min-width:0; }
+  h1 { font-size: 24px; margin: 0 0 3px; letter-spacing: .01em; }
+  .lead { color: var(--sub); font-size: 13px; margin: 0; line-height: 1.6; }
+  a.back { color: var(--sub); font-size: 13px; text-decoration:none; }
+
+  .stats { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-bottom:14px; }
+  .stat { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 8px; text-align:center; }
+  .stat .n { font-size:20px; font-weight:700; }
+  .stat .l { font-size:11px; color:var(--sub); margin-top:2px; }
+
+  .seg { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; margin-bottom:8px; scrollbar-width:none; }
+  .seg::-webkit-scrollbar { display:none; }
+  .seg button {
+    flex:none; border:1px solid var(--border); background:var(--surface); color:var(--text);
+    border-radius:999px; padding:7px 13px; font-size:13px; cursor:pointer; font-family:inherit;
+  }
+  .seg button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:700; }
+  .search {
+    width:100%; padding:10px 12px; font-size:16px; color:var(--text); background:var(--surface);
+    border:1px solid var(--border); border-radius:10px; margin:4px 0 14px; font-family:inherit;
+  }
+
+  .list { display:grid; gap:10px; }
+  .task {
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:13px 14px; box-shadow:var(--shadow);
+  }
+  .task.done { opacity:.6; }
+  .task .top { display:flex; align-items:flex-start; gap:8px; }
+  .task .title { flex:1; min-width:0; font-weight:700; font-size:15.5px; line-height:1.45; word-break:break-word; cursor:pointer; }
+  .task.done .title { text-decoration: line-through; }
+  .meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; align-items:center; font-size:12px; color:var(--sub); }
+  .badge { display:inline-block; border-radius:6px; padding:2px 7px; font-size:11.5px; font-weight:700; }
+  .badge.claude { color:var(--claude); background:var(--claude-bg); }
+  .badge.codex { color:var(--codex); background:var(--codex-bg); }
+  .badge.none { color:var(--sub); background:var(--bg); }
+  .status {
+    flex:none; border:1px solid var(--border); background:var(--bg); color:var(--text);
+    border-radius:999px; padding:4px 10px; font-size:12px; cursor:pointer; font-family:inherit; white-space:nowrap;
+  }
+  .status[data-s="running"] { border-color:var(--accent); color:var(--accent); }
+  .status[data-s="review"] { border-color:#d97706; color:#d97706; }
+  .status[data-s="done"] { border-color:var(--codex); color:var(--codex); }
+  .preview { font-size:13px; color:var(--sub); margin-top:6px; line-height:1.55;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:pre-wrap; word-break:break-word; }
+  .actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .actions button, .actions a {
+    border:1px solid var(--border); background:transparent; color:var(--text); text-decoration:none;
+    border-radius:9px; padding:7px 11px; font-size:13px; cursor:pointer; font-family:inherit;
+  }
+  .actions .run.claude { border-color:var(--claude); color:var(--claude); font-weight:700; }
+  .actions .run.codex { border-color:var(--codex); color:var(--codex); font-weight:700; }
+  .empty { text-align:center; color:var(--sub); font-size:14px; padding:36px 10px; line-height:1.8; }
+
+  .fab {
+    position:fixed; right:max(18px, env(safe-area-inset-right)); bottom:calc(20px + env(safe-area-inset-bottom));
+    background:var(--accent); color:var(--accent-ink); border:none; border-radius:999px;
+    padding:15px 22px; font-size:16px; font-weight:700; box-shadow:0 6px 20px rgba(79,70,229,.35); cursor:pointer; font-family:inherit;
+  }
+
+  dialog {
+    border:none; border-radius:18px; padding:0; width:min(560px, calc(100vw - 24px));
+    background:var(--surface); color:var(--text); box-shadow:0 20px 60px rgba(0,0,0,.3);
+  }
+  dialog::backdrop { background:rgba(15,23,42,.5); }
+  .dlg { padding:18px 16px; max-height:calc(100dvh - 40px); overflow:auto; }
+  .dlg h2 { font-size:17px; margin:0 0 14px; }
+  .field { margin-bottom:12px; }
+  .field label { display:block; font-size:13px; color:var(--sub); margin-bottom:5px; }
+  .field input, .field textarea, .field select {
+    width:100%; padding:10px 12px; font-size:16px; color:var(--text); background:var(--bg);
+    border:1px solid var(--border); border-radius:10px; font-family:inherit;
+  }
+  .field textarea { min-height:150px; resize:vertical; line-height:1.55; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .pick { display:flex; gap:6px; }
+  .pick button {
+    flex:1; border:1px solid var(--border); background:var(--bg); color:var(--text);
+    border-radius:10px; padding:10px 6px; font-size:14px; cursor:pointer; font-family:inherit;
+  }
+  .pick button[aria-pressed="true"][data-v="claude"] { border-color:var(--claude); background:var(--claude-bg); color:var(--claude); font-weight:700; }
+  .pick button[aria-pressed="true"][data-v="codex"] { border-color:var(--codex); background:var(--codex-bg); color:var(--codex); font-weight:700; }
+  .pick button[aria-pressed="true"][data-v=""] { border-color:var(--accent); color:var(--accent); font-weight:700; }
+  .dlg-actions { display:flex; gap:8px; margin-top:16px; }
+  .btn {
+    flex:1; text-align:center; background:var(--accent); color:var(--accent-ink); font-weight:700; font-size:15px;
+    border:none; border-radius:12px; padding:13px; cursor:pointer; font-family:inherit;
+  }
+  .btn.sub { background:transparent; color:var(--text); border:1px solid var(--border); font-weight:600; }
+  .btn.danger { background:transparent; color:var(--danger); border:1px solid var(--border); font-weight:600; flex:none; padding:13px 16px; }
+  .hint { font-size:12px; color:var(--sub); margin-top:5px; line-height:1.6; }
+
+  .tools { margin-top:26px; background:var(--surface); border:1px dashed var(--border);
+    border-radius:14px; padding:14px 16px; font-size:13px; color:var(--sub); line-height:1.7; }
+  .tools b { color:var(--text); }
+  .tools .actions button { font-size:12.5px; }
+
+  .gh { font-size:11.5px; color:var(--sub); border:1px solid var(--border); border-radius:6px; padding:1px 6px; }
+  .gh.live { color:var(--accent); border-color:var(--accent); }
+  .actions .primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:700; }
+
+  /* 詳細（スレッド） */
+  dialog.full { width:min(680px, 100vw); max-width:100vw; height:100dvh; max-height:100dvh; margin:0 auto; border-radius:0; }
+  @media (min-width:700px) { dialog.full { height:calc(100dvh - 40px); margin:20px auto; border-radius:18px; } }
+  .sheet { display:flex; flex-direction:column; height:100%; }
+  .sheet-head { padding:max(12px, env(safe-area-inset-top)) 14px 10px; border-bottom:1px solid var(--border); }
+  .sheet-head .row { display:flex; align-items:center; gap:8px; }
+  .sheet-head h2 { flex:1; min-width:0; font-size:16px; margin:0; line-height:1.4; word-break:break-word; }
+  .iconbtn { border:1px solid var(--border); background:transparent; color:var(--text); border-radius:9px; padding:6px 10px; font-size:13px; cursor:pointer; font-family:inherit; text-decoration:none; white-space:nowrap; }
+  .sheet-body { flex:1; overflow:auto; padding:12px 14px; }
+  .sheet-foot { border-top:1px solid var(--border); padding:10px 14px calc(10px + env(safe-area-inset-bottom)); background:var(--surface); }
+  .sheet-foot textarea { width:100%; min-height:64px; max-height:40vh; padding:10px 12px; font-size:16px; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:10px; font-family:inherit; resize:vertical; line-height:1.5; }
+  .sheet-foot .row { display:flex; gap:6px; align-items:center; margin-top:8px; }
+  .sheet-foot .pick button { padding:7px 6px; font-size:13px; }
+  .sheet-foot .send { flex:none; background:var(--accent); color:var(--accent-ink); border:none; border-radius:10px; padding:9px 18px; font-weight:700; font-size:15px; cursor:pointer; font-family:inherit; }
+  .sheet-foot .send:disabled { opacity:.5; }
+  .banner { border-radius:10px; padding:10px 12px; font-size:13px; line-height:1.6; margin-bottom:10px; background:var(--bg); border:1px solid var(--border); }
+  .banner.run { border-color:var(--accent); color:var(--accent); }
+  .prs { display:grid; gap:8px; margin-bottom:12px; }
+  .pr { display:flex; align-items:center; gap:8px; flex-wrap:wrap; border:1px solid var(--border); border-radius:10px; padding:9px 10px; font-size:13px; }
+  .pr .nm { flex:1; min-width:0; word-break:break-all; }
+  .pr .st { font-size:11.5px; font-weight:700; border-radius:6px; padding:2px 7px; background:var(--bg); }
+  .pr .st.open { color:var(--codex); } .pr .st.merged { color:#7c3aed; } .pr .st.closed { color:var(--danger); }
+  .msg { border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:10px; background:var(--surface); }
+  .msg.claude { border-color:var(--claude); background:var(--claude-bg); }
+  .msg.codex { border-color:var(--codex); background:var(--codex-bg); }
+  .msg .who { font-size:12px; color:var(--sub); margin-bottom:6px; display:flex; gap:6px; align-items:center; }
+  .msg .who b { color:var(--text); }
+  .md { font-size:14px; line-height:1.65; word-break:break-word; overflow-wrap:anywhere; }
+  .md p { margin:0 0 8px; } .md p:last-child { margin-bottom:0; }
+  .md pre { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px 10px; overflow:auto; font-size:12.5px; line-height:1.5; }
+  .md code { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.92em; background:var(--bg); border-radius:4px; padding:0 3px; }
+  .md pre code { background:none; padding:0; }
+  .md a { color:var(--accent); }
+  .md ul { margin:0 0 8px; padding-left:20px; }
+  .md h1, .md h2, .md h3, .md h4 { font-size:14.5px; margin:10px 0 6px; }
+  .md hr { border:none; border-top:1px solid var(--border); margin:10px 0; }
+  .muted { color:var(--sub); font-size:13px; text-align:center; padding:14px; }
+  .setup ol { padding-left:20px; margin:6px 0; font-size:13px; line-height:1.8; color:var(--sub); }
+  .setup ol b { color:var(--text); }
+  .setup code { font-size:12px; background:var(--bg); border-radius:4px; padding:1px 4px; }
+
+  .toast {
+    position:fixed; left:50%; bottom:calc(88px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+    background:#0f172a; color:#fff; border-radius:10px; padding:10px 16px; font-size:13.5px;
+    opacity:0; pointer-events:none; transition:opacity .2s; max-width:calc(100vw - 32px); z-index:10;
+  }
+  .toast.show { opacity:.95; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="../index.html">‹ マイツール</a>
+  <header>
+    <img src="assets/icon.svg" alt="" width="56" height="56">
+    <div class="body">
+      <h1>AIタスク</h1>
+      <p class="lead">Claude と Codex に頼むタスクを一か所で管理。GitHub経由でここから指示を出し、進み具合と結果を確認できます。</p>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="seg" id="agentFilter" role="group" aria-label="担当で絞り込み"></div>
+  <div class="seg" id="acctFilter" role="group" aria-label="アカウントで絞り込み" hidden></div>
+  <div class="seg" id="statusFilter" role="group" aria-label="状態で絞り込み"></div>
+  <input class="search" id="q" type="search" placeholder="検索（タイトル・内容・リポジトリ・タグ）">
+
+  <div class="list" id="list"></div>
+
+  <div class="tools">
+    <b>データについて</b><br>
+    タスクはこの端末のブラウザ内に保存されます。別の端末へ移すときは書き出し→読み込みを使ってください。
+    <div class="actions">
+      <button type="button" id="exportBtn">書き出し（JSON）</button>
+      <button type="button" id="importBtn">読み込み</button>
+      <button type="button" id="clearDoneBtn">完了を削除</button>
+      <button type="button" id="syncAllBtn">GitHubと同期</button>
+      <button type="button" id="importGhBtn">GitHubから取り込み</button>
+      <button type="button" id="settingsBtn">GitHub設定</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json,.json" hidden>
+  </div>
+</div>
+
+<button class="fab" id="addBtn" type="button">＋ タスク</button>
+
+<dialog id="dlg">
+  <form class="dlg" id="form" method="dialog">
+    <h2 id="dlgTitle">タスクを追加</h2>
+    <div class="field">
+      <label>担当</label>
+      <div class="pick" id="agentPick">
+        <button type="button" data-v="claude">Claude</button>
+        <button type="button" data-v="codex">Codex</button>
+        <button type="button" data-v="">未定</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="fTitle">タイトル</label>
+      <input id="fTitle" required maxlength="200" placeholder="例: 名刺管理にCSV書き出しを追加">
+    </div>
+    <div class="field">
+      <label for="fPrompt">依頼内容（プロンプト）</label>
+      <textarea id="fPrompt" placeholder="AIにそのまま渡す指示を書く"></textarea>
+      <div class="hint">「GitHubで実行」でこの内容がIssueとして担当AIに渡ります（GitHub設定が必要）。「コピーして開く」で手動実行も可。</div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label for="fRepo">リポジトリ</label>
+        <input id="fRepo" list="repoList" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <datalist id="repoList"></datalist>
+      </div>
+      <div class="field">
+        <label for="fStatus">状態</label>
+        <select id="fStatus"></select>
+      </div>
+    </div>
+    <div class="field" id="fAcctField">
+      <label for="fAcct">GitHubアカウント</label>
+      <select id="fAcct"></select>
+      <div class="hint">どのアカウントのトークンでIssueを作り、指示を送るか。「自動」はリポジトリの持ち主から判定します。</div>
+    </div>
+    <div class="field">
+      <label for="fTags">タグ（カンマ区切り）</label>
+      <input id="fTags" placeholder="例: バグ, meishi">
+    </div>
+    <div class="field">
+      <label for="fLink">セッション / PR のURL</label>
+      <input id="fLink" type="url" placeholder="https://..." autocapitalize="off">
+      <div class="hint">実行を始めたらセッションやPRのURLを貼っておくと、あとから一発で戻れます。</div>
+    </div>
+    <div class="field">
+      <label for="fNote">メモ・結果</label>
+      <textarea id="fNote" style="min-height:70px" placeholder="結果の要約、次にやること など"></textarea>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn danger" id="delBtn">削除</button>
+      <button type="button" class="btn sub" id="cancelBtn">キャンセル</button>
+      <button type="submit" class="btn" id="saveBtn">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="detail" class="full">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div class="row">
+        <button type="button" class="iconbtn" id="dClose">‹ 戻る</button>
+        <h2 id="dTitle"></h2>
+      </div>
+      <div class="meta" id="dMeta"></div>
+      <div class="actions" id="dActions"></div>
+    </div>
+    <div class="sheet-body" id="dBody"></div>
+    <div class="sheet-foot" id="dFoot">
+      <textarea id="dInput" placeholder="追加の指示・質問・修正依頼を書く"></textarea>
+      <div class="row">
+        <div class="pick" id="dAgent" style="flex:1">
+          <button type="button" data-v="claude">@Claude</button>
+          <button type="button" data-v="codex">@Codex</button>
+          <button type="button" data-v="">メモ</button>
+        </div>
+        <button type="button" class="send" id="dSend">送信</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="settings">
+  <form class="dlg setup" id="sForm" method="dialog">
+    <h2>GitHubアカウント</h2>
+    <div class="hint" style="margin:-6px 0 10px">個人用・仕事用など複数のGitHubアカウントを登録できます。タスクごとに使うアカウントが選ばれ、そのトークンで実行・確認します。トークンはこの端末のブラウザ内だけに保存され、書き出しJSONにも含まれません。</div>
+    <div class="prs" id="acctList"></div>
+    <button type="button" class="btn sub" id="acctAdd" style="width:100%">＋ アカウントを追加</button>
+    <div id="acctForm" hidden style="margin-top:12px; border:1px solid var(--border); border-radius:12px; padding:12px">
+      <div class="field">
+        <label for="aLabel">表示名</label>
+        <input id="aLabel" placeholder="例: 個人 / 仕事">
+      </div>
+      <div class="field">
+        <label for="aToken">トークン（Fine-grained personal access token）</label>
+        <input id="aToken" type="password" autocomplete="off" placeholder="github_pat_...">
+        <div class="hint"><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">トークンを作成 ↗</a>（そのアカウントでログインした状態で開く）</div>
+      </div>
+      <div class="field">
+        <label for="aRepo">既定のリポジトリ</label>
+        <input id="aRepo" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="aOwners">このアカウントで扱う持ち主（任意・カンマ区切り）</label>
+        <input id="aOwners" placeholder="例: my-company, other-org" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <div class="hint">Organizationのリポジトリを自動でこのアカウントに振り分けたいときに。</div>
+      </div>
+      <div class="dlg-actions" style="margin-top:4px">
+        <button type="button" class="btn sub" id="aCancel">キャンセル</button>
+        <button type="button" class="btn" id="aSave">接続テストして保存</button>
+      </div>
+      <div class="hint" id="aResult"></div>
+    </div>
+
+    <h2 style="margin-top:22px">Codex の実行先</h2>
+    <div class="field">
+      <select id="sCodexMode">
+        <option value="actions">GitHub Actions（codex.yml・OPENAI_API_KEYで実行）</option>
+        <option value="cloud">Codex本体（ChatGPTのCodexクラウド・公式GitHub連携）</option>
+      </select>
+      <div class="hint">「Codex本体」は chatgpt.com/codex でGitHub連携を有効にしたリポジトリで使えます。ChatGPTのプランで動き、作業は chatgpt.com/codex にも表示されます。このとき codex.yml は反応しないので、二重に動くことはありません。</div>
+    </div>
+
+    <h2 style="margin-top:22px">リポジトリの準備（最初に1回）</h2>
+    <ol>
+      <li>トークンの権限（アカウントごと）: 対象リポジトリを選び、<b>Issues</b>・<b>Pull requests</b>・<b>Contents</b>・<b>Workflows</b> を <b>Read and write</b>、<b>Actions</b> を Read に。</li>
+      <li>下のボタンで、対象リポジトリに Claude / Codex 用のワークフローを入れる。</li>
+      <li>リポジトリの Settings → Secrets and variables → Actions にシークレットを登録（リポジトリごとに別のClaude / OpenAIアカウントのキーを使えます）:<br>
+        Claude: <code>CLAUDE_CODE_OAUTH_TOKEN</code>（PCで <code>claude setup-token</code>）または <code>ANTHROPIC_API_KEY</code><br>
+        Codex: <code>OPENAI_API_KEY</code></li>
+      <li>（任意）Settings → Actions → General →「Allow GitHub Actions to create and approve pull requests」をONにするとCodexがPRまで自動作成。</li>
+    </ol>
+    <div class="field">
+      <label for="sInstallAcct">使うアカウント</label>
+      <select id="sInstallAcct"></select>
+    </div>
+    <div class="field">
+      <label for="sInstallRepo">ワークフローを入れるリポジトリ</label>
+      <input id="sInstallRepo" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false">
+    </div>
+    <div class="dlg-actions" style="margin-top:4px">
+      <button type="button" class="btn sub" id="sInstall">ワークフローを入れる</button>
+      <a class="btn sub" id="sSecrets" href="#" target="_blank" rel="noopener" style="text-decoration:none">シークレット設定 ↗</a>
+    </div>
+    <div class="hint" id="sInstallResult"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn sub" id="sClose">閉じる</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  const KEY = 'aiTasks.v1';
+  const PREF = 'aiTasks.prefs.v1';
+  const GHKEY = 'aiTasks.github.v1';
+  const AGENTS = {
+    claude: { label: 'Claude', url: 'https://claude.ai/code', mention: '@claude', branch: n => `claude/issue-${n}-` },
+    codex:  { label: 'Codex',  url: 'https://chatgpt.com/codex', mention: '@codex', branch: n => `codex/issue-${n}` },
+  };
+  const STATUSES = [
+    { v: 'todo',    label: 'やること' },
+    { v: 'running', label: '実行中' },
+    { v: 'review',  label: '確認待ち' },
+    { v: 'done',    label: '完了' },
+  ];
+  const statusLabel = v => (STATUSES.find(s => s.v === v) || STATUSES[0]).label;
+  const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+
+  const $ = id => document.getElementById(id);
+  const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { toast('保存できませんでした（ブラウザの保存領域を確認してください）'); } };
+
+  let tasks = load(KEY, []);
+  if (!Array.isArray(tasks)) tasks = [];
+  const prefs = Object.assign({ agent: 'all', status: 'active', account: 'all' }, load(PREF, {}));
+  // GitHubアカウント（複数可）。旧形式 { token, repo } は1件目として移行
+  const ghCfg = (() => {
+    const c = load(GHKEY, {});
+    if (Array.isArray(c.accounts)) return c;
+    return { accounts: c.token ? [{ id: 'a' + Date.now().toString(36), label: 'メイン', token: c.token, repo: c.repo || '', login: '', owners: [] }] : [] };
+  })();
+  const saveAccounts = () => save(GHKEY, ghCfg);
+  const accounts = () => ghCfg.accounts;
+  const acctById = id => accounts().find(a => a.id === id);
+  const ownerOf = repo => (repo || '').split('/')[0].toLowerCase();
+  function acctForRepo(repo) {
+    const o = ownerOf(repo);
+    const hit = a => [a.login, ownerOf(a.repo), ...(a.owners || [])].some(x => x && x.toLowerCase() === o);
+    return accounts().find(hit) || accounts()[0] || null;
+  }
+  const acctFor = t => acctById(t.accountId) || acctForRepo(t.repo);
+  const acctName = a => a ? (a.label || a.login || 'アカウント') : '未設定';
+  let editingId = null;
+  let pickAgent = 'claude';
+
+  const persist = () => save(KEY, tasks);
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
+  const fmtDate = t => { const d = new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+  const byId = id => tasks.find(x => x.id === id);
+
+  let toastTimer;
+  function toast(msg) {
+    const el = $('toast'); el.textContent = msg; el.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+
+  // ================= GitHub API =================
+  async function gh(path, opts = {}, acct) {
+    if (!acct?.token) throw new Error('GitHub設定でアカウント（トークン）を登録してください');
+    const r = await fetch('https://api.github.com' + path, {
+      ...opts, cache: 'no-store',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${acct.token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+    });
+    if (r.status === 204) return null;
+    const j = await r.json().catch(() => null);
+    if (!r.ok) {
+      const e = new Error(`GitHub ${r.status}（${acctName(acct)}）: ${j?.message || r.statusText}`);
+      e.status = r.status; throw e;
+    }
+    return j;
+  }
+  const ghReady = () => accounts().length > 0;
+  const b64 = s => btoa(unescape(encodeURIComponent(s)));
+  const MARK = id => `<!-- ai-tasks:${id} -->`;
+  // Codex本体（公式連携）で動かすときの目印。codex.yml はこれが付いた依頼には反応しない
+  const CLOUD_MARK = '<!-- codex:cloud -->';
+  const codexCloud = () => prefs.codexMode === 'cloud';
+  const withMode = (agent, text) => agent === 'codex' && codexCloud() ? `${text}\n\n${CLOUD_MARK}` : text;
+
+  async function startOnGitHub(t) {
+    if (!ghReady()) { openSettings(); toast('先にGitHub設定をしてください'); return; }
+    const repo = t.repo || (acctById(t.accountId) || accounts()[0])?.repo;
+    if (!REPO_RE.test(repo || '')) { toast('リポジトリ（owner/repo）を設定してください'); openDialog(t); return; }
+    const acct = acctById(t.accountId) || acctForRepo(repo);
+    const a = AGENTS[t.agent];
+    if (!a) { toast('担当（Claude / Codex）を選んでください'); openDialog(t); return; }
+    const body = withMode(t.agent, `${a.mention}\n\n${t.prompt || t.title}\n\n${MARK(t.id)}`);
+    const issue = await gh(`/repos/${repo}/issues`, { method: 'POST', body: JSON.stringify({ title: t.title, body }) }, acct);
+    Object.assign(t, { repo, accountId: acct.id, issue: { number: issue.number, url: issue.html_url }, link: t.link || issue.html_url, status: 'running', updatedAt: Date.now() });
+    persist(); render();
+    toast(`Issue #${issue.number} を作成し、${a.label}に依頼しました（${acctName(acct)}）`);
+    return t;
+  }
+
+  async function fetchThread(t) {
+    const { repo } = t, n = t.issue.number, acct = acctFor(t);
+    const [issue, comments, pulls, runs] = await Promise.all([
+      gh(`/repos/${repo}/issues/${n}`, {}, acct),
+      gh(`/repos/${repo}/issues/${n}/comments?per_page=100`, {}, acct),
+      gh(`/repos/${repo}/pulls?state=all&per_page=50&sort=updated&direction=desc`, {}, acct),
+      gh(`/repos/${repo}/actions/runs?per_page=30`, {}, acct).catch(() => ({ workflow_runs: [] })),
+    ]);
+    const prefixes = [`claude/issue-${n}-`, `codex/issue-${n}`];
+    const related = pulls.filter(p => prefixes.some(x => p.head.ref.startsWith(x)) || new RegExp(`#${n}\\b`).test(p.body || ''));
+    const refs = (await Promise.all(prefixes.map(pf =>
+      gh(`/repos/${repo}/git/matching-refs/heads/${pf}`, {}, acct).catch(() => [])))).flat()
+      .map(r => r.ref.replace('refs/heads/', ''))
+      .filter(b => !related.some(p => p.head.ref === b));
+    const active = (runs.workflow_runs || []).filter(r =>
+      r.status !== 'completed' && (r.display_title === issue.title || r.display_title === t.title) && ['issues','issue_comment'].includes(r.event));
+    const botWorking = comments.some(c =>
+      /Codex が作業中です/.test(c.body || '') || (/claude/i.test(c.user.login) && /is working/i.test(c.body || '') && !/finished|完了/i.test(c.body || '')));
+    return { issue, comments, prs: related, branches: refs, running: active.length > 0 || botWorking, runs: active };
+  }
+
+  function deriveStatus(t, th) {
+    if (th.issue.state === 'closed') return 'done';
+    if (th.running) return 'running';
+    const last = th.comments[th.comments.length - 1];
+    const lastIsBot = last && (last.user.type === 'Bot' || /\[bot\]$/.test(last.user.login) || /codex-status/.test(last.body || ''));
+    // AIへの指示を送ったがまだ返事がない（ワークフロー起動待ち）
+    if (last && !lastIsBot && /@(claude|codex)\b/i.test(last.body || '')) return 'running';
+    if (th.prs.some(p => p.state === 'open') || lastIsBot) return 'review';
+    return t.status === 'todo' ? 'running' : t.status;
+  }
+
+  // ================= filters & list =================
+  function renderFilters() {
+    const agentOpts = [['all','すべて'],['claude','Claude'],['codex','Codex'],['none','未定']];
+    $('agentFilter').innerHTML = agentOpts.map(([v,l]) =>
+      `<button type="button" data-v="${v}" aria-pressed="${prefs.agent===v}">${l}</button>`).join('');
+    const multi = accounts().length > 1;
+    $('acctFilter').hidden = !multi;
+    if (!multi || (prefs.account !== 'all' && !acctById(prefs.account))) prefs.account = 'all';
+    $('acctFilter').innerHTML = [['all','全アカウント'], ...accounts().map(a => [a.id, acctName(a)])].map(([v,l]) =>
+      `<button type="button" data-v="${v}" aria-pressed="${prefs.account===v}">👤 ${esc(l)}</button>`).join('');
+    const statusOpts = [['active','未完了'], ...STATUSES.map(s => [s.v, s.label]), ['all','すべて']];
+    $('statusFilter').innerHTML = statusOpts.map(([v,l]) =>
+      `<button type="button" data-v="${v}" aria-pressed="${prefs.status===v}">${l}</button>`).join('');
+  }
+  $('agentFilter').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    prefs.agent = b.dataset.v; save(PREF, prefs); renderFilters(); render();
+  });
+  $('acctFilter').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    prefs.account = b.dataset.v; save(PREF, prefs); renderFilters(); render();
+  });
+  $('statusFilter').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    prefs.status = b.dataset.v; save(PREF, prefs); renderFilters(); render();
+  });
+  $('q').addEventListener('input', () => render());
+
+  function visible() {
+    const q = $('q').value.trim().toLowerCase();
+    return tasks.filter(t => {
+      if (prefs.agent === 'none' ? t.agent : (prefs.agent !== 'all' && t.agent !== prefs.agent)) return false;
+      if (prefs.account && prefs.account !== 'all' && acctFor(t)?.id !== prefs.account) return false;
+      if (prefs.status === 'active' ? t.status === 'done' : (prefs.status !== 'all' && t.status !== prefs.status)) return false;
+      if (q) {
+        const hay = [t.title, t.prompt, t.repo, t.note, (t.tags||[]).join(' '), acctName(acctFor(t))].join('\n').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    }).sort((a, b) => {
+      // 実行中・確認待ちを上に、同じ状態なら新しい順
+      const rank = s => ({ running:0, review:1, todo:2, done:3 }[s] ?? 2);
+      return rank(a.status) - rank(b.status) || b.updatedAt - a.updatedAt;
+    });
+  }
+
+  function renderStats() {
+    const c = s => tasks.filter(t => t.status === s).length;
+    $('stats').innerHTML = STATUSES.map(s =>
+      `<div class="stat"><div class="n">${c(s.v)}</div><div class="l">${s.label}</div></div>`).join('');
+  }
+
+  function render() {
+    renderStats();
+    const list = visible();
+    if (!list.length) {
+      $('list').innerHTML = tasks.length
+        ? '<div class="empty">条件に合うタスクはありません。</div>'
+        : '<div class="empty">まだタスクがありません。<br>右下の「＋ タスク」から追加してください。</div>';
+      return;
+    }
+    $('list').innerHTML = list.map(t => {
+      const a = AGENTS[t.agent];
+      const link = safeUrl(t.link);
+      return `<div class="task ${t.status==='done'?'done':''}" data-id="${t.id}">
+        <div class="top">
+          <div class="title" data-act="open">${esc(t.title)}</div>
+          <button type="button" class="status" data-act="cycle" data-s="${t.status}" title="タップで状態を進める">${statusLabel(t.status)}</button>
+        </div>
+        ${t.prompt ? `<div class="preview" data-act="open">${esc(t.prompt)}</div>` : ''}
+        <div class="meta">
+          <span class="badge ${t.agent || 'none'}">${a ? a.label : '未定'}</span>
+          ${accounts().length > 1 && (t.issue || t.repo) ? `<span class="gh">👤 ${esc(acctName(acctFor(t)))}</span>` : ''}
+          ${t.issue ? `<span class="gh ${t.status==='running'?'live':''}">GitHub #${t.issue.number}</span>` : ''}
+          ${t.repo ? `<span>📁 ${esc(t.repo)}</span>` : ''}
+          ${(t.tags||[]).map(g => `<span>#${esc(g)}</span>`).join('')}
+          <span>${fmtDate(t.updatedAt)}</span>
+        </div>
+        <div class="actions">
+          ${t.issue ? `<button type="button" class="primary" data-act="open">やりとりを開く</button>`
+            : a ? `<button type="button" class="primary" data-act="start">GitHubで実行</button>
+                   <button type="button" class="run ${t.agent}" data-act="run">コピーして${a.label}を開く</button>`
+                : `<button type="button" data-act="copy">プロンプトをコピー</button>`}
+          ${a && !t.issue ? `<button type="button" data-act="swap">${t.agent==='claude'?'Codex':'Claude'}に回す</button>` : ''}
+          ${link && !t.issue ? `<a href="${esc(link)}" target="_blank" rel="noopener">結果を開く ↗</a>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function buildPrompt(t) {
+    const head = t.repo ? `リポジトリ: ${t.repo}\n\n` : '';
+    return head + (t.prompt || t.title);
+  }
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch {
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch {}
+      ta.remove(); return ok;
+    }
+  }
+
+  function touch(t) { t.updatedAt = Date.now(); persist(); render(); }
+
+  $('list').addEventListener('click', async e => {
+    const el = e.target.closest('[data-act]'); if (!el) return;
+    const t = byId(el.closest('.task').dataset.id); if (!t) return;
+    const act = el.dataset.act;
+    if (act === 'open') { t.issue ? openDetail(t) : openDialog(t); }
+    else if (act === 'cycle') {
+      const i = STATUSES.findIndex(s => s.v === t.status);
+      t.status = STATUSES[(i + 1) % STATUSES.length].v;
+      touch(t);
+    } else if (act === 'start') {
+      el.disabled = true;
+      try { if (await startOnGitHub(t)) openDetail(t); }
+      catch (err) { toast(err.message); }
+      finally { el.disabled = false; }
+    } else if (act === 'copy') {
+      toast(await copyText(buildPrompt(t)) ? 'プロンプトをコピーしました' : 'コピーできませんでした');
+    } else if (act === 'run') {
+      const a = AGENTS[t.agent];
+      // ポップアップブロック回避のため、先にタブを開いてからコピー
+      const win = window.open(a.url, '_blank');
+      if (win) win.opener = null;
+      const ok = await copyText(buildPrompt(t));
+      if (t.status === 'todo') { t.status = 'running'; touch(t); }
+      toast(ok ? `コピーしました。${a.label}に貼り付けてください` : 'コピーに失敗しました');
+      if (!win) location.href = a.url;
+    } else if (act === 'swap') {
+      t.agent = t.agent === 'claude' ? 'codex' : 'claude';
+      touch(t); toast(`${AGENTS[t.agent].label}に担当を変更しました`);
+    }
+  });
+
+  // ================= edit dialog =================
+  $('fStatus').innerHTML = STATUSES.map(s => `<option value="${s.v}">${s.label}</option>`).join('');
+  function setPick(v) {
+    pickAgent = v;
+    $('agentPick').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
+  }
+  $('agentPick').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setPick(b.dataset.v); });
+
+  function openDialog(t) {
+    editingId = t ? t.id : null;
+    $('dlgTitle').textContent = t ? 'タスクを編集' : 'タスクを追加';
+    $('delBtn').style.display = t ? '' : 'none';
+    const repos = [...new Set([...accounts().map(a => a.repo), ...tasks.map(x => x.repo)].filter(Boolean))];
+    $('fAcctField').hidden = accounts().length < 2;
+    $('fAcct').innerHTML = '<option value="">自動（リポジトリから判定）</option>' +
+      accounts().map(a => `<option value="${a.id}">${esc(acctName(a))}${a.login ? ` (@${esc(a.login)})` : ''}</option>`).join('');
+    $('fAcct').value = t?.accountId && acctById(t.accountId) ? t.accountId : (prefs.account && acctById(prefs.account) ? prefs.account : '');
+    $('fAcct').disabled = !!t?.issue;
+    $('repoList').innerHTML = repos.map(r => `<option value="${esc(r)}">`).join('');
+    const def = prefs.agent === 'claude' || prefs.agent === 'codex' ? prefs.agent : (prefs.lastAgent ?? 'claude');
+    setPick(t ? (t.agent || '') : def);
+    $('fTitle').value = t?.title || '';
+    $('fPrompt').value = t?.prompt || '';
+    $('fRepo').value = t ? (t.repo || '') : (acctById(prefs.account)?.repo || prefs.lastRepo || accounts()[0]?.repo || '');
+    $('fRepo').disabled = !!t?.issue;
+    $('fStatus').value = t?.status || 'todo';
+    $('fTags').value = (t?.tags || []).join(', ');
+    $('fLink').value = t?.link || '';
+    $('fNote').value = t?.note || '';
+    $('dlg').showModal();
+    if (!t) setTimeout(() => $('fTitle').focus(), 50);
+  }
+
+  $('addBtn').addEventListener('click', () => openDialog(null));
+  $('cancelBtn').addEventListener('click', () => $('dlg').close());
+  $('delBtn').addEventListener('click', () => {
+    if (!editingId || !confirm('このタスクを削除しますか？（GitHubのIssueは残ります）')) return;
+    tasks = tasks.filter(x => x.id !== editingId); persist(); $('dlg').close(); render(); toast('削除しました');
+    if ($('detail').open) $('detail').close();
+  });
+
+  $('form').addEventListener('submit', e => {
+    e.preventDefault();
+    const title = $('fTitle').value.trim();
+    if (!title) { $('fTitle').focus(); return; }
+    const data = {
+      agent: pickAgent,
+      title,
+      prompt: $('fPrompt').value.trim(),
+      repo: $('fRepo').value.trim(),
+      accountId: $('fAcct').value || null,
+      status: $('fStatus').value,
+      tags: $('fTags').value.split(/[,、，]/).map(s => s.trim()).filter(Boolean),
+      link: $('fLink').value.trim(),
+      note: $('fNote').value.trim(),
+      updatedAt: Date.now(),
+    };
+    const wasEditing = editingId;
+    if (editingId) {
+      const cur = byId(editingId);
+      if (cur.issue) { data.accountId = cur.accountId; data.repo = cur.repo; } // Issue作成後はアカウント・リポジトリ固定
+      Object.assign(cur, data);
+    }
+    else tasks.push({ id: uid(), createdAt: Date.now(), ...data });
+    prefs.lastAgent = pickAgent; prefs.lastRepo = data.repo; save(PREF, prefs);
+    persist(); $('dlg').close(); render();
+    if (detailId && detailId === wasEditing) renderDetailHead(byId(detailId));
+    toast(wasEditing ? '保存しました' : '追加しました');
+  });
+
+  // ================= detail (thread) =================
+  let detailId = null, pollTimer = null, lastThread = null, composeAgent = 'claude';
+
+  function mdRender(src) {
+    // 依存なしの簡易Markdown（HTMLはすべてエスケープ）
+    src = String(src || '').replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<\/?details[^>]*>/gi, '').replace(/<summary>([\s\S]*?)<\/summary>/gi, '**$1**')
+      .replace(/<br\s*\/?>/gi, '\n').replace(/<img[^>]*>/gi, '');
+    const blocks = [];
+    src = src.replace(/```[^\n]*\n([\s\S]*?)```/g, (_, code) => { blocks.push(code); return `\u0000${blocks.length - 1}\u0000`; });
+    const inline = s => esc(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/(^|[\s(（])(https?:\/\/[^\s<)）]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+    const out = []; let list = null, para = [];
+    const flushP = () => { if (para.length) { out.push(`<p>${para.map(inline).join('<br>')}</p>`); para = []; } };
+    const flushL = () => { if (list) { out.push(`<ul>${list.map(x => `<li>${inline(x)}</li>`).join('')}</ul>`); list = null; } };
+    for (const line of src.split('\n')) {
+      const cb = line.match(/^\u0000(\d+)\u0000$/);
+      const h = line.match(/^#{1,6}\s+(.*)/);
+      const li = line.match(/^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s*)?(.*)/);
+      if (cb) { flushP(); flushL(); out.push(`<pre><code>${esc(blocks[+cb[1]])}</code></pre>`); }
+      else if (h) { flushP(); flushL(); out.push(`<h3>${inline(h[1])}</h3>`); }
+      else if (/^\s*(---+|\*\*\*+)\s*$/.test(line)) { flushP(); flushL(); out.push('<hr>'); }
+      else if (li) { flushP(); (list ||= []).push(li[1]); }
+      else if (!line.trim()) { flushP(); flushL(); }
+      else { flushL(); para.push(line); }
+    }
+    flushP(); flushL();
+    return out.join('').replace(/\u0000(\d+)\u0000/g, (_, i) => `<pre><code>${esc(blocks[+i])}</code></pre>`);
+  }
+
+  function whoClass(c) {
+    if (/codex-status/.test(c.body || '') || /codex/i.test(c.user.login)) return 'codex';  // chatgpt-codex-connector[bot] も含む
+    if (/claude/i.test(c.user.login)) return 'claude';
+    return '';
+  }
+
+  function setCompose(v) {
+    composeAgent = v;
+    $('dAgent').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
+  }
+  $('dAgent').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setCompose(b.dataset.v); });
+
+  function renderDetailHead(t) {
+    const a = AGENTS[t.agent];
+    $('dTitle').textContent = t.title;
+    $('dMeta').innerHTML = `<span class="badge ${t.agent || 'none'}">${a ? a.label : '未定'}</span>
+      <span class="status" data-s="${t.status}" style="cursor:default">${statusLabel(t.status)}</span>
+      ${t.repo ? `<span>📁 ${esc(t.repo)}</span>` : ''}${t.issue ? `<span>#${t.issue.number}</span>` : ''}
+      ${accounts().length > 1 ? `<span>👤 ${esc(acctName(acctFor(t)))}</span>` : ''}`;
+    const open = lastThread?.issue?.state !== 'closed';
+    $('dActions').innerHTML = `
+      <button type="button" data-d="refresh">↻ 更新</button>
+      ${t.issue ? `<a href="${esc(t.issue.url)}" target="_blank" rel="noopener">GitHubで開く ↗</a>` : ''}
+      ${t.agent === 'codex' && codexCloud() ? `<a href="https://chatgpt.com/codex" target="_blank" rel="noopener">Codex本体 ↗</a>` : ''}
+      <button type="button" data-d="edit">編集</button>
+      ${t.issue ? (open ? `<button type="button" data-d="close">完了にする</button>` : `<button type="button" data-d="reopen">再開する</button>`) : ''}`;
+  }
+
+  function renderThread(t, th) {
+    const parts = [];
+    if (th.running) parts.push(`<div class="banner run">⏳ ${th.runs.length ? 'ワークフロー実行中' : 'AIが作業中'}…（自動で更新します）
+      ${th.runs.map(r => `<a href="${esc(r.html_url)}" target="_blank" rel="noopener">${esc(r.name)} ↗</a>`).join(' ')}</div>`);
+    if (th.prs.length || th.branches.length) {
+      parts.push('<div class="prs">' + th.prs.map(p => {
+        const st = p.merged_at ? 'merged' : p.state;
+        const label = { open: 'オープン', merged: 'マージ済', closed: 'クローズ' }[st];
+        return `<div class="pr"><span class="st ${st}">PR ${label}</span>
+          <span class="nm"><a href="${esc(p.html_url)}" target="_blank" rel="noopener">#${p.number} ${esc(p.title)}</a></span>
+          ${st === 'open' ? `<button type="button" class="iconbtn" data-d="merge" data-n="${p.number}">マージ</button>` : ''}</div>`;
+      }).join('') + th.branches.map(b =>
+        `<div class="pr"><span class="st">ブランチ</span><span class="nm"><a href="https://github.com/${esc(t.repo)}/compare/${encodeURIComponent(b)}" target="_blank" rel="noopener">${esc(b)}</a></span>
+          <button type="button" class="iconbtn" data-d="pr" data-b="${esc(b)}">PRを作成</button></div>`).join('') + '</div>');
+    }
+    const items = [{ user: th.issue.user, body: th.issue.body, created_at: th.issue.created_at, first: true }, ...th.comments];
+    parts.push(items.map(c => {
+      const cls = whoClass(c);
+      return `<div class="msg ${cls}"><div class="who"><b>${esc(c.user.login)}</b><span>${fmtDate(c.created_at)}</span>${c.first ? '<span>（依頼）</span>' : ''}</div>
+        <div class="md">${mdRender(c.body)}</div></div>`;
+    }).join(''));
+    if (th.issue.state === 'closed') parts.push('<div class="muted">このIssueはクローズされています</div>');
+    const body = $('dBody');
+    const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 80;
+    body.innerHTML = parts.join('');
+    if (atBottom) body.scrollTop = body.scrollHeight;
+  }
+
+  async function refreshDetail(quiet) {
+    const t = byId(detailId); if (!t || !t.issue) return;
+    try {
+      const th = await fetchThread(t);
+      if (detailId !== t.id) return;
+      lastThread = th;
+      const s = deriveStatus(t, th);
+      if (s !== t.status) { t.status = s; touch(t); }
+      renderDetailHead(t);
+      renderThread(t, th);
+      schedulePoll(th.running ? 15000 : 60000);
+    } catch (err) {
+      if (!quiet) $('dBody').innerHTML = `<div class="banner">読み込めませんでした: ${esc(err.message)}</div>`;
+      schedulePoll(60000);
+    }
+  }
+  function schedulePoll(ms) { clearTimeout(pollTimer); if ($('detail').open) pollTimer = setTimeout(() => refreshDetail(true), ms); }
+
+  function openDetail(t) {
+    detailId = t.id; lastThread = null;
+    setCompose(t.agent || 'claude');
+    $('dInput').value = '';
+    renderDetailHead(t);
+    $('dBody').innerHTML = '<div class="muted">読み込み中…</div>';
+    if (!$('detail').open) $('detail').showModal();
+    refreshDetail();
+  }
+  $('dClose').addEventListener('click', () => $('detail').close());
+  $('detail').addEventListener('close', () => { clearTimeout(pollTimer); detailId = null; render(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && $('detail').open) refreshDetail(true); });
+
+  document.querySelector('#detail .sheet').addEventListener('click', async e => {
+    const el = e.target.closest('[data-d]'); if (!el) return;
+    const t = byId(detailId); if (!t) return;
+    const d = el.dataset.d;
+    el.disabled = true;
+    try {
+      if (d === 'refresh') await refreshDetail();
+      else if (d === 'edit') openDialog(t);
+      else if (d === 'close' || d === 'reopen') {
+        await gh(`/repos/${t.repo}/issues/${t.issue.number}`, { method: 'PATCH', body: JSON.stringify({ state: d === 'close' ? 'closed' : 'open' }) }, acctFor(t));
+        t.status = d === 'close' ? 'done' : 'review'; touch(t); await refreshDetail();
+        toast(d === 'close' ? '完了にしました' : '再開しました');
+      } else if (d === 'pr') {
+        const repo = await gh(`/repos/${t.repo}`, acctFor(t));
+        const who = el.dataset.b.startsWith('codex/') ? 'Codex' : 'Claude';
+        const pr = await gh(`/repos/${t.repo}/pulls`, { method: 'POST', body: JSON.stringify({
+          title: `[${who}] ${t.title}`, head: el.dataset.b, base: repo.default_branch, body: `Closes #${t.issue.number}` }) }, acctFor(t));
+        toast(`PR #${pr.number} を作成しました`); await refreshDetail();
+      } else if (d === 'merge') {
+        if (!confirm(`PR #${el.dataset.n} をマージしますか？`)) return;
+        await gh(`/repos/${t.repo}/pulls/${el.dataset.n}/merge`, { method: 'PUT', body: JSON.stringify({ merge_method: 'squash' }) }, acctFor(t));
+        toast('マージしました'); await refreshDetail();
+      }
+    } catch (err) { toast(err.message); }
+    finally { el.disabled = false; }
+  });
+
+  $('dSend').addEventListener('click', async () => {
+    const t = byId(detailId); const text = $('dInput').value.trim();
+    if (!t || !text) { $('dInput').focus(); return; }
+    const a = AGENTS[composeAgent];
+    $('dSend').disabled = true;
+    try {
+      await gh(`/repos/${t.repo}/issues/${t.issue.number}/comments`, { method: 'POST',
+        body: JSON.stringify({ body: a ? withMode(composeAgent, `${a.mention} ${text}`) : text }) }, acctFor(t));
+      $('dInput').value = '';
+      if (a) {
+        if (lastThread?.issue?.state === 'closed')
+          await gh(`/repos/${t.repo}/issues/${t.issue.number}`, { method: 'PATCH', body: JSON.stringify({ state: 'open' }) }, acctFor(t));
+        t.agent = composeAgent; t.status = 'running'; touch(t);
+        toast(`${a.label}に送りました`);
+      } else toast('メモを投稿しました');
+      renderDetailHead(t);
+      await refreshDetail();
+      if (a) schedulePoll(8000);
+    } catch (err) { toast(err.message); }
+    finally { $('dSend').disabled = false; }
+  });
+
+  // ================= settings (accounts) =================
+  let editingAcct = null;
+  function renderAccounts() {
+    $('acctList').innerHTML = accounts().length ? accounts().map(a => `
+      <div class="pr"><span class="st open">${esc(acctName(a))}</span>
+        <span class="nm">${a.login ? '@' + esc(a.login) : '（未確認）'}${a.repo ? ` · ${esc(a.repo)}` : ''}${(a.owners || []).length ? ` · ${esc(a.owners.join(', '))}` : ''}</span>
+        <button type="button" class="iconbtn" data-a="edit" data-id="${a.id}">編集</button>
+        <button type="button" class="iconbtn" data-a="del" data-id="${a.id}">削除</button></div>`).join('')
+      : '<div class="hint">まだアカウントがありません。</div>';
+    $('sInstallAcct').innerHTML = accounts().map(a => `<option value="${a.id}">${esc(acctName(a))}${a.login ? ` (@${esc(a.login)})` : ''}</option>`).join('');
+  }
+  function openAcctForm(a) {
+    editingAcct = a ? a.id : null;
+    $('aLabel').value = a?.label || ''; $('aToken').value = a?.token || '';
+    $('aRepo').value = a?.repo || ''; $('aOwners').value = (a?.owners || []).join(', ');
+    $('aResult').textContent = ''; $('acctForm').hidden = false; $('acctAdd').hidden = true;
+    $('aLabel').focus();
+  }
+  function closeAcctForm() { $('acctForm').hidden = true; $('acctAdd').hidden = false; editingAcct = null; }
+  function openSettings() {
+    renderAccounts(); closeAcctForm();
+    $('sCodexMode').value = prefs.codexMode || 'actions';
+    if (!accounts().length) openAcctForm(null);
+    const first = accounts()[0];
+    $('sInstallRepo').value = first?.repo || ''; $('sInstallResult').textContent = '';
+    updateSecretsLink(); $('settings').showModal();
+  }
+  function updateSecretsLink() {
+    const r = $('sInstallRepo').value.trim();
+    $('sSecrets').href = REPO_RE.test(r) ? `https://github.com/${r}/settings/secrets/actions` : 'https://github.com/settings';
+  }
+  $('sInstallRepo').addEventListener('input', updateSecretsLink);
+  $('sInstallAcct').addEventListener('change', () => { const a = acctById($('sInstallAcct').value); if (a?.repo) { $('sInstallRepo').value = a.repo; updateSecretsLink(); } });
+  $('settingsBtn').addEventListener('click', openSettings);
+  $('sClose').addEventListener('click', () => $('settings').close());
+  $('sForm').addEventListener('submit', e => e.preventDefault());
+  $('sCodexMode').addEventListener('change', () => {
+    prefs.codexMode = $('sCodexMode').value; save(PREF, prefs);
+    toast(codexCloud() ? 'Codexは本体（Codexクラウド）で実行します' : 'CodexはGitHub Actionsで実行します');
+  });
+  $('settings').addEventListener('close', () => { renderFilters(); render(); });
+  $('acctAdd').addEventListener('click', () => openAcctForm(null));
+  $('aCancel').addEventListener('click', closeAcctForm);
+  $('acctList').addEventListener('click', e => {
+    const b = e.target.closest('[data-a]'); if (!b) return;
+    const a = acctById(b.dataset.id); if (!a) return;
+    if (b.dataset.a === 'edit') openAcctForm(a);
+    else if (confirm(`アカウント「${acctName(a)}」を削除しますか？（タスクは残り、別のアカウントで扱われます）`)) {
+      ghCfg.accounts = accounts().filter(x => x.id !== a.id); saveAccounts();
+      if (prefs.account === a.id) { prefs.account = 'all'; save(PREF, prefs); }
+      renderAccounts();
+    }
+  });
+  $('aSave').addEventListener('click', async () => {
+    const data = {
+      label: $('aLabel').value.trim(), token: $('aToken').value.trim(), repo: $('aRepo').value.trim(),
+      owners: $('aOwners').value.split(/[,、，\s]+/).map(x => x.trim()).filter(Boolean),
+    };
+    if (!data.token) { $('aResult').textContent = 'トークンを入力してください'; return; }
+    if (data.repo && !REPO_RE.test(data.repo)) { $('aResult').textContent = '既定のリポジトリは owner/repo の形で'; return; }
+    $('aResult').textContent = '確認中…';
+    let login = '', note = '';
+    try {
+      login = (await gh('/user', {}, data)).login;
+      if (data.repo) { try { await gh(`/repos/${data.repo}`, {}, data); } catch (err) { note = ` ⚠️ ${data.repo} が見えません（${err.status}）。トークンの対象リポジトリを確認してください。`; } }
+    } catch (err) { $('aResult').textContent = '❌ ' + err.message; return; }
+    const dup = accounts().find(a => a.login === login && a.id !== editingAcct);
+    if (dup && !confirm(`@${login} は「${acctName(dup)}」として登録済みです。追加しますか？`)) return;
+    const a = { ...data, login, label: data.label || login };
+    if (editingAcct) Object.assign(acctById(editingAcct), a);
+    else accounts().push({ id: 'a' + uid(), ...a });
+    saveAccounts(); renderAccounts(); closeAcctForm();
+    toast(`✅ @${login} を保存しました${note ? '（注意あり）' : ''}`);
+    if (note) $('sInstallResult').textContent = note;
+  });
+  $('sInstall').addEventListener('click', async () => {
+    const acct = acctById($('sInstallAcct').value);
+    const repo = $('sInstallRepo').value.trim();
+    if (!acct) { $('sInstallResult').textContent = '先にアカウントを追加してください'; return; }
+    if (!REPO_RE.test(repo)) { $('sInstallResult').textContent = 'owner/repo の形で入力してください'; return; }
+    $('sInstallResult').textContent = '書き込み中…';
+    try {
+      const done = [];
+      for (const name of ['claude.yml', 'codex.yml']) {
+        const text = await (await fetch(`workflows/${name}`, { cache: 'no-store' })).text();
+        const path = `.github/workflows/${name}`;
+        let sha;
+        try { sha = (await gh(`/repos/${repo}/contents/${path}`, {}, acct)).sha; } catch (err) { if (err.status !== 404) throw err; }
+        await gh(`/repos/${repo}/contents/${path}`, { method: 'PUT', body: JSON.stringify({
+          message: `chore: ${sha ? 'update' : 'add'} ${name} for AIタスク`, content: b64(text), ...(sha ? { sha } : {}) }) }, acct);
+        done.push(name);
+      }
+      $('sInstallResult').textContent = `✅ ${repo} に ${done.join(' / ')} を入れました（${acctName(acct)}）。次にシークレットを登録してください。`;
+    } catch (err) {
+      $('sInstallResult').textContent = '❌ ' + err.message + (err.status === 403 || err.status === 404 ? '（トークンの Contents / Workflows 権限を確認）' : '');
+    }
+  });
+
+  $('syncAllBtn').addEventListener('click', async () => {
+    const list = tasks.filter(t => t.issue && t.status !== 'done');
+    if (!list.length) { toast('GitHub上で進行中のタスクはありません'); return; }
+    let changed = 0, failed = 0;
+    await Promise.all(list.map(async t => {
+      try { const s = deriveStatus(t, await fetchThread(t)); if (s !== t.status) { t.status = s; t.updatedAt = Date.now(); changed++; } }
+      catch { failed++; }
+    }));
+    persist(); render(); toast(`${list.length}件を確認（${changed}件更新${failed ? `・${failed}件失敗` : ''}）`);
+  });
+
+  // 全アカウントから @claude / @codex 宛てのIssueを取り込む（別端末で作ったタスクや、GitHubで直接頼んだものも一覧に）
+  $('importGhBtn').addEventListener('click', async e => {
+    if (!ghReady()) { openSettings(); return; }
+    const btn = e.currentTarget; btn.disabled = true;
+    let added = 0; const errors = [];
+    try {
+      for (const acct of accounts()) {
+        if (!acct.login) { try { acct.login = (await gh('/user', {}, acct)).login; saveAccounts(); } catch (err) { errors.push(err.message); continue; } }
+        let res;
+        try { res = await gh(`/search/issues?q=${encodeURIComponent(`is:issue is:open involves:${acct.login} in:body,comments claude OR codex`)}&per_page=50&sort=updated`, {}, acct); }
+        catch (err) { errors.push(err.message); continue; }
+        for (const it of res.items || []) {
+          const m = (it.body || '').match(/@(claude|codex)\b/i);
+          if (!m) continue;
+          const repo = it.repository_url.split('/repos/')[1];
+          if (tasks.some(t => t.issue && t.repo.toLowerCase() === repo.toLowerCase() && t.issue.number === it.number)) continue;
+          const mk = (it.body || '').match(/<!-- ai-tasks:([\w-]+) -->/);
+          const prompt = (it.body || '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*@(claude|codex)\b\s*/i, '').trim();
+          tasks.push({
+            id: mk && !byId(mk[1]) ? mk[1] : uid(), createdAt: Date.parse(it.created_at) || Date.now(), updatedAt: Date.parse(it.updated_at) || Date.now(),
+            agent: m[1].toLowerCase(), title: it.title, prompt, repo, accountId: acct.id, status: 'running',
+            tags: [], link: it.html_url, note: '', issue: { number: it.number, url: it.html_url },
+          });
+          added++;
+        }
+      }
+      persist(); render();
+      toast(`${added}件取り込みました${errors.length ? `（${errors.length}件エラー: ${errors[0]}）` : ''}`);
+      if (added) $('syncAllBtn').click();
+    } finally { btn.disabled = false; }
+  });
+
+  // ================= export / import =================
+  $('exportBtn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify({ app: 'ai-tasks', version: 1, exportedAt: new Date().toISOString(), tasks }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ai-tasks-${new Date().toISOString().slice(0,10)}.json`;
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $('importBtn').addEventListener('click', () => $('importFile').click());
+  $('importFile').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try {
+      const j = JSON.parse(await f.text());
+      const incoming = Array.isArray(j) ? j : j.tasks;
+      if (!Array.isArray(incoming)) throw new Error('形式が違います');
+      // 同じIDは更新日時が新しい方を採用（マージ）
+      const map = new Map(tasks.map(t => [t.id, t]));
+      let added = 0, updated = 0;
+      for (const t of incoming) {
+        if (!t || !t.id || !t.title) continue;
+        const cur = map.get(t.id);
+        if (!cur) { map.set(t.id, t); added++; }
+        else if ((t.updatedAt || 0) > (cur.updatedAt || 0)) { map.set(t.id, t); updated++; }
+      }
+      tasks = [...map.values()]; persist(); render();
+      toast(`読み込みました（追加${added}件・更新${updated}件）`);
+    } catch (err) { toast('読み込めませんでした: ' + err.message); }
+  });
+  $('clearDoneBtn').addEventListener('click', () => {
+    const n = tasks.filter(t => t.status === 'done').length;
+    if (!n) { toast('完了したタスクはありません'); return; }
+    if (!confirm(`完了したタスク${n}件を削除しますか？`)) return;
+    tasks = tasks.filter(t => t.status !== 'done'); persist(); render(); toast(`${n}件削除しました`);
+  });
+
+  window.addEventListener('storage', e => { if (e.key === KEY) { tasks = load(KEY, []); render(); } });
+
+  renderFilters();
+  render();
+})();
+</script>
+</body>
+</html>
