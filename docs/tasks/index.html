@@ -205,9 +205,7 @@
     .wrap { display:grid; grid-template-columns:292px minmax(0,1fr); gap:24px; max-width:none; align-items:start; }
     .side { display:block; position:sticky; top:20px; max-height:calc(100vh - 40px); overflow:auto; padding:2px 6px 2px 2px; scrollbar-width:thin; }
     .side .tools { margin-top:14px; }
-    .side .tools .actions { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-    .side .tools .actions button { padding:7px 6px; }
-    .side .tools { font-size:12px; padding:12px; }
+
     .main { min-width:0; }
     header { margin:6px 0 14px; }
     header img { width:44px; height:44px; border-radius:12px; }
@@ -255,6 +253,33 @@
     body.panel-open .list.grid { grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); }
   }
 
+  [hidden] { display:none !important; }
+  .side-label { display:none; }
+  .seg button .c { margin-left:6px; opacity:.65; font-variant-numeric:tabular-nums; }
+  .acct-select { width:100%; padding:9px 10px; font-size:14px; color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:10px; margin-bottom:8px; font-family:inherit; }
+  .stats { display:none; }
+
+  @media (min-width:1000px) {
+    .side .back { font-size:12px; }
+    .side header { margin:4px 0 14px; gap:10px; }
+    .side header img { width:32px; height:32px; border-radius:9px; }
+    .side h1 { font-size:18px; margin:0; }
+    .side .search { margin:0 0 4px; padding:8px 11px; font-size:14px; }
+    .side-label { display:block; font-size:11px; font-weight:700; color:var(--sub); letter-spacing:.06em; margin:16px 6px 6px; }
+    #statusFilter { flex-direction:column; flex-wrap:nowrap; gap:1px; margin:0; }
+    #statusFilter button { display:flex; justify-content:space-between; align-items:center; border:none; background:transparent; color:var(--text); border-radius:8px; padding:7px 10px; font-size:13.5px; text-align:left; }
+    #statusFilter button:hover { background:var(--surface); }
+    #statusFilter button[aria-pressed="true"] { background:color-mix(in srgb, var(--accent) 20%, transparent); color:var(--text); }
+    #statusFilter .c { opacity:1; color:var(--sub); font-weight:600; }
+    #agentFilter { display:grid; grid-template-columns:repeat(4, 1fr); gap:0; margin:0; padding:3px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+    #agentFilter button { border:none; background:transparent; border-radius:7px; padding:6px 0; font-size:12.5px; }
+    #agentFilter button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
+    .side .tools { border:none; background:none; padding:0; margin-top:8px; }
+    .side .tools .actions { display:flex; flex-direction:column; gap:0; margin:0; }
+    .side .tools .actions button { border:none; background:transparent; text-align:left; padding:7px 10px; font-size:13px; color:var(--sub); border-radius:8px; }
+    .side .tools .actions button:hover { background:var(--surface); color:var(--text); }
+  }
+
   .toast {
     position:fixed; left:50%; bottom:calc(88px + env(safe-area-inset-bottom)); transform:translateX(-50%);
     background:#0f172a; color:#fff; border-radius:10px; padding:10px 16px; font-size:13.5px;
@@ -271,28 +296,30 @@
     <img src="assets/icon.svg" alt="" width="56" height="56">
     <div class="body">
       <h1>AIタスク</h1>
-      <p class="lead">Claude と Codex に頼むタスクを一か所で管理。GitHub経由でここから指示を出し、進み具合と結果を確認できます。</p>
     </div>
   </header>
 
   <button type="button" class="btn newbtn" id="addBtn2">＋ 新しいタスク <kbd>N</kbd></button>
-  <div class="stats" id="stats"></div>
+  <input class="search" id="q" type="search" placeholder="検索">
 
-  <div class="seg" id="agentFilter" role="group" aria-label="担当で絞り込み"></div>
-  <div class="seg" id="acctFilter" role="group" aria-label="アカウントで絞り込み" hidden></div>
+  <div class="side-label">状態</div>
   <div class="seg" id="statusFilter" role="group" aria-label="状態で絞り込み"></div>
-  <input class="search" id="q" type="search" placeholder="検索（タイトル・内容・リポジトリ・タグ）">
+  <div class="side-label">担当</div>
+  <div class="seg" id="agentFilter" role="group" aria-label="担当で絞り込み"></div>
+  <div id="acctBox" hidden>
+    <div class="side-label">アカウント</div>
+    <select id="acctFilter" class="acct-select" aria-label="アカウントで絞り込み"></select>
+  </div>
 
-  <div class="tools">
-    <b>データについて</b><br>
-    タスクはこの端末のブラウザ内に保存されます。別の端末へ移すときは書き出し→読み込みを使ってください。
+  <div class="tools" title="タスクはこの端末のブラウザ内に保存されます。別の端末へは書き出し→読み込みで移せます。">
+    <div class="side-label">データ</div>
     <div class="actions">
-      <button type="button" id="exportBtn">書き出し（JSON）</button>
+      <button type="button" id="settingsBtn">⚙ GitHub設定</button>
+      <button type="button" id="exportBtn">書き出し</button>
       <button type="button" id="importBtn">読み込み</button>
       <button type="button" id="clearDoneBtn">完了を削除</button>
       <button type="button" id="syncAllBtn">GitHubと同期</button>
       <button type="button" id="importGhBtn" title="@claude / @codex 宛てのIssueと、Claude Code・CodexのPRを取り込む">GitHubから取り込み</button>
-      <button type="button" id="settingsBtn">GitHub設定</button>
     </div>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
   </div>
@@ -610,22 +637,24 @@
     const agentOpts = [['all','すべて'],['claude','Claude'],['codex','Codex'],['none','未定']];
     $('agentFilter').innerHTML = agentOpts.map(([v,l]) =>
       `<button type="button" data-v="${v}" aria-pressed="${prefs.agent===v}">${l}</button>`).join('');
+    // アカウントが2つ以上のときだけ表示
     const multi = accounts().length > 1;
-    $('acctFilter').hidden = !multi;
+    $('acctBox').hidden = !multi;
     if (!multi || (prefs.account !== 'all' && !acctById(prefs.account))) prefs.account = 'all';
-    $('acctFilter').innerHTML = [['all','全アカウント'], ...accounts().map(a => [a.id, acctName(a)])].map(([v,l]) =>
-      `<button type="button" data-v="${v}" aria-pressed="${prefs.account===v}">👤 ${esc(l)}</button>`).join('');
+    $('acctFilter').innerHTML = [['all','すべてのアカウント'], ...accounts().map(a => [a.id, acctName(a)])].map(([v,l]) =>
+      `<option value="${v}">${esc(l)}</option>`).join('');
+    $('acctFilter').value = prefs.account;
     const statusOpts = [['active','未完了'], ...STATUSES.map(s => [s.v, s.label]), ['all','すべて']];
     $('statusFilter').innerHTML = statusOpts.map(([v,l]) =>
-      `<button type="button" data-v="${v}" aria-pressed="${prefs.status===v}">${l}</button>`).join('');
+      `<button type="button" data-v="${v}" aria-pressed="${prefs.status===v}"><span>${l}</span><span class="c" data-c="${v}"></span></button>`).join('');
+    renderStats();
   }
   $('agentFilter').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     prefs.agent = b.dataset.v; save(PREF, prefs); renderFilters(); render();
   });
-  $('acctFilter').addEventListener('click', e => {
-    const b = e.target.closest('button'); if (!b) return;
-    prefs.account = b.dataset.v; save(PREF, prefs); renderFilters(); render();
+  $('acctFilter').addEventListener('change', () => {
+    prefs.account = $('acctFilter').value; save(PREF, prefs); render();
   });
   $('statusFilter').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -651,10 +680,14 @@
     });
   }
 
+  // 状態ごとの件数（担当・アカウントの絞り込みは反映）
   function renderStats() {
-    const c = s => tasks.filter(t => t.status === s).length;
-    $('stats').innerHTML = STATUSES.map(s =>
-      `<div class="stat"><div class="n">${c(s.v)}</div><div class="l">${s.label}</div></div>`).join('');
+    const base = tasks.filter(t =>
+      !(prefs.agent === 'none' ? t.agent : (prefs.agent !== 'all' && t.agent !== prefs.agent)) &&
+      !(prefs.account && prefs.account !== 'all' && acctFor(t)?.id !== prefs.account));
+    const n = { all: base.length, active: base.filter(t => t.status !== 'done').length };
+    STATUSES.forEach(x => n[x.v] = base.filter(t => t.status === x.v).length);
+    document.querySelectorAll('#statusFilter .c').forEach(el => el.textContent = n[el.dataset.c] ?? '');
   }
 
   const mqDesk = matchMedia('(min-width:1000px)'), mqWide = matchMedia('(min-width:1280px)');
