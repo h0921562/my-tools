@@ -61,8 +61,14 @@ jobs:
           N: ${{ github.event.issue.number }}
           IS_PR: ${{ github.event.issue.pull_request && 'true' || 'false' }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          TEXT: ${{ github.event.comment.body || github.event.issue.body }}
         run: |
           set -euo pipefail
+          # AIタスクで選んだモデル・推論の強さ（本文末尾の <!-- ai-model: ... --> / <!-- ai-effort: ... -->）
+          MODEL=$(printf '%s' "$TEXT" | grep -oE '<!-- ai-model: [A-Za-z0-9._:-]{1,64} -->' | tail -1 | sed -E 's/<!-- ai-model: (.*) -->/\1/' || true)
+          EFFORT=$(printf '%s' "$TEXT" | grep -oE '<!-- ai-effort: [a-z]{1,10} -->' | tail -1 | sed -E 's/<!-- ai-effort: (.*) -->/\1/' || true)
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+          echo "effort=$EFFORT" >> "$GITHUB_OUTPUT"
           if [ "$IS_PR" = true ]; then
             BRANCH=$(gh api "repos/$REPO/pulls/$N" -q .head.ref)
             REF="$BRANCH"
@@ -99,6 +105,8 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           permission-profile: ":workspace"
           prompt-file: ${{ runner.temp }}/prompt.md
+          model: ${{ steps.ctx.outputs.model }}
+          effort: ${{ steps.ctx.outputs.effort }}
 
       - name: Save changes as patch
         run: |
