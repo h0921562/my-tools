@@ -170,7 +170,7 @@
   .md pre { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px 10px; overflow:auto; font-size:12.5px; line-height:1.5; }
   .md code { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.92em; background:var(--bg); border-radius:4px; padding:0 3px; }
   .md pre code { background:none; padding:0; }
-  .md a { color:var(--accent); }
+  .md a, .pr a, .hint a, .step a, .banner a { color:var(--accent); }
   .md ul { margin:0 0 8px; padding-left:20px; }
   .md h1, .md h2, .md h3, .md h4 { font-size:14.5px; margin:10px 0 6px; }
   .md hr { border:none; border-top:1px solid var(--border); margin:10px 0; }
@@ -189,6 +189,72 @@
   .setup ol b { color:var(--text); }
   .setup code { font-size:12px; background:var(--bg); border-radius:4px; padding:1px 4px; }
 
+  /* ---------- レイアウト（スマホ: 1列 / PC: サイドバー＋ボード＋右パネル） ---------- */
+  .wrap { display:flex; flex-direction:column; }
+  .side { display:contents; }
+  .main { order:1; }
+  .side .tools { order:2; }
+  .newbtn, .mainbar { display:none; }
+  .scol-h { margin-top:22px; }
+  kbd { font-family:ui-monospace, Menlo, monospace; font-size:11px; border:1px solid var(--border); border-bottom-width:2px; border-radius:5px; padding:0 5px; color:var(--sub); background:var(--bg); }
+  .newbtn kbd { color:inherit; background:transparent; border-color:rgba(255,255,255,.35); margin-left:6px; }
+  .task.sel { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent); }
+
+  @media (min-width:1000px) {
+    body { padding:20px 24px 32px; }
+    .wrap { display:grid; grid-template-columns:292px minmax(0,1fr); gap:24px; max-width:none; align-items:start; }
+    .side { display:block; position:sticky; top:20px; max-height:calc(100vh - 40px); overflow:auto; padding:2px 6px 2px 2px; scrollbar-width:thin; }
+    .side .tools { margin-top:14px; }
+    .side .tools .actions { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .side .tools .actions button { padding:7px 6px; }
+    .side .tools { font-size:12px; padding:12px; }
+    .main { min-width:0; }
+    header { margin:6px 0 14px; }
+    header img { width:44px; height:44px; border-radius:12px; }
+    h1 { font-size:21px; }
+    .lead { font-size:12px; }
+    .newbtn { display:block; width:100%; margin-bottom:12px; }
+    .fab { display:none; }
+    .stats { grid-template-columns:repeat(2, 1fr); }
+    .seg { flex-wrap:wrap; overflow:visible; }
+    .seg button { padding:6px 11px; font-size:12.5px; }
+    .search { margin-bottom:0; }
+    .mainbar { display:flex; align-items:center; gap:12px; margin:4px 0 12px; min-height:34px; }
+    .mainbar .count { font-weight:700; font-size:15px; }
+    .mainbar .viewsw { margin:0; }
+    .mainbar .keys { margin-left:auto; font-size:12px; color:var(--sub); }
+    .list.grid { grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:12px; align-items:start; }
+    .list.board { display:grid; grid-template-columns:repeat(var(--cols, 3), minmax(0, 1fr)); gap:12px; align-items:start; }
+    .col { background:color-mix(in srgb, var(--surface) 55%, var(--bg)); border:1px solid var(--border); border-radius:14px; padding:10px; display:grid; gap:8px; align-content:start; min-height:120px; }
+    .col-h { display:flex; align-items:center; gap:8px; font-weight:700; font-size:13px; padding:2px 4px 4px; }
+    .col-h .n { color:var(--sub); font-weight:600; }
+    .col-h .dot { width:8px; height:8px; border-radius:50%; background:var(--sub); }
+    .col[data-s="running"] .dot { background:var(--accent); } .col[data-s="review"] .dot { background:#d97706; } .col[data-s="done"] .dot { background:var(--codex); }
+    .col .empty { padding:18px 6px; font-size:12.5px; }
+    .task { padding:11px 12px; box-shadow:none; cursor:pointer; transition:border-color .12s; }
+    .task .actions { gap:6px; margin-top:8px; }
+    .task:hover { border-color:color-mix(in srgb, var(--accent) 45%, var(--border)); }
+    .task .title { font-size:14.5px; }
+    .preview { font-size:12.5px; }
+    .actions button, .actions a { padding:6px 10px; font-size:12.5px; }
+    .empty { grid-column:1 / -1; }
+    /* 設定・編集ダイアログを横に広く */
+    #settings { width:min(1100px, calc(100vw - 48px)); }
+    .scols { display:grid; grid-template-columns:1fr 1fr; gap:28px; align-items:start; }
+    .scol-h { margin-top:0; }
+    #dlg { width:min(760px, calc(100vw - 48px)); }
+    #dlg .field textarea#fPrompt { min-height:220px; }
+  }
+  /* 広い画面: やりとりを右側のパネルに（一覧を見ながら操作） */
+  @media (min-width:1280px) {
+    dialog.full.panel { position:fixed; inset:0 0 0 auto; margin:0; width:min(620px, 42vw); height:100vh; max-height:100vh; border-radius:0; border-left:1px solid var(--border); box-shadow:-12px 0 40px rgba(0,0,0,.18); z-index:5; }
+    body.panel-open .wrap { margin-right:calc(min(620px, 42vw) + 8px); }
+    body.panel-open .side { display:none; }
+    body.panel-open .wrap { grid-template-columns:minmax(0,1fr); }
+    body.panel-open .list.board { grid-template-columns:repeat(min(var(--cols, 3), 2), minmax(0, 1fr)); }
+    body.panel-open .list.grid { grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); }
+  }
+
   .toast {
     position:fixed; left:50%; bottom:calc(88px + env(safe-area-inset-bottom)); transform:translateX(-50%);
     background:#0f172a; color:#fff; border-radius:10px; padding:10px 16px; font-size:13.5px;
@@ -199,6 +265,7 @@
 </head>
 <body>
 <div class="wrap">
+  <aside class="side">
   <a class="back" href="../index.html">‹ マイツール</a>
   <header>
     <img src="assets/icon.svg" alt="" width="56" height="56">
@@ -208,14 +275,13 @@
     </div>
   </header>
 
+  <button type="button" class="btn newbtn" id="addBtn2">＋ 新しいタスク <kbd>N</kbd></button>
   <div class="stats" id="stats"></div>
 
   <div class="seg" id="agentFilter" role="group" aria-label="担当で絞り込み"></div>
   <div class="seg" id="acctFilter" role="group" aria-label="アカウントで絞り込み" hidden></div>
   <div class="seg" id="statusFilter" role="group" aria-label="状態で絞り込み"></div>
   <input class="search" id="q" type="search" placeholder="検索（タイトル・内容・リポジトリ・タグ）">
-
-  <div class="list" id="list"></div>
 
   <div class="tools">
     <b>データについて</b><br>
@@ -225,11 +291,24 @@
       <button type="button" id="importBtn">読み込み</button>
       <button type="button" id="clearDoneBtn">完了を削除</button>
       <button type="button" id="syncAllBtn">GitHubと同期</button>
-      <button type="button" id="importGhBtn">GitHubから取り込み（Issue・Claude/CodexのPR）</button>
+      <button type="button" id="importGhBtn" title="@claude / @codex 宛てのIssueと、Claude Code・CodexのPRを取り込む">GitHubから取り込み</button>
       <button type="button" id="settingsBtn">GitHub設定</button>
     </div>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
   </div>
+  </aside>
+
+  <main class="main">
+    <div class="mainbar">
+      <div class="count" id="count"></div>
+      <div class="seg viewsw" id="viewSw" role="group" aria-label="表示">
+        <button type="button" data-v="board">ボード</button>
+        <button type="button" data-v="grid">一覧</button>
+      </div>
+      <span class="keys"><kbd>N</kbd> 新規　<kbd>/</kbd> 検索　<kbd>Esc</kbd> 閉じる</span>
+    </div>
+    <div class="list" id="list"></div>
+  </main>
 </div>
 
 <button class="fab" id="addBtn" type="button">＋ タスク</button>
@@ -303,7 +382,7 @@
     </div>
     <div class="sheet-body" id="dBody"></div>
     <div class="sheet-foot" id="dFoot">
-      <textarea id="dInput" placeholder="追加の指示・質問・修正依頼を書く"></textarea>
+      <textarea id="dInput" placeholder="追加の指示・質問・修正依頼を書く（⌘/Ctrl+Enterで送信）"></textarea>
       <div class="row">
         <div class="pick" id="dAgent" style="flex:1">
           <button type="button" data-v="claude">@Claude</button>
@@ -318,6 +397,7 @@
 
 <dialog id="settings">
   <form class="dlg setup" id="sForm" method="dialog">
+    <div class="scols"><div class="scol">
     <h2>GitHubアカウント</h2>
     <div class="hint" style="margin:-6px 0 10px">個人用・仕事用など複数のGitHubアカウントを登録できます。タスクごとに使うアカウントが選ばれ、そのトークンで実行・確認します。トークンはこの端末のブラウザ内だけに保存され、書き出しJSONにも含まれません。</div>
     <div class="prs" id="acctList"></div>
@@ -357,7 +437,8 @@
       <div class="hint">「Codex本体」は chatgpt.com/codex でGitHub連携を有効にしたリポジトリで使えます。ChatGPTのプランで動き、作業は chatgpt.com/codex にも表示されます。このとき codex.yml は反応しないので、二重に動くことはありません。</div>
     </div>
 
-    <h2 style="margin-top:22px">リポジトリのセットアップ</h2>
+    </div><div class="scol">
+    <h2 class="scol-h">リポジトリのセットアップ</h2>
     <div class="hint" style="margin:-6px 0 10px">リポジトリを選んで「状況を確認」。足りないものはこの画面から登録・設定できます（キーは暗号化してGitHubのシークレットに保存され、この端末には残りません）。</div>
     <div class="row2">
       <div class="field">
@@ -372,6 +453,7 @@
     <button type="button" class="btn" id="sCheck" style="width:100%">状況を確認</button>
     <div id="setupList" style="margin-top:12px"></div>
     <div class="hint" id="sInstallResult"></div>
+    </div></div>
     <div class="dlg-actions">
       <button type="button" class="btn sub" id="sClose">閉じる</button>
     </div>
@@ -575,19 +657,47 @@
       `<div class="stat"><div class="n">${c(s.v)}</div><div class="l">${s.label}</div></div>`).join('');
   }
 
+  const mqDesk = matchMedia('(min-width:1000px)'), mqWide = matchMedia('(min-width:1280px)');
+  function renderMainbar(n) {
+    $('count').textContent = `${n}件`;
+    $('viewSw').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === (prefs.view || 'board')));
+  }
+  $('viewSw').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; prefs.view = b.dataset.v; save(PREF, prefs); render(); });
+
   function render() {
     renderStats();
     const list = visible();
-    if (!list.length) {
-      $('list').innerHTML = tasks.length
+    renderMainbar(list.length);
+    const el = $('list');
+    const board = mqDesk.matches && (prefs.view || 'board') === 'board';
+    el.className = 'list' + (mqDesk.matches ? (board ? ' board' : ' grid') : '');
+    if (!list.length && !board) {
+      el.innerHTML = tasks.length
         ? '<div class="empty">条件に合うタスクはありません。</div>'
-        : '<div class="empty">まだタスクがありません。<br>右下の「＋ タスク」から追加してください。</div>';
+        : '<div class="empty">まだタスクがありません。<br>「＋ タスク」から追加してください。</div>';
       return;
     }
-    $('list').innerHTML = list.map(t => {
+    if (board) {
+      // PC: 状態ごとの列（ボード）
+      const cols = prefs.status === 'active' ? STATUSES.filter(x => x.v !== 'done')
+        : prefs.status === 'all' ? STATUSES : STATUSES.filter(x => x.v === prefs.status);
+      el.style.setProperty('--cols', cols.length);
+      el.innerHTML = cols.map(c => {
+        const items = list.filter(t => t.status === c.v);
+        return `<section class="col" data-s="${c.v}"><div class="col-h"><span class="dot"></span>${c.label}<span class="n">${items.length}</span></div>
+          ${items.map(cardHtml).join('') || '<div class="empty">なし</div>'}</section>`;
+      }).join('');
+      return;
+    }
+    el.innerHTML = list.map(cardHtml).join('');
+  }
+  mqDesk.addEventListener('change', render);
+  mqWide.addEventListener('change', () => { if ($('detail').open && detailId) { const id = detailId; $('detail').close(); openDetail(byId(id)); } });
+
+  function cardHtml(t) {
       const a = AGENTS[t.agent];
       const link = safeUrl(t.link);
-      return `<div class="task ${t.status==='done'?'done':''}" data-id="${t.id}">
+      return `<div class="task ${t.status==='done'?'done':''} ${t.id === detailId ? 'sel' : ''}" data-id="${t.id}">
         <div class="top">
           <div class="title" data-act="open">${esc(t.title)}</div>
           <button type="button" class="status" data-act="cycle" data-s="${t.status}" title="タップで状態を進める">${statusLabel(t.status)}</button>
@@ -604,13 +714,12 @@
         <div class="actions">
           ${t.issue ? `<button type="button" class="primary" data-act="open">やりとりを開く</button>`
             : a ? `<button type="button" class="primary" data-act="start">GitHubで実行</button>
-                   <button type="button" class="run ${t.agent}" data-act="run">コピーして${a.label}を開く</button>`
+                   <button type="button" class="run ${t.agent}" data-act="run" title="プロンプトをコピーして${a.label}を開く">${a.label}で開く</button>`
                 : `<button type="button" data-act="copy">プロンプトをコピー</button>`}
-          ${a && !t.issue ? `<button type="button" data-act="swap">${t.agent==='claude'?'Codex':'Claude'}に回す</button>` : ''}
+          ${a && !t.issue ? `<button type="button" data-act="swap" title="担当を${t.agent==='claude'?'Codex':'Claude'}に変更">⇄ ${t.agent==='claude'?'Codex':'Claude'}</button>` : ''}
           ${link && !t.issue ? `<a href="${esc(link)}" target="_blank" rel="noopener">結果を開く ↗</a>` : ''}
         </div>
       </div>`;
-    }).join('');
   }
 
   function buildPrompt(t) {
@@ -631,9 +740,11 @@
   function touch(t) { t.updatedAt = Date.now(); persist(); render(); }
 
   $('list').addEventListener('click', async e => {
-    const el = e.target.closest('[data-act]'); if (!el) return;
-    const t = byId(el.closest('.task').dataset.id); if (!t) return;
-    const act = el.dataset.act;
+    const card = e.target.closest('.task'); if (!card) return;
+    const el = e.target.closest('[data-act]') || (e.target.closest('a, button') ? null : card);
+    if (!el) return;
+    const t = byId(card.dataset.id); if (!t) return;
+    const act = el === card ? 'open' : el.dataset.act;
     if (act === 'open') { t.issue ? openDetail(t) : openDialog(t); }
     else if (act === 'cycle') {
       const i = STATUSES.findIndex(s => s.v === t.status);
@@ -695,6 +806,15 @@
   }
 
   $('addBtn').addEventListener('click', () => openDialog(null));
+  $('addBtn2').addEventListener('click', () => openDialog(null));
+  document.addEventListener('keydown', e => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+    const modalOpen = ['dlg', 'settings'].some(id => $(id).open) || ($('detail').open && !$('detail').classList.contains('panel'));
+    if (e.key === 'Escape' && $('detail').open && $('detail').classList.contains('panel') && !['dlg','settings'].some(id => $(id).open)) { $('detail').close(); return; }
+    if (typing || modalOpen || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'n' || e.key === 'N') { e.preventDefault(); openDialog(null); }
+    else if (e.key === '/') { e.preventDefault(); $('q').focus(); }
+  });
   $('cancelBtn').addEventListener('click', () => $('dlg').close());
   $('delBtn').addEventListener('click', () => {
     if (!editingId || !confirm('このタスクを削除しますか？（GitHubのIssueは残ります）')) return;
@@ -845,11 +965,20 @@
     $('dInput').value = '';
     renderDetailHead(t);
     $('dBody').innerHTML = '<div class="muted">読み込み中…</div>';
-    if (!$('detail').open) $('detail').showModal();
+    const dlg = $('detail');
+    if (mqWide.matches) {
+      // 広い画面: 右側パネル（一覧は操作できるまま）
+      dlg.classList.add('panel'); document.body.classList.add('panel-open');
+      if (!dlg.open) dlg.show();
+    } else {
+      dlg.classList.remove('panel');
+      if (!dlg.open) dlg.showModal();
+    }
+    render();
     refreshDetail();
   }
   $('dClose').addEventListener('click', () => $('detail').close());
-  $('detail').addEventListener('close', () => { clearTimeout(pollTimer); detailId = null; render(); });
+  $('detail').addEventListener('close', () => { clearTimeout(pollTimer); detailId = null; document.body.classList.remove('panel-open'); render(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && $('detail').open) refreshDetail(true); });
 
   document.querySelector('#detail .sheet').addEventListener('click', async e => {
@@ -879,6 +1008,7 @@
     finally { el.disabled = false; }
   });
 
+  $('dInput').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('dSend').click(); } });
   $('dSend').addEventListener('click', async () => {
     const t = byId(detailId); const text = $('dInput').value.trim();
     if (!t || !text) { $('dInput').focus(); return; }
