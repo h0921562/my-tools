@@ -175,6 +175,16 @@
   .md h1, .md h2, .md h3, .md h4 { font-size:14.5px; margin:10px 0 6px; }
   .md hr { border:none; border-top:1px solid var(--border); margin:10px 0; }
   .muted { color:var(--sub); font-size:13px; text-align:center; padding:14px; }
+  .step { border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:8px; font-size:13px; line-height:1.6; }
+  .step .hd { display:flex; align-items:center; gap:8px; font-weight:700; font-size:14px; }
+  .step .hd .ok { margin-left:auto; font-size:12px; font-weight:700; }
+  .step.good { border-color:var(--codex); } .step.good .ok { color:var(--codex); }
+  .step.bad .ok { color:var(--danger); }
+  .step .sub { color:var(--sub); margin:4px 0 6px; }
+  .step .inrow { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .step .inrow input, .step .inrow select { flex:1; min-width:0; padding:9px 10px; font-size:16px; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:9px; font-family:inherit; }
+  .step .inrow select { flex:1 1 100%; font-size:14px; }
+  .step button, .step a.iconbtn { flex:none; }
   .setup ol { padding-left:20px; margin:6px 0; font-size:13px; line-height:1.8; color:var(--sub); }
   .setup ol b { color:var(--text); }
   .setup code { font-size:12px; background:var(--bg); border-radius:4px; padding:1px 4px; }
@@ -320,7 +330,7 @@
       <div class="field">
         <label for="aToken">トークン（Fine-grained personal access token）</label>
         <input id="aToken" type="password" autocomplete="off" placeholder="github_pat_...">
-        <div class="hint"><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">トークンを作成 ↗</a>（そのアカウントでログインした状態で開く）</div>
+        <div class="hint"><a class="tokenLink" href="#" target="_blank" rel="noopener">必要な権限を入力済みの作成画面を開く ↗</a><br>そのアカウントでログインした状態で開き、「Repository access」で対象リポジトリを選んで「Generate token」→ 表示された値をここに貼る。</div>
       </div>
       <div class="field">
         <label for="aRepo">既定のリポジトリ</label>
@@ -347,27 +357,20 @@
       <div class="hint">「Codex本体」は chatgpt.com/codex でGitHub連携を有効にしたリポジトリで使えます。ChatGPTのプランで動き、作業は chatgpt.com/codex にも表示されます。このとき codex.yml は反応しないので、二重に動くことはありません。</div>
     </div>
 
-    <h2 style="margin-top:22px">リポジトリの準備（最初に1回）</h2>
-    <ol>
-      <li>トークンの権限（アカウントごと）: 対象リポジトリを選び、<b>Issues</b>・<b>Pull requests</b>・<b>Contents</b>・<b>Workflows</b> を <b>Read and write</b>、<b>Actions</b> を Read に。</li>
-      <li>下のボタンで、対象リポジトリに Claude / Codex 用のワークフローを入れる。</li>
-      <li>リポジトリの Settings → Secrets and variables → Actions にシークレットを登録（リポジトリごとに別のClaude / OpenAIアカウントのキーを使えます）:<br>
-        Claude: <code>CLAUDE_CODE_OAUTH_TOKEN</code>（PCで <code>claude setup-token</code>）または <code>ANTHROPIC_API_KEY</code><br>
-        Codex: <code>OPENAI_API_KEY</code></li>
-      <li>（任意）Settings → Actions → General →「Allow GitHub Actions to create and approve pull requests」をONにするとCodexがPRまで自動作成。</li>
-    </ol>
-    <div class="field">
-      <label for="sInstallAcct">使うアカウント</label>
-      <select id="sInstallAcct"></select>
+    <h2 style="margin-top:22px">リポジトリのセットアップ</h2>
+    <div class="hint" style="margin:-6px 0 10px">リポジトリを選んで「状況を確認」。足りないものはこの画面から登録・設定できます（キーは暗号化してGitHubのシークレットに保存され、この端末には残りません）。</div>
+    <div class="row2">
+      <div class="field">
+        <label for="sInstallAcct">アカウント</label>
+        <select id="sInstallAcct"></select>
+      </div>
+      <div class="field">
+        <label for="sInstallRepo">リポジトリ</label>
+        <input id="sInstallRepo" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
     </div>
-    <div class="field">
-      <label for="sInstallRepo">ワークフローを入れるリポジトリ</label>
-      <input id="sInstallRepo" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false">
-    </div>
-    <div class="dlg-actions" style="margin-top:4px">
-      <button type="button" class="btn sub" id="sInstall">ワークフローを入れる</button>
-      <a class="btn sub" id="sSecrets" href="#" target="_blank" rel="noopener" style="text-decoration:none">シークレット設定 ↗</a>
-    </div>
+    <button type="button" class="btn" id="sCheck" style="width:100%">状況を確認</button>
+    <div id="setupList" style="margin-top:12px"></div>
     <div class="hint" id="sInstallResult"></div>
     <div class="dlg-actions">
       <button type="button" class="btn sub" id="sClose">閉じる</button>
@@ -419,6 +422,13 @@
   }
   const acctFor = t => acctById(t.accountId) || acctForRepo(t.repo);
   const acctName = a => a ? (a.label || a.login || 'アカウント') : '未設定';
+  // 権限を入力済みのトークン作成URL（GitHubのURLプリフィル機能）
+  const TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new?' + new URLSearchParams({
+    name: 'AIタスク', description: 'AIタスク（Claude / Codex）用', expires_in: '90',
+    contents: 'write', issues: 'write', pull_requests: 'write', workflows: 'write',
+    actions: 'write', secrets: 'write', administration: 'read', metadata: 'read',
+  });
+  document.querySelectorAll('.tokenLink').forEach(a => a.href = TOKEN_URL);
   let editingId = null;
   let pickAgent = 'claude';
 
@@ -912,19 +922,21 @@
     if (!accounts().length) openAcctForm(null);
     const first = accounts()[0];
     $('sInstallRepo').value = first?.repo || ''; $('sInstallResult').textContent = '';
-    updateSecretsLink(); $('settings').showModal();
+    if (first) $('sInstallAcct').value = first.id;
+    $('setupList').innerHTML = ''; setupCtx = null;
+    $('settings').showModal();
+    if (first && first.repo) checkSetup();
   }
-  function updateSecretsLink() {
-    const r = $('sInstallRepo').value.trim();
-    $('sSecrets').href = REPO_RE.test(r) ? `https://github.com/${r}/settings/secrets/actions` : 'https://github.com/settings';
-  }
-  $('sInstallRepo').addEventListener('input', updateSecretsLink);
-  $('sInstallAcct').addEventListener('change', () => { const a = acctById($('sInstallAcct').value); if (a?.repo) { $('sInstallRepo').value = a.repo; updateSecretsLink(); } });
+  $('sInstallRepo').addEventListener('input', () => { setupCtx = null; $('setupList').innerHTML = ''; });
+  $('sInstallAcct').addEventListener('change', () => {
+    const a = acctById($('sInstallAcct').value); if (a?.repo) $('sInstallRepo').value = a.repo;
+    setupCtx = null; $('setupList').innerHTML = '';
+  });
   $('settingsBtn').addEventListener('click', openSettings);
   $('sClose').addEventListener('click', () => $('settings').close());
   $('sForm').addEventListener('submit', e => e.preventDefault());
   $('sCodexMode').addEventListener('change', () => {
-    prefs.codexMode = $('sCodexMode').value; save(PREF, prefs);
+    prefs.codexMode = $('sCodexMode').value; save(PREF, prefs); renderSetup();
     toast(codexCloud() ? 'Codexは本体（Codexクラウド）で実行します' : 'CodexはGitHub Actionsで実行します');
   });
   $('settings').addEventListener('close', () => { renderFilters(); render(); });
@@ -962,27 +974,131 @@
     toast(`✅ @${login} を保存しました${note ? '（注意あり）' : ''}`);
     if (note) $('sInstallResult').textContent = note;
   });
-  $('sInstall').addEventListener('click', async () => {
-    const acct = acctById($('sInstallAcct').value);
-    const repo = $('sInstallRepo').value.trim();
-    if (!acct) { $('sInstallResult').textContent = '先にアカウントを追加してください'; return; }
-    if (!REPO_RE.test(repo)) { $('sInstallResult').textContent = 'owner/repo の形で入力してください'; return; }
-    $('sInstallResult').textContent = '書き込み中…';
-    try {
-      const done = [];
-      for (const name of ['claude.yml', 'codex.yml']) {
-        const text = await (await fetch(`workflows/${name}`, { cache: 'no-store' })).text();
-        const path = `.github/workflows/${name}`;
-        let sha;
-        try { sha = (await gh(`/repos/${repo}/contents/${path}`, {}, acct)).sha; } catch (err) { if (err.status !== 404) throw err; }
-        await gh(`/repos/${repo}/contents/${path}`, { method: 'PUT', body: JSON.stringify({
-          message: `chore: ${sha ? 'update' : 'add'} ${name} for AIタスク`, content: b64(text), ...(sha ? { sha } : {}) }) }, acct);
-        done.push(name);
-      }
-      $('sInstallResult').textContent = `✅ ${repo} に ${done.join(' / ')} を入れました（${acctName(acct)}）。次にシークレットを登録してください。`;
-    } catch (err) {
-      $('sInstallResult').textContent = '❌ ' + err.message + (err.status === 403 || err.status === 404 ? '（トークンの Contents / Workflows 権限を確認）' : '');
+  // ---------- セットアップ（状況確認と、この画面からの設定） ----------
+  const SECRETS = {
+    claude: [
+      { name: 'CLAUDE_CODE_OAUTH_TOKEN', label: 'Claudeサブスク（推奨）', how: 'PCのターミナルで <code>claude setup-token</code> を実行し、表示された値（sk-ant-oat…）を貼る。Pro/Maxの範囲で動きます。' },
+      { name: 'ANTHROPIC_API_KEY', label: 'Anthropic APIキー', how: '<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com ↗</a> で作成（従量課金）。' },
+    ],
+    codex: [
+      { name: 'OPENAI_API_KEY', label: 'OpenAI APIキー', how: '<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com ↗</a> で作成（従量課金）。' },
+    ],
+  };
+  let setupCtx = null;
+  const setupTarget = () => ({ acct: acctById($('sInstallAcct').value), repo: $('sInstallRepo').value.trim() });
+  const permHint = err => err.status === 403 || err.status === 404
+    ? `（トークンの権限が足りません。<a href="${TOKEN_URL}" target="_blank" rel="noopener">権限入りで作り直す ↗</a> → アカウントの「編集」で貼り替え）` : '';
+
+  let sodiumLoading;
+  function loadSealedBox() {
+    if (window.sealedBox) return Promise.resolve();
+    return sodiumLoading ||= new Promise((ok, ng) => {
+      const sc = document.createElement('script'); sc.src = 'vendor/sealedbox.js';
+      sc.onload = ok; sc.onerror = () => { sodiumLoading = null; ng(new Error('暗号化ライブラリを読み込めませんでした')); };
+      document.head.appendChild(sc);
+    });
+  }
+  const toB64 = u8 => { let b = ''; u8.forEach(x => b += String.fromCharCode(x)); return btoa(b); };
+  const fromB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+  async function putSecret(acct, repo, name, value) {
+    await loadSealedBox();
+    const key = await gh(`/repos/${repo}/actions/secrets/public-key`, {}, acct);
+    const sealed = window.sealedBox(new TextEncoder().encode(value), fromB64(key.key));
+    await gh(`/repos/${repo}/actions/secrets/${name}`, { method: 'PUT', body: JSON.stringify({ encrypted_value: toB64(sealed), key_id: key.key_id }) }, acct);
+  }
+
+  async function installWorkflows(acct, repo) {
+    for (const name of ['claude.yml', 'codex.yml']) {
+      const text = await (await fetch(`workflows/${name}`, { cache: 'no-store' })).text();
+      const path = `.github/workflows/${name}`;
+      let sha;
+      try { sha = (await gh(`/repos/${repo}/contents/${path}`, {}, acct)).sha; } catch (err) { if (err.status !== 404) throw err; }
+      await gh(`/repos/${repo}/contents/${path}`, { method: 'PUT', body: JSON.stringify({
+        message: `chore: ${sha ? 'update' : 'add'} ${name} for AIタスク`, content: b64(text), ...(sha ? { sha } : {}) }) }, acct);
     }
+  }
+
+  async function checkSetup() {
+    const { acct, repo } = setupTarget();
+    if (!acct) { $('setupList').innerHTML = '<div class="hint">先に上でアカウントを追加してください。</div>'; return; }
+    if (!REPO_RE.test(repo)) { $('setupList').innerHTML = '<div class="hint">リポジトリを owner/repo の形で入力してください。</div>'; return; }
+    $('setupList').innerHTML = '<div class="muted">確認中…</div>';
+    const st = { acct, repo };
+    const tryGet = async (path) => { try { return { ok: true, v: await gh(path, {}, acct) }; } catch (err) { return { ok: false, err }; } };
+    const [r, wfC, wfX, sec, perm] = await Promise.all([
+      tryGet(`/repos/${repo}`),
+      tryGet(`/repos/${repo}/contents/.github/workflows/claude.yml`),
+      tryGet(`/repos/${repo}/contents/.github/workflows/codex.yml`),
+      tryGet(`/repos/${repo}/actions/secrets?per_page=100`),
+      tryGet(`/repos/${repo}/actions/permissions/workflow`),
+    ]);
+    if (!r.ok) { $('setupList').innerHTML = `<div class="step bad"><div class="hd">リポジトリ<span class="ok">✕</span></div><div class="sub">${esc(r.err.message)} ${permHint(r.err)}</div></div>`; return; }
+    st.wf = { claude: wfC.ok, codex: wfX.ok, err: [wfC, wfX].find(x => !x.ok && x.err.status !== 404)?.err };
+    st.secrets = sec.ok ? new Set(sec.v.secrets.map(x => x.name)) : null; st.secErr = sec.ok ? null : sec.err;
+    st.perm = perm.ok ? perm.v : null;
+    setupCtx = st; renderSetup();
+  }
+
+  function renderSetup() {
+    const st = setupCtx; if (!st) return;
+    const { repo } = st;
+    const step = (good, title, body, optional) => `<div class="step ${good ? 'good' : (optional ? '' : 'bad')}"><div class="hd">${title}<span class="ok">${good ? '✓ OK' : optional ? '任意' : '未設定'}</span></div>${body}</div>`;
+    const secretStep = (agent, title) => {
+      const list = SECRETS[agent];
+      const have = st.secrets && list.filter(x => st.secrets.has(x.name));
+      const good = !!(have && have.length);
+      return step(good, title, `
+        <div class="sub">${good ? `登録済み: ${have.map(x => `<code>${x.name}</code>`).join(' ')}（上書きも可）` : st.secErr ? `シークレット一覧を読めません ${permHint(st.secErr)}` : 'キーを貼って「登録」を押すと、暗号化してこのリポジトリに保存します。'}</div>
+        <div class="sub">${list.map(x => `<b>${x.label}</b>: ${x.how}`).join('<br>')}</div>
+        <div class="inrow">
+          ${list.length > 1 ? `<select data-secname="${agent}">${list.map(x => `<option value="${x.name}">${x.label}</option>`).join('')}</select>` : ''}
+          <input type="password" autocomplete="off" data-secval="${agent}" placeholder="キーを貼り付け">
+          <button type="button" class="iconbtn" data-setup="secret" data-agent="${agent}">登録</button>
+        </div>`);
+    };
+    const cloud = codexCloud();
+    const wfOk = st.wf.claude && st.wf.codex;
+    const pr = st.perm?.can_approve_pull_request_reviews;
+    $('setupList').innerHTML = [
+      step(wfOk, '① ワークフロー', `<div class="sub">${wfOk ? 'claude.yml / codex.yml が入っています。' : st.wf.err ? `確認できません ${permHint(st.wf.err)}` : `未導入: ${[!st.wf.claude && 'claude.yml', !st.wf.codex && 'codex.yml'].filter(Boolean).join(' / ')}`}</div>
+        <div class="inrow"><button type="button" class="iconbtn" data-setup="wf">${wfOk ? '最新版に更新' : 'ワークフローを入れる'}</button></div>`),
+      secretStep('claude', '② Claude のキー'),
+      cloud ? step(true, '③ Codex（本体で実行）', `<div class="sub">実行先が「Codex本体」なのでキーは不要です。<a href="https://chatgpt.com/codex" target="_blank" rel="noopener">chatgpt.com/codex ↗</a> の設定でGitHub連携（Connectors → GitHub）を有効にし、${esc(repo)} へのアクセスを許可してください。</div>`)
+            : secretStep('codex', '③ Codex のキー'),
+      step(!!pr, '④ Codex に PR まで自動で作らせる', `<div class="sub">${pr ? 'ONです。' : st.perm ? 'OFFです。OFFでもブランチは作られ、やりとり画面の「PRを作成」で作れます。' : '状態を読めませんでした（トークンに Administration: Read がない場合）。'}
+        <a href="https://github.com/${esc(repo)}/settings/actions" target="_blank" rel="noopener">設定を開く ↗</a> → 一番下の「Allow GitHub Actions to create and approve pull requests」にチェック → Save</div>`, true),
+      step(false, '⑤ 動作テスト', `<div class="sub">このリポジトリにテスト用のタスクを作り、実際に返事が来るか確認します（ファイルは変更しない依頼です）。</div>
+        <div class="inrow"><button type="button" class="iconbtn" data-setup="test" data-agent="claude">Claudeでテスト</button><button type="button" class="iconbtn" data-setup="test" data-agent="codex">Codexでテスト</button></div>`, true),
+    ].join('');
+  }
+
+  $('sCheck').addEventListener('click', checkSetup);
+  $('setupList').addEventListener('click', async e => {
+    const b = e.target.closest('[data-setup]'); if (!b || !setupCtx) return;
+    const { acct, repo } = setupCtx;
+    b.disabled = true; $('sInstallResult').innerHTML = '';
+    try {
+      if (b.dataset.setup === 'wf') {
+        await installWorkflows(acct, repo); toast('ワークフローを入れました'); await checkSetup();
+      } else if (b.dataset.setup === 'secret') {
+        const ag = b.dataset.agent;
+        const val = $('setupList').querySelector(`[data-secval="${ag}"]`).value.trim();
+        const name = $('setupList').querySelector(`[data-secname="${ag}"]`)?.value || SECRETS[ag][0].name;
+        if (!val) { toast('キーを貼り付けてください'); return; }
+        await putSecret(acct, repo, name, val); toast(`${name} を登録しました`); await checkSetup();
+      } else if (b.dataset.setup === 'test') {
+        const ag = b.dataset.agent;
+        const t = { id: uid(), createdAt: Date.now(), updatedAt: Date.now(), agent: ag, repo, accountId: acct.id,
+          title: `[動作確認] ${AGENTS[ag].label} の連携テスト`, status: 'todo', tags: ['動作確認'], link: '', note: '',
+          prompt: 'AIタスクからの連携テストです。README.md を読んで、このリポジトリの概要を3行で答えてください。ファイルは変更しないでください。' };
+        tasks.push(t); persist();
+        await startOnGitHub(t);
+        $('settings').close(); openDetail(t);
+      }
+    } catch (err) {
+      $('sInstallResult').innerHTML = '❌ ' + esc(err.message) + ' ' + permHint(err);
+    } finally { b.disabled = false; }
   });
 
   $('syncAllBtn').addEventListener('click', async () => {
