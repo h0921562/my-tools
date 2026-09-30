@@ -225,7 +225,7 @@
       <button type="button" id="importBtn">読み込み</button>
       <button type="button" id="clearDoneBtn">完了を削除</button>
       <button type="button" id="syncAllBtn">GitHubと同期</button>
-      <button type="button" id="importGhBtn">GitHubから取り込み</button>
+      <button type="button" id="importGhBtn">GitHubから取り込み（Issue・Claude/CodexのPR）</button>
       <button type="button" id="settingsBtn">GitHub設定</button>
     </div>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -500,7 +500,7 @@
       gh(`/repos/${repo}/actions/runs?per_page=30`, {}, acct).catch(() => ({ workflow_runs: [] })),
     ]);
     const prefixes = [`claude/issue-${n}-`, `codex/issue-${n}`];
-    const related = pulls.filter(p => prefixes.some(x => p.head.ref.startsWith(x)) || new RegExp(`#${n}\\b`).test(p.body || ''));
+    const related = pulls.filter(p => p.number === n || prefixes.some(x => p.head.ref.startsWith(x)) || new RegExp(`#${n}\\b`).test(p.body || ''));
     const refs = (await Promise.all(prefixes.map(pf =>
       gh(`/repos/${repo}/git/matching-refs/heads/${pf}`, {}, acct).catch(() => [])))).flat()
       .map(r => r.ref.replace('refs/heads/', ''))
@@ -513,7 +513,7 @@
   }
 
   function deriveStatus(t, th) {
-    if (th.issue.state === 'closed') return 'done';
+    if (th.issue.state === 'closed') return 'done';  // PRタスクはマージ/クローズで完了
     if (th.running) return 'running';
     const last = th.comments[th.comments.length - 1];
     const lastIsBot = last && (last.user.type === 'Bot' || /\[bot\]$/.test(last.user.login) || /codex-status/.test(last.body || ''));
@@ -975,6 +975,7 @@
     if (editingAcct) Object.assign(acctById(editingAcct), a);
     else accounts().push({ id: 'a' + uid(), ...a });
     saveAccounts(); renderAccounts(); closeAcctForm();
+    prefs.lastImport = 0; importFromGitHub(true);
     toast(`✅ @${login} を保存しました${note ? '（注意あり）' : ''}`);
     if (note) $('sInstallResult').textContent = note;
   });
@@ -1116,36 +1117,83 @@
     persist(); render(); toast(`${list.length}件を確認（${changed}件更新${failed ? `・${failed}件失敗` : ''}）`);
   });
 
-  // 全アカウントから @claude / @codex 宛てのIssueを取り込む（別端末で作ったタスクや、GitHubで直接頼んだものも一覧に）
-  $('importGhBtn').addEventListener('click', async e => {
-    if (!ghReady()) { openSettings(); return; }
-    const btn = e.currentTarget; btn.disabled = true;
-    let added = 0; const errors = [];
+  // 全アカウントから既存のタスクを取り込む
+  //  1) @claude / @codex / /codex 宛てのIssue（別端末やGitHubで直接頼んだもの）
+  //  2) Claude Code（claude/…）・Codex（codex/…）のブランチから出たPR（アプリ本体で進めた作業）
+  let importing = false;
+  async function importFromGitHub(silent) {
+    if (!ghReady() || importing) return;
+    importing = true;
+    let added = 0, updated = 0; const errors = [];
+    const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+    const findTask = (repo, n) => tasks.find(t => t.issue && t.repo.toLowerCase() === repo.toLowerCase() && t.issue.number === n);
+    const strip = b => (b || '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*[@/](claude|codex)\b\s*/i, '').trim();
     try {
       for (const acct of accounts()) {
         if (!acct.login) { try { acct.login = (await gh('/user', {}, acct)).login; saveAccounts(); } catch (err) { errors.push(err.message); continue; } }
-        let res;
-        try { res = await gh(`/search/issues?q=${encodeURIComponent(`is:issue is:open involves:${acct.login} in:body,comments claude OR codex`)}&per_page=50&sort=updated`, {}, acct); }
-        catch (err) { errors.push(err.message); continue; }
-        for (const it of res.items || []) {
-          const m = (it.body || '').match(/[@/](claude|codex)\b/i);
-          if (!m) continue;
-          const repo = it.repository_url.split('/repos/')[1];
-          if (tasks.some(t => t.issue && t.repo.toLowerCase() === repo.toLowerCase() && t.issue.number === it.number)) continue;
-          const mk = (it.body || '').match(/<!-- ai-tasks:([\w-]+) -->/);
-          const prompt = (it.body || '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*[@/](claude|codex)\b\s*/i, '').trim();
-          tasks.push({
-            id: mk && !byId(mk[1]) ? mk[1] : uid(), createdAt: Date.parse(it.created_at) || Date.now(), updatedAt: Date.parse(it.updated_at) || Date.now(),
-            agent: m[1].toLowerCase(), title: it.title, prompt, repo, accountId: acct.id, status: 'running',
-            tags: [], link: it.html_url, note: '', issue: { number: it.number, url: it.html_url },
-          });
-          added++;
-        }
+        const search = q => gh(`/search/issues?q=${encodeURIComponent(q)}&per_page=50&sort=updated`, {}, acct);
+        // 1) Issue
+        try {
+          const res = await search(`is:issue is:open involves:${acct.login} claude OR codex`);
+          for (const it of res.items || []) {
+            const text = `${it.title}\n${it.body || ''}`;
+            const m = text.match(/[@/](claude|codex)\b/i);
+            if (!m) continue;
+            const repo = it.repository_url.split('/repos/')[1];
+            if (findTask(repo, it.number)) continue;
+            const mk = (it.body || '').match(/<!-- ai-tasks:([\w-]+) -->/);
+            tasks.push({
+              id: mk && !byId(mk[1]) ? mk[1] : uid(), createdAt: Date.parse(it.created_at) || Date.now(), updatedAt: Date.parse(it.updated_at) || Date.now(),
+              agent: m[1].toLowerCase(), title: it.title, prompt: strip(it.body), repo, accountId: acct.id, status: 'running',
+              tags: [], link: it.html_url, note: '', issue: { number: it.number, url: it.html_url },
+            });
+            added++;
+          }
+        } catch (err) { errors.push(err.message); }
+        // 2) Claude Code / Codex のPR（未完了すべて＋30日以内に更新されたもの）
+        try {
+          const [openRes, recentRes] = await Promise.all([
+            search(`is:pr is:open involves:${acct.login}`),
+            search(`is:pr is:closed involves:${acct.login} updated:>=${since}`),
+          ]);
+          const items = [...(openRes.items || []), ...(recentRes.items || [])];
+          const prs = await Promise.all(items.map(it => {
+            const repo = it.repository_url.split('/repos/')[1];
+            return gh(`/repos/${repo}/pulls/${it.number}`, {}, acct).then(pr => ({ repo, pr })).catch(() => null);
+          }));
+          for (const x of prs) {
+            if (!x) continue;
+            const { repo, pr } = x;
+            const m = pr.head.ref.match(/^(claude|codex)\//i);
+            if (!m) continue;
+            // AIタスクから頼んだIssueのPR（claude/issue-12-… / codex/issue-12）は、そのタスクの中に表示されるので別タスクにしない
+            const fromIssue = pr.head.ref.match(/^(?:claude|codex)\/issue-(\d+)/i);
+            if (fromIssue && findTask(repo, +fromIssue[1])) continue;
+            const status = pr.state === 'open' ? 'review' : 'done';
+            const cur = findTask(repo, pr.number);
+            if (cur) {
+              if (cur.status !== status && (status === 'done' || cur.status === 'todo')) { cur.status = status; cur.updatedAt = Date.now(); updated++; }
+              continue;
+            }
+            tasks.push({
+              id: uid(), createdAt: Date.parse(pr.created_at) || Date.now(), updatedAt: Date.parse(pr.updated_at) || Date.now(),
+              agent: m[1].toLowerCase(), title: pr.title, prompt: strip(pr.body).slice(0, 2000), repo, accountId: acct.id, status,
+              tags: ['PR'], link: pr.html_url, note: '', issue: { number: pr.number, url: pr.html_url }, isPR: true,
+            });
+            added++;
+          }
+        } catch (err) { errors.push(err.message); }
       }
+      prefs.lastImport = Date.now(); save(PREF, prefs);
       persist(); render();
-      toast(`${added}件取り込みました${errors.length ? `（${errors.length}件エラー: ${errors[0]}）` : ''}`);
-      if (added) $('syncAllBtn').click();
-    } finally { btn.disabled = false; }
+      if (!silent || added || updated)
+        toast(`GitHubから${added}件取り込み${updated ? `・${updated}件更新` : ''}${errors.length ? `（エラー: ${errors[0]}）` : ''}`);
+    } finally { importing = false; }
+  }
+  $('importGhBtn').addEventListener('click', async e => {
+    if (!ghReady()) { openSettings(); return; }
+    const btn = e.currentTarget; btn.disabled = true;
+    try { await importFromGitHub(false); } finally { btn.disabled = false; }
   });
 
   // ================= export / import =================
@@ -1187,6 +1235,9 @@
 
   renderFilters();
   render();
+  const autoImport = () => { if (ghReady() && Date.now() - (prefs.lastImport || 0) > 3 * 60e3) importFromGitHub(true); };
+  autoImport();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) autoImport(); });
 })();
 </script>
 </body>
