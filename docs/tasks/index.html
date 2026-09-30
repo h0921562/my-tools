@@ -560,24 +560,10 @@
       <div class="hint" id="aResult"></div>
     </div>
 
-    <h2 style="margin-top:22px">Codex の実行先</h2>
-    <div class="field">
-      <select id="sCodexMode">
-        <option value="actions">GitHub Actions（codex.yml・OPENAI_API_KEYで実行）</option>
-        <option value="cloud">Codex本体（ChatGPTのCodexクラウド・公式GitHub連携）</option>
-      </select>
-      <div class="hint">「Codex本体」は chatgpt.com/codex でGitHub連携を有効にしたリポジトリで使えます。ChatGPTのプランで動き、作業は chatgpt.com/codex にも表示されます。このとき codex.yml は反応しないので、二重に動くことはありません。</div>
-    </div>
-
     <h2 style="margin-top:22px">既定のモデル</h2>
-    <div class="row2">
-      <div class="field"><label for="sModelClaude">Claude</label><select id="sModelClaude"></select></div>
-      <div class="field"><label for="sModelCodex">Codex</label><select id="sModelCodex"></select></div>
-    </div>
-    <div class="row2">
-      <div class="field"><label for="sEffortCodex">Codex の推論の強さ</label><select id="sEffortCodex"></select></div>
-      <div class="field"></div>
-    </div>
+    <div class="field"><label for="sModelClaude">Claude</label><select id="sModelClaude"></select>
+      <div class="hint">Codex は常に Codex クラウド（ChatGPTのプラン）で動き、モデルはクラウド側の設定に従います。</div></div>
+    <div hidden><select id="sModelCodex"></select><select id="sEffortCodex"></select></div>
     </div><div class="scol">
     <h2 class="scol-h">リポジトリのセットアップ</h2>
     <div class="hint" style="margin:-6px 0 10px">リポジトリを選んで「状況を確認」。足りないものはこの画面から登録・設定できます（キーは暗号化してGitHubのシークレットに保存され、この端末には残りません）。</div>
@@ -722,6 +708,7 @@
   const modelLabel = (agent, m) => (MODELS[agent] || []).find(x => x[0] === m)?.[1] || m;
   function fillModelSelect(sel, agent, value) {
     if (!agent || !MODELS[agent]) { sel.innerHTML = '<option value="">—</option>'; sel.disabled = true; return; }
+    if (agent === 'codex' && codexCloud()) { sel.innerHTML = '<option value="">クラウドの設定</option>'; sel.disabled = true; sel.dataset.agent = ''; return; }
     sel.disabled = false;
     const opts = [...MODELS[agent], ...customModels(agent).map(m => [m, m])];
     if (value && !opts.some(o => o[0] === value)) opts.push([value, value]);
@@ -803,7 +790,7 @@
   const MARK = id => `<!-- ai-tasks:${id} -->`;
   // Codex本体（公式連携）で動かすときの目印。codex.yml はこれが付いた依頼には反応しない
   const CLOUD_MARK = '<!-- codex:cloud -->';
-  const codexCloud = () => prefs.codexMode === 'cloud';
+  const codexCloud = () => true;  // Codex は常に Codex クラウド（ChatGPTの公式GitHub連携）で実行
   const withMode = (agent, text) => agent === 'codex' && codexCloud() ? `${text}\n\n${CLOUD_MARK}` : text;
   // 公式のCodex連携（chatgpt-codex-connector）は @codex に反応するため、GitHub Actionsで動かすときは /codex で呼ぶ
   const mentionOf = agent => agent === 'codex' ? (codexCloud() ? '@codex' : '/codex') : AGENTS[agent].mention;
@@ -1243,7 +1230,7 @@
     setPick(b.dataset.v);
     const p = projById($('fProj').value);
     fillModelSelect($('fModel'), pickAgent, p?.agent === pickAgent && p.model ? p.model : defModel(pickAgent));
-    $('fEffortField').hidden = pickAgent !== 'codex';
+    $('fEffortField').hidden = true;
   });
   // 新規作成中にプロジェクトを変えたら、そのプロジェクトの既定を反映
   $('fProj').addEventListener('change', () => {
@@ -1253,7 +1240,7 @@
     if (p.agent) setPick(p.agent);
     fillModelSelect($('fModel'), pickAgent, p.model || defModel(pickAgent));
     fillEffort($('fEffort'), p.effort || prefs.defEffort || '');
-    $('fEffortField').hidden = pickAgent !== 'codex';
+    $('fEffortField').hidden = true;
   });
 
   function openDialog(t) {
@@ -1275,7 +1262,7 @@
     setPick(t ? (t.agent || '') : def);
     fillModelSelect($('fModel'), pickAgent, t ? (t.model || '') : (curProj?.model || defModel(pickAgent)));
     fillEffort($('fEffort'), t ? t.effort : (curProj?.effort || prefs.defEffort || ''));
-    $('fEffortField').hidden = pickAgent !== 'codex';
+    $('fEffortField').hidden = true;
     $('fTitle').value = t?.title || '';
     $('fPrompt').value = t?.prompt || '';
     $('fRepo').value = t ? (t.repo || '') : (curProj?.repo || acctById(prefs.account)?.repo || prefs.lastRepo || accounts()[0]?.repo || '');
@@ -1400,7 +1387,7 @@
     $('dActions').innerHTML = `
       <button type="button" data-d="refresh">↻ 更新</button>
       ${t.issue ? `<a href="${esc(t.issue.url)}" target="_blank" rel="noopener">GitHubで開く ↗</a>` : ''}
-      ${t.agent === 'codex' && codexCloud() ? `<a href="https://chatgpt.com/codex" target="_blank" rel="noopener">Codex本体 ↗</a>` : ''}
+      ${t.agent === 'codex' && codexCloud() ? `<a href="https://chatgpt.com/codex" target="_blank" rel="noopener">Codexクラウド ↗</a>` : ''}
       <button type="button" data-d="edit">編集</button>
       ${t.issue ? (open ? `<button type="button" data-d="close">完了にする</button>` : `<button type="button" data-d="reopen">再開する</button>`) : ''}`;
   }
@@ -1548,7 +1535,6 @@
   function closeAcctForm() { $('acctForm').hidden = true; $('acctAdd').hidden = false; editingAcct = null; }
   function openSettings() {
     renderAccounts(); closeAcctForm();
-    $('sCodexMode').value = prefs.codexMode || 'actions';
     fillModelSelect($('sModelClaude'), 'claude', defModel('claude'));
     fillModelSelect($('sModelCodex'), 'codex', defModel('codex'));
     fillEffort($('sEffortCodex'), prefs.defEffort || '');
@@ -1574,10 +1560,6 @@
     prefs.defEffort = $('sEffortCodex').value; save(PREF, prefs);
   };
   ['sModelClaude', 'sModelCodex', 'sEffortCodex'].forEach(id => $(id).addEventListener('change', saveDefModels));
-  $('sCodexMode').addEventListener('change', () => {
-    prefs.codexMode = $('sCodexMode').value; save(PREF, prefs); renderSetup();
-    toast(codexCloud() ? 'Codexは本体（Codexクラウド）で実行します' : 'CodexはGitHub Actionsで実行します');
-  });
   $('settings').addEventListener('close', () => { renderFilters(); render(); });
   $('acctAdd').addEventListener('click', () => openAcctForm(null));
   $('aCancel').addEventListener('click', closeAcctForm);
@@ -1704,11 +1686,9 @@
       step(wfOk, '① ワークフロー', `<div class="sub">${wfOk ? 'claude.yml / codex.yml が入っています。' : st.wf.err ? `確認できません ${permHint(st.wf.err)}` : `未導入: ${[!st.wf.claude && 'claude.yml', !st.wf.codex && 'codex.yml'].filter(Boolean).join(' / ')}`}</div>
         <div class="inrow"><button type="button" class="iconbtn" data-setup="wf">${wfOk ? '最新版に更新' : 'ワークフローを入れる'}</button></div>`),
       secretStep('claude', '② Claude のキー'),
-      cloud ? step(true, '③ Codex（本体で実行）', `<div class="sub">実行先が「Codex本体」なのでキーは不要です。ChatGPTにログインして <a href="https://chatgpt.com/codex/cloud/settings/environments" target="_blank" rel="noopener">Codexの環境設定 ↗</a> で ${esc(repo)} の環境を作成してください（未作成だと「create an environment」と返信が来ます）。</div>`)
+      cloud ? step(true, '③ Codex（クラウドで実行）', `<div class="sub">Codex クラウド（ChatGPTのプラン）で動くのでキーは不要です。ChatGPTにログインして <a href="https://chatgpt.com/codex/cloud/settings/environments" target="_blank" rel="noopener">Codexの環境設定 ↗</a> で ${esc(repo)} の環境を作成してください（未作成だと「create an environment」と返信が来ます）。</div>`)
             : secretStep('codex', '③ Codex のキー'),
-      step(!!pr, '④ Codex に PR まで自動で作らせる', `<div class="sub">${pr ? 'ONです。' : st.perm ? 'OFFです。OFFでもブランチは作られ、やりとり画面の「PRを作成」で作れます。' : '状態を読めませんでした（トークンに Administration: Read がない場合）。'}
-        <a href="https://github.com/${esc(repo)}/settings/actions" target="_blank" rel="noopener">設定を開く ↗</a> → 一番下の「Allow GitHub Actions to create and approve pull requests」にチェック → Save</div>`, true),
-      step(false, '⑤ 動作テスト', `<div class="sub">このリポジトリにテスト用のタスクを作り、実際に返事が来るか確認します（ファイルは変更しない依頼です）。</div>
+      step(false, '④ 動作テスト', `<div class="sub">このリポジトリにテスト用のタスクを作り、実際に返事が来るか確認します（ファイルは変更しない依頼です）。</div>
         <div class="inrow"><button type="button" class="iconbtn" data-setup="test" data-agent="claude">Claudeでテスト</button><button type="button" class="iconbtn" data-setup="test" data-agent="codex">Codexでテスト</button></div>`, true),
     ].join('');
   }
@@ -1845,7 +1825,7 @@
     projAgent = v;
     $('pAgent').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
     fillModelSelect($('pModel'), v, editingProj?.agent === v ? editingProj.model : '');
-    $('pEffortField').hidden = v !== 'codex';
+    $('pEffortField').hidden = true;
   };
   const setProjColor = c => { projColor = c; $('pColors').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === c)); };
   function openProject(p) {
