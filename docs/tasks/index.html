@@ -266,11 +266,12 @@
     .side h1 { font-size:18px; margin:0; }
     .side .search { margin:0 0 4px; padding:8px 11px; font-size:14px; }
     .side-label { display:block; font-size:11px; font-weight:700; color:var(--sub); letter-spacing:.06em; margin:16px 6px 6px; }
-    #statusFilter { flex-direction:column; flex-wrap:nowrap; gap:1px; margin:0; }
-    #statusFilter button { display:flex; justify-content:space-between; align-items:center; border:none; background:transparent; color:var(--text); border-radius:8px; padding:7px 10px; font-size:13.5px; text-align:left; }
-    #statusFilter button:hover { background:var(--surface); }
-    #statusFilter button[aria-pressed="true"] { background:color-mix(in srgb, var(--accent) 20%, transparent); color:var(--text); }
-    #statusFilter .c { opacity:1; color:var(--sub); font-weight:600; }
+    #statusFilter, #todoFilter { flex-direction:column; flex-wrap:nowrap; gap:1px; margin:0; }
+    #statusFilter button, #todoFilter button { display:flex; justify-content:space-between; align-items:center; border:none; background:transparent; color:var(--text); border-radius:8px; padding:7px 10px; font-size:13.5px; text-align:left; }
+    #statusFilter button:hover, #todoFilter button:hover { background:var(--surface); }
+    #statusFilter button[aria-pressed="true"], #todoFilter button[aria-pressed="true"] { background:color-mix(in srgb, var(--accent) 20%, transparent); color:var(--text); }
+    #todoFilter { margin-top:8px; padding-top:8px; border-top:1px solid var(--border); }
+    #statusFilter .c, #todoFilter .c { opacity:1; color:var(--sub); font-weight:600; }
     #agentFilter { display:grid; grid-template-columns:repeat(4, 1fr); gap:0; margin:0; padding:3px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
     #agentFilter button { border:none; background:transparent; border-radius:7px; padding:6px 0; font-size:12.5px; }
     #agentFilter button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
@@ -355,6 +356,16 @@
     .ttable .c-agent, .ttable .c-upd, .ttable .c-id { display:none; }
   }
 
+  @media (max-width:999px) {
+    #todoFilter { display:none; }
+    #statusFilter .todochip { margin-left:8px; position:relative; }
+    #statusFilter .todochip::before { content:""; position:absolute; left:-8px; top:6px; bottom:6px; border-left:1px solid var(--border); }
+  }
+  @media (min-width:1000px) { #statusFilter .todochip { display:none !important; } }
+
+  .linkbtn { border:none; background:none; color:var(--accent); font-size:13px; cursor:pointer; font-family:inherit; padding:4px 8px; }
+  .linkbtn:hover { text-decoration:underline; }
+
   .toast {
     position:fixed; left:50%; bottom:calc(88px + env(safe-area-inset-bottom)); transform:translateX(-50%);
     background:#0f172a; color:#fff; border-radius:10px; padding:10px 16px; font-size:13.5px;
@@ -382,6 +393,7 @@
 
   <div class="side-label">状態</div>
   <div class="seg nav" id="statusFilter" role="group" aria-label="状態で絞り込み"></div>
+  <div class="seg nav" id="todoFilter" role="group" aria-label="やること"></div>
   <div class="side-label">担当</div>
   <div class="seg" id="agentFilter" role="group" aria-label="担当で絞り込み"></div>
   <div id="acctBox" hidden>
@@ -670,6 +682,7 @@
   let tasks = load(KEY, []);
   if (!Array.isArray(tasks)) tasks = [];
   const prefs = Object.assign({ agent: 'all', status: 'active', account: 'all', project: 'all' }, load(PREF, {}));
+  if (!['active', 'done', 'todo', 'archive'].includes(prefs.status)) prefs.status = 'active';
   // GitHubアカウント（複数可）。旧形式 { token, repo } は1件目として移行
   const ghCfg = (() => {
     const c = load(GHKEY, {});
@@ -873,7 +886,7 @@
       `<option value="${v}">${esc(l)}</option>`).join('');
     $('acctFilter').value = prefs.account;
     if (prefs.project && !['all', 'none'].includes(prefs.project) && !projById(prefs.project)) prefs.project = 'all';
-    const open = tasks.filter(t => t.status !== 'done');
+    const open = tasks.filter(t => ['running', 'review'].includes(t.status));
     const pc = v => v === 'all' ? open.length : v === 'none' ? open.filter(t => !projFor(t)).length : open.filter(t => t.projectId === v).length;
     const pbtn = (v, label, color) => `<button type="button" data-v="${v}" aria-pressed="${(prefs.project || 'all') === v}" title="${esc(label)}">${color ? `<i class="pdot" style="background:${color}"></i>` : ''}<span>${esc(label)}</span><span class="c">${pc(v) || ''}</span></button>`;
     const selProj = projById(prefs.project);
@@ -884,9 +897,11 @@
       selProj ? `<button type="button" class="pedit" data-v="__edit">⚙ ${esc(selProj.name)} の設定</button>` : '',
       `<button type="button" class="padd" data-v="__add">＋ プロジェクト</button>`,
     ].join('');
-    const statusOpts = [['active','未完了'], ...STATUSES.map(s => [s.v, s.label]), ['all','すべて']];
-    $('statusFilter').innerHTML = statusOpts.map(([v,l]) =>
-      `<button type="button" data-v="${v}" aria-pressed="${prefs.status===v}"><span>${l}</span><span class="c" data-c="${v}"></span></button>`).join('');
+    // 状態は「進行中（実行中＋確認待ち）」「完了」だけ。まだ頼んでいない「やること」は別枠
+    const sbtn = ([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${prefs.status===v}"><span>${l}</span><span class="c" data-c="${v}"></span></button>`;
+    // スマホでは同じ行に区切り線つきで「やること」を並べる（PCは下の別枠）
+    $('statusFilter').innerHTML = [['active', '進行中'], ['done', '完了']].map(sbtn).join('') + sbtn(['todo', 'やること']).replace('<button ', '<button class="todochip" ');
+    $('todoFilter').innerHTML = [['todo', 'やること']].map(sbtn).join('');
     renderStats();
   }
   $('agentFilter').addEventListener('click', e => {
@@ -902,10 +917,10 @@
     if (b.dataset.v === '__edit') return openProject(projById(prefs.project));
     prefs.project = b.dataset.v; save(PREF, prefs); renderFilters(); render();
   });
-  $('statusFilter').addEventListener('click', e => {
+  ['statusFilter', 'todoFilter'].forEach(id => $(id).addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     prefs.status = b.dataset.v; save(PREF, prefs); renderFilters(); render();
-  });
+  }));
   $('q').addEventListener('input', () => render());
 
   const inProject = t => !prefs.project || prefs.project === 'all' ||
@@ -916,7 +931,8 @@
       if (prefs.agent === 'none' ? t.agent : (prefs.agent !== 'all' && t.agent !== prefs.agent)) return false;
       if (prefs.account && prefs.account !== 'all' && acctFor(t)?.id !== prefs.account) return false;
       if (!inProject(t)) return false;
-      if (prefs.status === 'active' ? t.status === 'done' : (prefs.status !== 'all' && t.status !== prefs.status)) return false;
+      if (prefs.status === 'archive') { if (!t.archived) return false; }
+      else if (t.archived || (prefs.status === 'active' ? !['running', 'review'].includes(t.status) : t.status !== prefs.status)) return false;
       if (q) {
         const hay = [t.title, t.prompt, t.repo, t.note, (t.tags||[]).join(' '), acctName(acctFor(t))].join('\n').toLowerCase();
         if (!hay.includes(q)) return false;
@@ -934,9 +950,9 @@
     const base = tasks.filter(t =>
       !(prefs.agent === 'none' ? t.agent : (prefs.agent !== 'all' && t.agent !== prefs.agent)) &&
       !(prefs.account && prefs.account !== 'all' && acctFor(t)?.id !== prefs.account) && inProject(t));
-    const n = { all: base.length, active: base.filter(t => t.status !== 'done').length };
-    STATUSES.forEach(x => n[x.v] = base.filter(t => t.status === x.v).length);
-    document.querySelectorAll('#statusFilter .c').forEach(el => el.textContent = n[el.dataset.c] ?? '');
+    const n = { active: base.filter(t => ['running', 'review'].includes(t.status)).length };
+    STATUSES.forEach(x => n[x.v] = base.filter(t => t.status === x.v && !t.archived).length);
+    document.querySelectorAll('#statusFilter .c, #todoFilter .c').forEach(el => el.textContent = n[el.dataset.c] ?? '');
   }
 
   const mqDesk = matchMedia('(min-width:1000px)'), mqWide = matchMedia('(min-width:1280px)');
@@ -944,12 +960,29 @@
     const p = projById(prefs.project);
     $('count').innerHTML = p ? `<i class="pdot" style="background:${p.color}"></i>${esc(p.name)}　<span style="color:var(--sub);font-weight:600">${n}件</span>`
       : prefs.project === 'none' ? `未分類　<span style="color:var(--sub);font-weight:600">${n}件</span>` : `${n}件`;
+    if (prefs.status === 'archive') $('count').innerHTML = 'アーカイブ　' + $('count').innerHTML;
     const v = prefs.view || 'board', eff = !mqDesk.matches && v === 'board' ? 'grid' : v;
     $('viewSw').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === eff));
   }
   $('viewSw').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; prefs.view = b.dataset.v; save(PREF, prefs); render(); });
 
+  // 完了して1日たったタスクは自動でアーカイブ（完了から戻したら解除）
+  const ARCHIVE_AFTER = 864e5;
+  function autoArchive() {
+    let changed = false;
+    for (const t of tasks) {
+      if (t.status !== 'done') {
+        if (t.archived || t.doneAt) { t.archived = false; t.doneAt = null; changed = true; }
+        continue;
+      }
+      if (!t.doneAt) { t.doneAt = t.updatedAt || Date.now(); changed = true; }
+      if (!t.archived && Date.now() - t.doneAt >= ARCHIVE_AFTER) { t.archived = true; changed = true; }
+    }
+    if (changed) persist();
+  }
+
   function render() {
+    autoArchive();
     renderStats();
     const list = visible();
     renderMainbar(list.length);
@@ -961,18 +994,17 @@
       if (Date.now() - (prefs.lastSync || 0) > 3 * 60e3) syncAll(true);
       return;
     }
-    const board = mqDesk.matches && (prefs.view || 'board') === 'board';
+    const board = mqDesk.matches && (prefs.view || 'board') === 'board' && prefs.status === 'active';
     el.className = 'list' + (mqDesk.matches ? (board ? ' board' : ' grid') : '');
     if (!list.length && !board) {
       el.innerHTML = tasks.length
-        ? '<div class="empty">条件に合うタスクはありません。</div>'
+        ? `<div class="empty">${prefs.status === 'todo' ? 'やることはありません。' : prefs.status === 'done' ? '完了したタスクはありません。' : prefs.status === 'archive' ? 'アーカイブはありません。' : '進行中のタスクはありません。'}</div>${archiveLink()}`
         : '<div class="empty">まだタスクがありません。<br>「＋ タスク」から追加してください。</div>';
       return;
     }
     if (board) {
       // PC: 状態ごとの列（ボード）
-      const cols = prefs.status === 'active' ? STATUSES.filter(x => x.v !== 'done')
-        : prefs.status === 'all' ? STATUSES : STATUSES.filter(x => x.v === prefs.status);
+      const cols = STATUSES.filter(x => ['running', 'review'].includes(x.v));
       el.style.setProperty('--cols', cols.length);
       el.innerHTML = cols.map(c => {
         const items = list.filter(t => t.status === c.v);
@@ -981,7 +1013,13 @@
       }).join('');
       return;
     }
-    el.innerHTML = list.map(cardHtml).join('');
+    el.innerHTML = list.map(cardHtml).join('') + archiveLink();
+  }
+  function archiveLink() {
+    if (prefs.status === 'archive') return '<div class="empty"><button type="button" class="linkbtn" data-arch="done">← 完了に戻る</button></div>';
+    if (prefs.status !== 'done') return '';
+    const n = tasks.filter(t => t.archived && inProject(t)).length;
+    return n ? `<div class="empty"><button type="button" class="linkbtn" data-arch="archive">アーカイブ（${n}件）を表示</button></div>` : '';
   }
   mqDesk.addEventListener('change', render);
   mqWide.addEventListener('change', () => { if ($('detail').open && detailId) { const id = detailId; $('detail').close(); openDetail(byId(id)); } });
@@ -1158,6 +1196,8 @@
       } catch (err) { toast(err.message); btn.disabled = false; }
       return;
     }
+    const ar = e.target.closest('[data-arch]');
+    if (ar) { prefs.status = ar.dataset.arch; save(PREF, prefs); renderFilters(); render(); return; }
     const row = e.target.closest('[data-open]');
     if (row) { const t = byId(row.dataset.open); if (t) (t.issue ? openDetail(t) : openDialog(t)); return; }
     const card = e.target.closest('.task'); if (!card) return;
@@ -1295,7 +1335,7 @@
     prefs.lastAgent = pickAgent; prefs.lastRepo = data.repo; save(PREF, prefs);
     persist(); $('dlg').close(); render();
     if (detailId && detailId === wasEditing) renderDetailHead(byId(detailId));
-    toast(wasEditing ? '保存しました' : '追加しました');
+    toast(wasEditing ? '保存しました' : prefs.status === 'todo' || data.status !== 'todo' ? '追加しました' : '「やること」に追加しました');
   });
 
   // ================= detail (thread) =================
