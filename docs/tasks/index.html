@@ -300,6 +300,59 @@
     #projFilter button.padd, #projFilter button.pedit { color:var(--sub); font-size:12.5px; }
     .mainbar .count .pdot { width:11px; height:11px; }
     #projDlg { width:min(720px, calc(100vw - 48px)); }
+    .kpis { grid-template-columns:repeat(4, minmax(0, 1fr)); }
+  }
+
+  /* ---------- ダッシュボード ---------- */
+  @media (max-width:999px) {
+    .mainbar { display:flex; align-items:center; gap:8px; margin:0 0 10px; }
+    .mainbar .count, .mainbar .keys { display:none; }
+    .mainbar .viewsw { margin:0; }
+    #viewSw button[data-v="board"] { display:none; }
+  }
+  .list.dash { display:block; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:10px; margin-bottom:18px; }
+  .kpi { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 14px; min-width:0; }
+  .kpi .l { font-size:12px; color:var(--sub); }
+  .kpi .v { font-size:24px; font-weight:800; margin:4px 0 2px; font-variant-numeric:tabular-nums; }
+  .kpi .s { font-size:11.5px; color:var(--sub); line-height:1.5; }
+  .kpi.warn .v { color:#f59e0b; } .kpi.bad .v { color:var(--danger); }
+  .bar { height:5px; border-radius:99px; background:var(--bg); margin-top:8px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--accent); border-radius:99px; }
+  .dsec { margin-bottom:20px; }
+  .dsec h3 { font-size:14px; margin:0 0 8px; display:flex; align-items:center; gap:8px; }
+  .dsec h3 .n { color:var(--sub); font-weight:600; }
+  .qitem { background:var(--surface); border:1px solid var(--border); border-left:3px solid #f59e0b; border-radius:12px; padding:11px 12px; margin-bottom:8px; }
+  .qitem.bad { border-left-color:var(--danger); }
+  .qh { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:13px; }
+  .qh b { font-size:14px; margin-right:4px; }
+  .qh .t { color:var(--sub); font-size:12px; margin-left:auto; }
+  .qb { font-size:13px; color:var(--sub); margin:6px 0 8px; line-height:1.6; white-space:pre-wrap; word-break:break-word; display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }
+  .qr { display:flex; gap:6px; align-items:flex-end; }
+  .qr textarea { flex:1; min-height:40px; max-height:160px; padding:8px 10px; font-size:15px; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:9px; font-family:inherit; resize:vertical; }
+  .qr button { flex:none; border:1px solid var(--border); background:transparent; color:var(--text); border-radius:9px; padding:8px 11px; font-size:13px; cursor:pointer; font-family:inherit; }
+  .qr button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:700; }
+  .ttable { width:100%; border-collapse:separate; border-spacing:0; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; font-size:13px; }
+  .ttable th { text-align:left; font-size:11.5px; color:var(--sub); font-weight:700; padding:9px 10px; border-bottom:1px solid var(--border); }
+  .ttable td { padding:9px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .ttable tr:last-child td { border-bottom:none; }
+  .ttable tbody tr { cursor:pointer; } .ttable tbody tr:hover td { background:color-mix(in srgb, var(--accent) 7%, transparent); }
+  .ttable .id { font-family:ui-monospace, Menlo, monospace; color:var(--sub); white-space:nowrap; }
+  .ttable .ti { font-weight:600; }
+  .ttable .ti .pchip { margin-left:6px; font-weight:600; }
+  .sbadge { display:inline-block; font-size:11.5px; border:1px solid var(--border); border-radius:6px; padding:1px 7px; white-space:nowrap; }
+  .sbadge[data-s="running"] { color:var(--accent); border-color:var(--accent); }
+  .sbadge[data-s="review"] { color:#d97706; border-color:#d97706; }
+  .sbadge[data-s="done"] { color:var(--codex); border-color:var(--codex); }
+  .next { font-size:12.5px; white-space:nowrap; }
+  .next.warn { color:#f59e0b; font-weight:700; } .next.bad { color:var(--danger); font-weight:700; } .next.run { color:var(--accent); } .next.rev { color:#d97706; }
+  .flag { font-size:11.5px; font-weight:700; border-radius:6px; padding:1px 7px; }
+  .flag.warn { color:#f59e0b; background:color-mix(in srgb, #f59e0b 14%, transparent); }
+  .flag.bad { color:var(--danger); background:color-mix(in srgb, var(--danger) 14%, transparent); }
+  @media (max-width:999px) {
+    .kpis { grid-template-columns:repeat(2, 1fr); gap:8px; }
+    .kpi .v { font-size:21px; }
+    .ttable .c-agent, .ttable .c-upd, .ttable .c-id { display:none; }
   }
 
   .toast {
@@ -356,6 +409,7 @@
       <div class="seg viewsw" id="viewSw" role="group" aria-label="表示">
         <button type="button" data-v="board">ボード</button>
         <button type="button" data-v="grid">一覧</button>
+        <button type="button" data-v="dash">ダッシュボード</button>
       </div>
       <span class="keys"><kbd>N</kbd> 新規　<kbd>/</kbd> 検索　<kbd>Esc</kbd> 閉じる</span>
     </div>
@@ -780,7 +834,22 @@
     return { issue, comments, prs: related, branches: refs, running: active.length > 0 || botWorking, runs: active };
   }
 
+  // スレッドから「返答待ちの質問」「失敗」などの印を付ける（ダッシュボード用）
+  const isBotC = c => c && (c.user.type === 'Bot' || /\[bot\]$/.test(c.user.login) || /codex-status/.test(c.body || ''));
+  function annotate(t, th) {
+    const last = th.comments[th.comments.length - 1];
+    const bots = th.comments.filter(isBotC); const lastBot = bots[bots.length - 1];
+    const lastIsBot = isBotC(last);
+    const body = (lastBot?.body || '').replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]+>/g, '').replace(/\[View job(?: run)?\]\([^)]*\)|—— \[View job\]\([^)]*\)/g, '').replace(/\*\*Claude (?:finished|encountered)[^*]*\*\*/g, '');
+    const open = th.issue.state !== 'closed' && !th.running;
+    t.failed = open && lastIsBot && /❌|encountered an error|失敗しました/.test(body);
+    t.needsReply = open && lastIsBot && !t.failed && /[?？]|教えて|お知らせください|どちら|確認させてください/.test(body);
+    t.hasPR = th.prs.some(p => p.state === 'open');
+    t.lastBot = body.replace(/\*\*|###?|---/g, '').replace(/\s+/g, ' ').trim().slice(0, 280);
+    t.lastBotAt = lastBot ? Date.parse(lastBot.updated_at || lastBot.created_at) : null;
+  }
   function deriveStatus(t, th) {
+    annotate(t, th);
     if (th.issue.state === 'closed') return 'done';  // PRタスクはマージ/クローズで完了
     if (th.running) return 'running';
     const last = th.comments[th.comments.length - 1];
@@ -875,7 +944,8 @@
     const p = projById(prefs.project);
     $('count').innerHTML = p ? `<i class="pdot" style="background:${p.color}"></i>${esc(p.name)}　<span style="color:var(--sub);font-weight:600">${n}件</span>`
       : prefs.project === 'none' ? `未分類　<span style="color:var(--sub);font-weight:600">${n}件</span>` : `${n}件`;
-    $('viewSw').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === (prefs.view || 'board')));
+    const v = prefs.view || 'board', eff = !mqDesk.matches && v === 'board' ? 'grid' : v;
+    $('viewSw').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === eff));
   }
   $('viewSw').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; prefs.view = b.dataset.v; save(PREF, prefs); render(); });
 
@@ -884,6 +954,13 @@
     const list = visible();
     renderMainbar(list.length);
     const el = $('list');
+    if (prefs.view === 'dash') {
+      el.className = 'list dash'; el.style.removeProperty('--cols');
+      el.innerHTML = dashHtml(list);
+      loadRunStats();
+      if (Date.now() - (prefs.lastSync || 0) > 3 * 60e3) syncAll(true);
+      return;
+    }
     const board = mqDesk.matches && (prefs.view || 'board') === 'board';
     el.className = 'list' + (mqDesk.matches ? (board ? ' board' : ' grid') : '');
     if (!list.length && !board) {
@@ -909,6 +986,109 @@
   mqDesk.addEventListener('change', render);
   mqWide.addEventListener('change', () => { if ($('detail').open && detailId) { const id = detailId; $('detail').close(); openDetail(byId(id)); } });
 
+  // ---------- ダッシュボード ----------
+  const scopeTasks = () => tasks.filter(t =>
+    !(prefs.agent === 'none' ? t.agent : (prefs.agent !== 'all' && t.agent !== prefs.agent)) &&
+    !(prefs.account && prefs.account !== 'all' && acctFor(t)?.id !== prefs.account) && inProject(t));
+  function nextAction(t) {
+    if (t.status === 'done') return ['—', ''];
+    if (t.needsReply) return ['あなたの返答待ち', 'warn'];
+    if (t.failed) return ['失敗 → 再実行', 'bad'];
+    if (t.status === 'running') return ['AIが作業中', 'run'];
+    if (t.status === 'review') return [t.hasPR ? 'PRを確認' : '結果を確認', 'rev'];
+    return [t.issue ? '依頼済み' : '未実行', ''];
+  }
+  const ago = ts => {
+    if (!ts) return '';
+    const m = Math.round((Date.now() - ts) / 60e3);
+    return m < 1 ? 'たった今' : m < 60 ? `${m}分前` : m < 1440 ? `${Math.round(m / 60)}時間前` : `${Math.round(m / 1440)}日前`;
+  };
+  function dashHtml(list) {
+    const sc = scopeTasks();
+    const c = st => sc.filter(t => t.status === st).length;
+    const total = sc.length, done = c('done');
+    const qs = sc.filter(t => t.needsReply && t.status !== 'done').sort((a, b) => (b.lastBotAt || 0) - (a.lastBotAt || 0));
+    const fails = sc.filter(t => t.failed && t.status !== 'done');
+    const prs = sc.filter(t => t.hasPR && t.status !== 'done').length;
+    const week = Date.now() - 7 * 864e5;
+    const done7 = sc.filter(t => t.status === 'done' && (t.updatedAt || 0) >= week).length;
+    const kpi = (l, v, sub, cls = '', extra = '') => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${sub}</div>${extra}</div>`;
+    const pct = total ? Math.round(done / total * 100) : 0;
+    const kpis = [
+      kpi('進み具合', `${done} / ${total}`, `やること ${c('todo')} · 実行中 ${c('running')} · 確認待ち ${c('review')}`, '', `<div class="bar"><i style="width:${pct}%"></i></div>`),
+      kpi('未回答の質問', qs.length, qs.length ? 'AIがあなたの返答を待っています' : 'なし', qs.length ? 'warn' : ''),
+      kpi('確認待ち', c('review'), `うちPR ${prs}件`),
+      kpi('失敗', fails.length, fails.length ? '再実行が必要' : 'なし', fails.length ? 'bad' : ''),
+      kpi('AIの実行（7日）', '<span id="kRuns">…</span>', '<span id="kRunsSub">GitHub Actions から集計中</span>'),
+      kpi('成功率（7日）', '<span id="kRate">…</span>', '<span id="kRateSub"></span>'),
+      kpi('実行時間（7日）', '<span id="kMin">…</span>', '<span id="kMinSub"></span>'),
+      kpi('完了（7日）', done7, `累計 ${done}`),
+    ].join('');
+    const qitem = (t, bad) => `<div class="qitem ${bad ? 'bad' : ''}" data-id="${t.id}">
+      <div class="qh"><b>${esc(t.title)}</b><span class="badge ${t.agent || 'none'}">${AGENTS[t.agent]?.label || '未定'}</span>
+        ${projFor(t) ? `<span class="pchip" style="--pc:${projFor(t).color}">${esc(projFor(t).name)}</span>` : ''}<span class="t">${ago(t.lastBotAt)}</span></div>
+      <div class="qb">${esc(t.lastBot || '')}</div>
+      <div class="qr">${bad
+        ? `<button type="button" class="primary" data-qretry>再実行</button><button type="button" data-qopen>開く</button>`
+        : `<textarea placeholder="返信を書く"></textarea><button type="button" class="primary" data-qsend>返信</button><button type="button" data-qopen>開く</button>`}</div></div>`;
+    const order = t => t.needsReply && t.status !== 'done' ? 0 : t.failed && t.status !== 'done' ? 1 : ({ running: 2, review: 3, todo: 4, done: 5 }[t.status] ?? 4);
+    const rows = [...list].sort((a, b) => order(a) - order(b) || (b.updatedAt || 0) - (a.updatedAt || 0)).map(t => {
+      const [na, cls] = nextAction(t);
+      return `<tr data-open="${t.id}"><td class="c-id id">${t.issue ? '#' + t.issue.number : '—'}</td>
+        <td><span class="sbadge" data-s="${t.status}">${statusLabel(t.status)}</span></td>
+        <td class="ti">${esc(t.title)}${(!prefs.project || prefs.project === 'all') && projFor(t) ? `<span class="pchip" style="--pc:${projFor(t).color}">${esc(projFor(t).name)}</span>` : ''}</td>
+        <td class="c-agent">${AGENTS[t.agent]?.label || '未定'}${t.model ? `<span class="mchip" style="margin-left:6px">${esc(modelLabel(t.agent, t.model))}</span>` : ''}</td>
+        <td><span class="next ${cls}">${na}</span></td>
+        <td class="c-upd" style="color:var(--sub);white-space:nowrap">${ago(t.updatedAt)}</td></tr>`;
+    }).join('');
+    return `<div class="kpis">${kpis}</div>
+      ${qs.length ? `<section class="dsec"><h3>未回答の質問 <span class="n">${qs.length}</span></h3>${qs.map(t => qitem(t, false)).join('')}</section>` : ''}
+      ${fails.length ? `<section class="dsec"><h3>失敗 <span class="n">${fails.length}</span></h3>${fails.map(t => qitem(t, true)).join('')}</section>` : ''}
+      <section class="dsec"><h3>タスク <span class="n">${list.length}</span></h3>
+        ${list.length ? `<table class="ttable"><thead><tr><th class="c-id">ID</th><th>状態</th><th>題</th><th class="c-agent">担当</th><th>次のアクション</th><th class="c-upd">更新</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">条件に合うタスクはありません。</div>'}
+      </section>`;
+  }
+
+  // AIの実行状況（GitHub Actions の Claude Code / Codex ワークフロー、直近7日）
+  let runStats = null, runStatsKey = '', runStatsAt = 0, runStatsLoading = false;
+  function fillRunStats() {
+    if (!$('kRuns')) return;
+    const r = runStats;
+    if (!r) { $('kRuns').textContent = '—'; $('kRunsSub').textContent = ghReady() ? '取得できませんでした' : 'GitHub設定が必要'; ['kRate', 'kMin'].forEach(id => $(id).textContent = '—'); return; }
+    $('kRuns').textContent = r.count;
+    $('kRunsSub').textContent = `Claude ${r.claude} · Codex ${r.codex}`;
+    $('kRate').textContent = r.done ? `${Math.round(r.ok / r.done * 100)}%` : '—';
+    $('kRateSub').textContent = `成功 ${r.ok} · 失敗 ${r.done - r.ok}`;
+    $('kMin').textContent = `${Math.round(r.min)}分`;
+    $('kMinSub').textContent = r.done ? `平均 ${(r.min / r.done).toFixed(1)}分 / 回` : '';
+  }
+  async function loadRunStats() {
+    if (!ghReady()) return fillRunStats();
+    const sc = scopeTasks();
+    const repos = [...new Set([...sc.map(t => t.repo), projById(prefs.project)?.repo].filter(r => REPO_RE.test(r || '')))].slice(0, 8);
+    const key = repos.join(',');
+    if (runStats && key === runStatsKey && Date.now() - runStatsAt < 5 * 60e3) return fillRunStats();
+    if (runStatsLoading) return;
+    runStatsLoading = true;
+    try {
+      const since = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+      const all = (await Promise.all(repos.map(r => {
+        const pj = projects.find(p => p.repo === r);
+        return gh(`/repos/${r}/actions/runs?per_page=100&created=${encodeURIComponent('>=' + since)}`, {}, acctById(pj?.accountId) || acctForRepo(r))
+          .then(j => j.workflow_runs || []).catch(() => []);
+      }))).flat().filter(x => ['Claude Code', 'Codex'].includes(x.name) && !['skipped', 'cancelled'].includes(x.conclusion));
+      const done = all.filter(x => x.status === 'completed');
+      runStats = {
+        count: all.length, claude: all.filter(x => x.name === 'Claude Code').length, codex: all.filter(x => x.name === 'Codex').length,
+        done: done.length, ok: done.filter(x => x.conclusion === 'success').length,
+        min: done.reduce((m, x) => m + Math.max(0, (Date.parse(x.updated_at) - Date.parse(x.run_started_at || x.created_at)) / 60e3), 0),
+      };
+      runStatsKey = key; runStatsAt = Date.now();
+    } catch { runStats = null; }
+    finally { runStatsLoading = false; }
+    fillRunStats();
+  }
+
   function cardHtml(t) {
       const a = AGENTS[t.agent];
       const link = safeUrl(t.link);
@@ -920,6 +1100,7 @@
         ${t.prompt ? `<div class="preview" data-act="open">${esc(t.prompt)}</div>` : ''}
         <div class="meta">
           <span class="badge ${t.agent || 'none'}">${a ? a.label : '未定'}</span>
+          ${t.needsReply && t.status !== 'done' ? '<span class="flag warn">💬 返答待ち</span>' : t.failed && t.status !== 'done' ? '<span class="flag bad">失敗</span>' : ''}
           ${t.model ? `<span class="mchip">${esc(modelLabel(t.agent, t.model))}</span>` : ''}
           ${(!prefs.project || prefs.project === 'all') && projFor(t) ? `<span class="pchip" style="--pc:${projFor(t).color}">${esc(projFor(t).name)}</span>` : ''}
           ${accounts().length > 1 && (t.issue || t.repo) ? `<span class="gh">👤 ${esc(acctName(acctFor(t)))}</span>` : ''}
@@ -958,6 +1139,27 @@
   function touch(t) { t.updatedAt = Date.now(); persist(); render(); }
 
   $('list').addEventListener('click', async e => {
+    // ダッシュボード: 質問への返信・再実行・行クリック
+    const q = e.target.closest('.qitem');
+    if (q) {
+      const t = byId(q.dataset.id); if (!t) return;
+      if (e.target.closest('[data-qopen]')) return openDetail(t);
+      const send = e.target.closest('[data-qsend]'), retry = e.target.closest('[data-qretry]');
+      if (!send && !retry) return;
+      const text = retry ? '前回の依頼をもう一度実行してください。' : q.querySelector('textarea').value.trim();
+      if (!text) return q.querySelector('textarea').focus();
+      const btn = send || retry; btn.disabled = true;
+      try {
+        const agent = AGENTS[t.agent] ? t.agent : 'claude';
+        await gh(`/repos/${t.repo}/issues/${t.issue.number}/comments`, { method: 'POST',
+          body: JSON.stringify({ body: withMode(agent, `${mentionOf(agent)} ${text}${optMarks(agent, t.model, t.effort)}`) }) }, acctFor(t));
+        t.needsReply = false; t.failed = false; t.status = 'running'; t.updatedAt = Date.now();
+        persist(); renderFilters(); render(); toast(`${AGENTS[agent].label}に送りました`);
+      } catch (err) { toast(err.message); btn.disabled = false; }
+      return;
+    }
+    const row = e.target.closest('[data-open]');
+    if (row) { const t = byId(row.dataset.open); if (t) (t.issue ? openDetail(t) : openDialog(t)); return; }
     const card = e.target.closest('.task'); if (!card) return;
     const el = e.target.closest('[data-act]') || (e.target.closest('a, button') ? null : card);
     if (!el) return;
@@ -1199,7 +1401,7 @@
       if (detailId !== t.id) return;
       lastThread = th;
       const s = deriveStatus(t, th);
-      if (s !== t.status) { t.status = s; touch(t); }
+      if (s !== t.status) { t.status = s; touch(t); } else persist();
       renderDetailHead(t);
       renderThread(t, th);
       schedulePoll(th.running ? 15000 : 60000);
@@ -1259,6 +1461,9 @@
     finally { el.disabled = false; }
   });
 
+  $('list').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.target.matches('.qitem textarea')) { e.preventDefault(); e.target.closest('.qitem').querySelector('[data-qsend]').click(); }
+  });
   $('dInput').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('dSend').click(); } });
   $('dSend').addEventListener('click', async () => {
     const t = byId(detailId); const text = $('dInput').value.trim();
@@ -1496,16 +1701,24 @@
     } finally { b.disabled = false; }
   });
 
-  $('syncAllBtn').addEventListener('click', async () => {
+  let syncing = false;
+  async function syncAll(silent) {
+    if (syncing || !ghReady()) return;
     const list = tasks.filter(t => t.issue && t.status !== 'done');
-    if (!list.length) { toast('GitHub上で進行中のタスクはありません'); return; }
+    if (!list.length) { if (!silent) toast('GitHub上で進行中のタスクはありません'); return; }
+    syncing = true;
     let changed = 0, failed = 0;
-    await Promise.all(list.map(async t => {
-      try { const s = deriveStatus(t, await fetchThread(t)); if (s !== t.status) { t.status = s; t.updatedAt = Date.now(); changed++; } }
-      catch { failed++; }
-    }));
-    persist(); render(); toast(`${list.length}件を確認（${changed}件更新${failed ? `・${failed}件失敗` : ''}）`);
-  });
+    try {
+      await Promise.all(list.map(async t => {
+        try { const s = deriveStatus(t, await fetchThread(t)); if (s !== t.status) { t.status = s; t.updatedAt = Date.now(); changed++; } }
+        catch { failed++; }
+      }));
+    } finally { syncing = false; }
+    prefs.lastSync = Date.now(); save(PREF, prefs);
+    persist(); renderFilters(); render();
+    if (!silent || changed) toast(`${list.length}件を確認（${changed}件更新${failed ? `・${failed}件失敗` : ''}）`);
+  }
+  $('syncAllBtn').addEventListener('click', () => syncAll(false));
 
   // 全アカウントから既存のタスクを取り込む
   //  1) @claude / @codex / /codex 宛てのIssue（別端末やGitHubで直接頼んだもの）
