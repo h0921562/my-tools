@@ -280,6 +280,28 @@
     .side .tools .actions button:hover { background:var(--surface); color:var(--text); }
   }
 
+  .pdot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; flex:none; vertical-align:middle; }
+  .pchip { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:1px 7px; }
+  .pchip::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--pc, var(--sub)); }
+  .mchip { font-size:11.5px; color:var(--sub); border:1px dashed var(--border); border-radius:6px; padding:1px 6px; }
+  .seg button.padd, .seg button.pedit { color:var(--sub); border-style:dashed; }
+  .swatches { display:flex; gap:8px; flex-wrap:wrap; }
+  .swatches button { width:28px; height:28px; border-radius:50%; border:2px solid transparent; cursor:pointer; }
+  .swatches button[aria-pressed="true"] { border-color:var(--text); box-shadow:0 0 0 2px var(--surface) inset; }
+  .msel { flex:none; max-width:120px; padding:8px 6px; font-size:13px; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:10px; font-family:inherit; }
+  .who .mchip { margin-left:auto; }
+  @media (min-width:1000px) {
+    #projFilter { flex-direction:column; flex-wrap:nowrap; gap:1px; margin:0; }
+    #projFilter button { display:flex; align-items:center; border:none; background:transparent; color:var(--text); border-radius:8px; padding:7px 10px; font-size:13.5px; text-align:left; }
+    #projFilter button > span:first-of-type { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    #projFilter button:hover { background:var(--surface); }
+    #projFilter button[aria-pressed="true"] { background:color-mix(in srgb, var(--accent) 20%, transparent); color:var(--text); }
+    #projFilter .c { opacity:1; color:var(--sub); font-weight:600; }
+    #projFilter button.padd, #projFilter button.pedit { color:var(--sub); font-size:12.5px; }
+    .mainbar .count .pdot { width:11px; height:11px; }
+    #projDlg { width:min(720px, calc(100vw - 48px)); }
+  }
+
   .toast {
     position:fixed; left:50%; bottom:calc(88px + env(safe-area-inset-bottom)); transform:translateX(-50%);
     background:#0f172a; color:#fff; border-radius:10px; padding:10px 16px; font-size:13.5px;
@@ -302,8 +324,11 @@
   <button type="button" class="btn newbtn" id="addBtn2">＋ 新しいタスク <kbd>N</kbd></button>
   <input class="search" id="q" type="search" placeholder="検索">
 
+  <div class="side-label">プロジェクト</div>
+  <div class="seg nav" id="projFilter" role="group" aria-label="プロジェクトで絞り込み"></div>
+
   <div class="side-label">状態</div>
-  <div class="seg" id="statusFilter" role="group" aria-label="状態で絞り込み"></div>
+  <div class="seg nav" id="statusFilter" role="group" aria-label="状態で絞り込み"></div>
   <div class="side-label">担当</div>
   <div class="seg" id="agentFilter" role="group" aria-label="担当で絞り込み"></div>
   <div id="acctBox" hidden>
@@ -344,11 +369,25 @@
   <form class="dlg" id="form" method="dialog">
     <h2 id="dlgTitle">タスクを追加</h2>
     <div class="field">
+      <label for="fProj">プロジェクト</label>
+      <select id="fProj"></select>
+    </div>
+    <div class="field">
       <label>担当</label>
       <div class="pick" id="agentPick">
         <button type="button" data-v="claude">Claude</button>
         <button type="button" data-v="codex">Codex</button>
         <button type="button" data-v="">未定</button>
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label for="fModel">モデル</label>
+        <select id="fModel"></select>
+      </div>
+      <div class="field" id="fEffortField">
+        <label for="fEffort">推論の強さ</label>
+        <select id="fEffort"></select>
       </div>
     </div>
     <div class="field">
@@ -358,7 +397,6 @@
     <div class="field">
       <label for="fPrompt">依頼内容（プロンプト）</label>
       <textarea id="fPrompt" placeholder="AIにそのまま渡す指示を書く"></textarea>
-      <div class="hint">「GitHubで実行」でこの内容がIssueとして担当AIに渡ります（GitHub設定が必要）。「コピーして開く」で手動実行も可。</div>
     </div>
     <div class="row2">
       <div class="field">
@@ -416,6 +454,7 @@
           <button type="button" data-v="codex">@Codex</button>
           <button type="button" data-v="">メモ</button>
         </div>
+        <select id="dModel" class="msel" aria-label="モデル"></select>
         <button type="button" class="send" id="dSend">送信</button>
       </div>
     </div>
@@ -464,6 +503,15 @@
       <div class="hint">「Codex本体」は chatgpt.com/codex でGitHub連携を有効にしたリポジトリで使えます。ChatGPTのプランで動き、作業は chatgpt.com/codex にも表示されます。このとき codex.yml は反応しないので、二重に動くことはありません。</div>
     </div>
 
+    <h2 style="margin-top:22px">既定のモデル</h2>
+    <div class="row2">
+      <div class="field"><label for="sModelClaude">Claude</label><select id="sModelClaude"></select></div>
+      <div class="field"><label for="sModelCodex">Codex</label><select id="sModelCodex"></select></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="sEffortCodex">Codex の推論の強さ</label><select id="sEffortCodex"></select></div>
+      <div class="field"></div>
+    </div>
     </div><div class="scol">
     <h2 class="scol-h">リポジトリのセットアップ</h2>
     <div class="hint" style="margin:-6px 0 10px">リポジトリを選んで「状況を確認」。足りないものはこの画面から登録・設定できます（キーは暗号化してGitHubのシークレットに保存され、この端末には残りません）。</div>
@@ -487,6 +535,51 @@
   </form>
 </dialog>
 
+<dialog id="projDlg">
+  <form class="dlg" id="projForm" method="dialog">
+    <h2 id="projTitle">プロジェクト</h2>
+    <div class="field">
+      <label for="pName">名前</label>
+      <input id="pName" required maxlength="60" placeholder="例: 名刺管理">
+    </div>
+    <div class="field">
+      <label>色</label>
+      <div class="swatches" id="pColors"></div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label for="pRepo">リポジトリ</label>
+        <input id="pRepo" list="repoList" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field" id="pAcctField">
+        <label for="pAcct">GitHubアカウント</label>
+        <select id="pAcct"></select>
+      </div>
+    </div>
+    <div class="field">
+      <label>既定の担当</label>
+      <div class="pick" id="pAgent">
+        <button type="button" data-v="claude">Claude</button>
+        <button type="button" data-v="codex">Codex</button>
+        <button type="button" data-v="">指定なし</button>
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="pModel">既定のモデル</label><select id="pModel"></select></div>
+      <div class="field" id="pEffortField"><label for="pEffort">推論の強さ</label><select id="pEffort"></select></div>
+    </div>
+    <div class="field">
+      <label for="pContext">前提（毎回の依頼に添える）</label>
+      <textarea id="pContext" style="min-height:110px" placeholder="例: docs/meishi 配下だけを変更する。UIは日本語。スマホ表示を崩さない。"></textarea>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn danger" id="pDel">削除</button>
+      <button type="button" class="btn sub" id="pCancel">キャンセル</button>
+      <button type="submit" class="btn">保存</button>
+    </div>
+  </form>
+</dialog>
+
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -505,6 +598,15 @@
     { v: 'done',    label: '完了' },
   ];
   const statusLabel = v => (STATUSES.find(s => s.v === v) || STATUSES[0]).label;
+  const PROJKEY = 'aiTasks.projects.v1';
+  // 選べるモデル（空＝各実行環境の既定）。Codexは「その他」で任意のモデル名も指定できる
+  const MODELS = {
+    claude: [['', '既定'], ['claude-opus-5-5', 'Opus 5.5'], ['claude-sonnet-5-5', 'Sonnet 5.5'], ['claude-haiku-4-5', 'Haiku 4.5'], ['claude-fable-5-1', 'Fable 5.1']],
+    codex:  [['', '既定'], ['gpt-5-codex', 'gpt-5-codex'], ['gpt-5', 'gpt-5']],
+  };
+  const EFFORTS = [['', '既定'], ['low', 'low'], ['medium', 'medium'], ['high', 'high']];
+  const COLORS = ['#6366f1', '#f97316', '#10b981', '#ef4444', '#0ea5e9', '#eab308', '#a855f7', '#64748b'];
+  const MODEL_RE = /^[\w.:\-]{1,64}$/;
   const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
   const $ = id => document.getElementById(id);
@@ -513,7 +615,7 @@
 
   let tasks = load(KEY, []);
   if (!Array.isArray(tasks)) tasks = [];
-  const prefs = Object.assign({ agent: 'all', status: 'active', account: 'all' }, load(PREF, {}));
+  const prefs = Object.assign({ agent: 'all', status: 'active', account: 'all', project: 'all' }, load(PREF, {}));
   // GitHubアカウント（複数可）。旧形式 { token, repo } は1件目として移行
   const ghCfg = (() => {
     const c = load(GHKEY, {});
@@ -547,6 +649,61 @@
   const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
   const fmtDate = t => { const d = new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
   const byId = id => tasks.find(x => x.id === id);
+
+  // ---------- モデル ----------
+  const customModels = agent => ((prefs.customModels || {})[agent] || []);
+  const modelLabel = (agent, m) => (MODELS[agent] || []).find(x => x[0] === m)?.[1] || m;
+  function fillModelSelect(sel, agent, value) {
+    if (!agent || !MODELS[agent]) { sel.innerHTML = '<option value="">—</option>'; sel.disabled = true; return; }
+    sel.disabled = false;
+    const opts = [...MODELS[agent], ...customModels(agent).map(m => [m, m])];
+    if (value && !opts.some(o => o[0] === value)) opts.push([value, value]);
+    sel.innerHTML = opts.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('') + '<option value="__custom">その他を入力…</option>';
+    sel.value = value || '';
+    sel.dataset.agent = agent; sel.dataset.prev = sel.value;
+  }
+  // 「その他を入力…」を選んだらモデル名を聞いて候補に追加
+  document.addEventListener('change', e => {
+    const sel = e.target;
+    if (sel.tagName !== 'SELECT' || sel.value !== '__custom') return;
+    const agent = sel.dataset.agent;
+    const m = (prompt('モデル名（例: claude-opus-5-5 / gpt-5-codex）') || '').trim();
+    if (!m || !MODEL_RE.test(m)) { sel.value = sel.dataset.prev || ''; if (m) toast('モデル名に使えない文字があります'); return; }
+    prefs.customModels = prefs.customModels || {};
+    prefs.customModels[agent] = [...new Set([...customModels(agent), m])]; save(PREF, prefs);
+    fillModelSelect(sel, agent, m); sel.dispatchEvent(new Event('change'));
+  }, true);
+  document.addEventListener('change', e => { if (e.target.tagName === 'SELECT' && e.target.dataset.agent) e.target.dataset.prev = e.target.value; });
+  const fillEffort = (sel, v) => { sel.innerHTML = EFFORTS.map(([x, l]) => `<option value="${x}">${l}</option>`).join(''); sel.value = v || ''; };
+  const defModel = agent => (prefs.defModel || {})[agent] || '';
+  // ワークフローに渡すモデル指定（本文の末尾に見えない形で付ける）。Codex本体実行ではモデル指定は効かない
+  function optMarks(agent, model, effort) {
+    if (!AGENTS[agent] || (agent === 'codex' && codexCloud())) return '';
+    let m = '';
+    if (model && MODEL_RE.test(model)) m += `\n<!-- ai-model: ${model} -->`;
+    if (agent === 'codex' && /^[a-z]+$/.test(effort || '')) m += `\n<!-- ai-effort: ${effort} -->`;
+    return m;
+  }
+
+  // ---------- プロジェクト ----------
+  let projects = load(PROJKEY, null);
+  const saveProjects = () => save(PROJKEY, projects);
+  const projById = id => projects.find(p => p.id === id);
+  const projFor = t => projById(t.projectId) || null;
+  function newProject(fields) {
+    const p = { id: 'p' + uid(), name: '', color: COLORS[projects.length % COLORS.length], repo: '', accountId: null, agent: '', model: '', effort: '', context: '', ...fields };
+    projects.push(p); saveProjects(); return p;
+  }
+  function ensureProjectForRepo(repo) {
+    if (!repo) return null;
+    return projects.find(p => (p.repo || '').toLowerCase() === repo.toLowerCase()) || newProject({ name: repo.split('/')[1] || repo, repo });
+  }
+  if (!Array.isArray(projects)) {
+    // 初回: 既存タスクのリポジトリごとにプロジェクトを作って振り分け
+    projects = [];
+    tasks.forEach(t => { if (!t.projectId && t.repo) t.projectId = ensureProjectForRepo(t.repo).id; });
+    saveProjects(); persist();
+  }
 
   let toastTimer;
   function toast(msg) {
@@ -587,12 +744,14 @@
 
   async function startOnGitHub(t) {
     if (!ghReady()) { openSettings(); toast('先にGitHub設定をしてください'); return; }
-    const repo = t.repo || (acctById(t.accountId) || accounts()[0])?.repo;
+    const repo = t.repo || projFor(t)?.repo || (acctById(t.accountId) || accounts()[0])?.repo;
     if (!REPO_RE.test(repo || '')) { toast('リポジトリ（owner/repo）を設定してください'); openDialog(t); return; }
-    const acct = acctById(t.accountId) || acctForRepo(repo);
+    const acct = acctById(t.accountId) || acctById(projFor(t)?.accountId) || acctForRepo(repo);
     const a = AGENTS[t.agent];
     if (!a) { toast('担当（Claude / Codex）を選んでください'); openDialog(t); return; }
-    const body = withMode(t.agent, `${mentionOf(t.agent)}\n\n${t.prompt || t.title}\n\n${MARK(t.id)}`);
+    const pj = projFor(t);
+    const ctx = pj?.context ? `### 前提（${pj.name}）\n${pj.context}\n\n### 依頼\n` : '';
+    const body = withMode(t.agent, `${mentionOf(t.agent)}\n\n${ctx}${t.prompt || t.title}\n\n${MARK(t.id)}${optMarks(t.agent, t.model, t.effort)}`);
     const issue = await gh(`/repos/${repo}/issues`, { method: 'POST', body: JSON.stringify({ title: t.title, body }) }, acct);
     Object.assign(t, { repo, accountId: acct.id, issue: { number: issue.number, url: issue.html_url }, link: t.link || issue.html_url, status: 'running', updatedAt: Date.now() });
     persist(); render();
@@ -644,6 +803,18 @@
     $('acctFilter').innerHTML = [['all','すべてのアカウント'], ...accounts().map(a => [a.id, acctName(a)])].map(([v,l]) =>
       `<option value="${v}">${esc(l)}</option>`).join('');
     $('acctFilter').value = prefs.account;
+    if (prefs.project && !['all', 'none'].includes(prefs.project) && !projById(prefs.project)) prefs.project = 'all';
+    const open = tasks.filter(t => t.status !== 'done');
+    const pc = v => v === 'all' ? open.length : v === 'none' ? open.filter(t => !projFor(t)).length : open.filter(t => t.projectId === v).length;
+    const pbtn = (v, label, color) => `<button type="button" data-v="${v}" aria-pressed="${(prefs.project || 'all') === v}" title="${esc(label)}">${color ? `<i class="pdot" style="background:${color}"></i>` : ''}<span>${esc(label)}</span><span class="c">${pc(v) || ''}</span></button>`;
+    const selProj = projById(prefs.project);
+    $('projFilter').innerHTML = [
+      pbtn('all', 'すべて'),
+      ...projects.map(p => pbtn(p.id, p.name, p.color)),
+      tasks.some(t => !projFor(t)) ? pbtn('none', '未分類', '#94a3b8') : '',
+      selProj ? `<button type="button" class="pedit" data-v="__edit">⚙ ${esc(selProj.name)} の設定</button>` : '',
+      `<button type="button" class="padd" data-v="__add">＋ プロジェクト</button>`,
+    ].join('');
     const statusOpts = [['active','未完了'], ...STATUSES.map(s => [s.v, s.label]), ['all','すべて']];
     $('statusFilter').innerHTML = statusOpts.map(([v,l]) =>
       `<button type="button" data-v="${v}" aria-pressed="${prefs.status===v}"><span>${l}</span><span class="c" data-c="${v}"></span></button>`).join('');
@@ -656,17 +827,26 @@
   $('acctFilter').addEventListener('change', () => {
     prefs.account = $('acctFilter').value; save(PREF, prefs); render();
   });
+  $('projFilter').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.v === '__add') return openProject(null);
+    if (b.dataset.v === '__edit') return openProject(projById(prefs.project));
+    prefs.project = b.dataset.v; save(PREF, prefs); renderFilters(); render();
+  });
   $('statusFilter').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     prefs.status = b.dataset.v; save(PREF, prefs); renderFilters(); render();
   });
   $('q').addEventListener('input', () => render());
 
+  const inProject = t => !prefs.project || prefs.project === 'all' ||
+    (prefs.project === 'none' ? !projFor(t) : t.projectId === prefs.project);
   function visible() {
     const q = $('q').value.trim().toLowerCase();
     return tasks.filter(t => {
       if (prefs.agent === 'none' ? t.agent : (prefs.agent !== 'all' && t.agent !== prefs.agent)) return false;
       if (prefs.account && prefs.account !== 'all' && acctFor(t)?.id !== prefs.account) return false;
+      if (!inProject(t)) return false;
       if (prefs.status === 'active' ? t.status === 'done' : (prefs.status !== 'all' && t.status !== prefs.status)) return false;
       if (q) {
         const hay = [t.title, t.prompt, t.repo, t.note, (t.tags||[]).join(' '), acctName(acctFor(t))].join('\n').toLowerCase();
@@ -684,7 +864,7 @@
   function renderStats() {
     const base = tasks.filter(t =>
       !(prefs.agent === 'none' ? t.agent : (prefs.agent !== 'all' && t.agent !== prefs.agent)) &&
-      !(prefs.account && prefs.account !== 'all' && acctFor(t)?.id !== prefs.account));
+      !(prefs.account && prefs.account !== 'all' && acctFor(t)?.id !== prefs.account) && inProject(t));
     const n = { all: base.length, active: base.filter(t => t.status !== 'done').length };
     STATUSES.forEach(x => n[x.v] = base.filter(t => t.status === x.v).length);
     document.querySelectorAll('#statusFilter .c').forEach(el => el.textContent = n[el.dataset.c] ?? '');
@@ -692,7 +872,9 @@
 
   const mqDesk = matchMedia('(min-width:1000px)'), mqWide = matchMedia('(min-width:1280px)');
   function renderMainbar(n) {
-    $('count').textContent = `${n}件`;
+    const p = projById(prefs.project);
+    $('count').innerHTML = p ? `<i class="pdot" style="background:${p.color}"></i>${esc(p.name)}　<span style="color:var(--sub);font-weight:600">${n}件</span>`
+      : prefs.project === 'none' ? `未分類　<span style="color:var(--sub);font-weight:600">${n}件</span>` : `${n}件`;
     $('viewSw').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === (prefs.view || 'board')));
   }
   $('viewSw').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; prefs.view = b.dataset.v; save(PREF, prefs); render(); });
@@ -738,6 +920,8 @@
         ${t.prompt ? `<div class="preview" data-act="open">${esc(t.prompt)}</div>` : ''}
         <div class="meta">
           <span class="badge ${t.agent || 'none'}">${a ? a.label : '未定'}</span>
+          ${t.model ? `<span class="mchip">${esc(modelLabel(t.agent, t.model))}</span>` : ''}
+          ${(!prefs.project || prefs.project === 'all') && projFor(t) ? `<span class="pchip" style="--pc:${projFor(t).color}">${esc(projFor(t).name)}</span>` : ''}
           ${accounts().length > 1 && (t.issue || t.repo) ? `<span class="gh">👤 ${esc(acctName(acctFor(t)))}</span>` : ''}
           ${t.issue ? `<span class="gh ${t.status==='running'?'live':''}">GitHub #${t.issue.number}</span>` : ''}
           ${t.repo ? `<span>📁 ${esc(t.repo)}</span>` : ''}
@@ -757,7 +941,8 @@
 
   function buildPrompt(t) {
     const head = t.repo ? `リポジトリ: ${t.repo}\n\n` : '';
-    return head + (t.prompt || t.title);
+    const pj = projFor(t);
+    return head + (pj?.context ? `前提（${pj.name}）:\n${pj.context}\n\n` : '') + (t.prompt || t.title);
   }
 
   async function copyText(text) {
@@ -811,7 +996,23 @@
     pickAgent = v;
     $('agentPick').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
   }
-  $('agentPick').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setPick(b.dataset.v); });
+  $('agentPick').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    setPick(b.dataset.v);
+    const p = projById($('fProj').value);
+    fillModelSelect($('fModel'), pickAgent, p?.agent === pickAgent && p.model ? p.model : defModel(pickAgent));
+    $('fEffortField').hidden = pickAgent !== 'codex';
+  });
+  // 新規作成中にプロジェクトを変えたら、そのプロジェクトの既定を反映
+  $('fProj').addEventListener('change', () => {
+    const p = projById($('fProj').value); if (!p || editingId) return;
+    if (p.repo) $('fRepo').value = p.repo;
+    if (p.accountId && acctById(p.accountId)) $('fAcct').value = p.accountId;
+    if (p.agent) setPick(p.agent);
+    fillModelSelect($('fModel'), pickAgent, p.model || defModel(pickAgent));
+    fillEffort($('fEffort'), p.effort || prefs.defEffort || '');
+    $('fEffortField').hidden = pickAgent !== 'codex';
+  });
 
   function openDialog(t) {
     editingId = t ? t.id : null;
@@ -824,11 +1025,19 @@
     $('fAcct').value = t?.accountId && acctById(t.accountId) ? t.accountId : (prefs.account && acctById(prefs.account) ? prefs.account : '');
     $('fAcct').disabled = !!t?.issue;
     $('repoList').innerHTML = repos.map(r => `<option value="${esc(r)}">`).join('');
-    const def = prefs.agent === 'claude' || prefs.agent === 'codex' ? prefs.agent : (prefs.lastAgent ?? 'claude');
+    // プロジェクト（新規は選択中のプロジェクトを既定に）
+    const curProj = t ? projFor(t) : projById(prefs.project);
+    $('fProj').innerHTML = '<option value="">未分類</option>' + projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+    $('fProj').value = curProj?.id || '';
+    const def = curProj?.agent || (prefs.agent === 'claude' || prefs.agent === 'codex' ? prefs.agent : (prefs.lastAgent ?? 'claude'));
     setPick(t ? (t.agent || '') : def);
+    fillModelSelect($('fModel'), pickAgent, t ? (t.model || '') : (curProj?.model || defModel(pickAgent)));
+    fillEffort($('fEffort'), t ? t.effort : (curProj?.effort || prefs.defEffort || ''));
+    $('fEffortField').hidden = pickAgent !== 'codex';
     $('fTitle').value = t?.title || '';
     $('fPrompt').value = t?.prompt || '';
-    $('fRepo').value = t ? (t.repo || '') : (acctById(prefs.account)?.repo || prefs.lastRepo || accounts()[0]?.repo || '');
+    $('fRepo').value = t ? (t.repo || '') : (curProj?.repo || acctById(prefs.account)?.repo || prefs.lastRepo || accounts()[0]?.repo || '');
+    if (!t && curProj?.accountId && acctById(curProj.accountId)) $('fAcct').value = curProj.accountId;
     $('fRepo').disabled = !!t?.issue;
     $('fStatus').value = t?.status || 'todo';
     $('fTags').value = (t?.tags || []).join(', ');
@@ -842,8 +1051,8 @@
   $('addBtn2').addEventListener('click', () => openDialog(null));
   document.addEventListener('keydown', e => {
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
-    const modalOpen = ['dlg', 'settings'].some(id => $(id).open) || ($('detail').open && !$('detail').classList.contains('panel'));
-    if (e.key === 'Escape' && $('detail').open && $('detail').classList.contains('panel') && !['dlg','settings'].some(id => $(id).open)) { $('detail').close(); return; }
+    const modalOpen = ['dlg', 'settings', 'projDlg'].some(id => $(id).open) || ($('detail').open && !$('detail').classList.contains('panel'));
+    if (e.key === 'Escape' && $('detail').open && $('detail').classList.contains('panel') && !['dlg','settings','projDlg'].some(id => $(id).open)) { $('detail').close(); return; }
     if (typing || modalOpen || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === 'n' || e.key === 'N') { e.preventDefault(); openDialog(null); }
     else if (e.key === '/') { e.preventDefault(); $('q').focus(); }
@@ -865,6 +1074,9 @@
       prompt: $('fPrompt').value.trim(),
       repo: $('fRepo').value.trim(),
       accountId: $('fAcct').value || null,
+      projectId: $('fProj').value || null,
+      model: ['__custom'].includes($('fModel').value) ? '' : $('fModel').value,
+      effort: pickAgent === 'codex' ? $('fEffort').value : '',
       status: $('fStatus').value,
       tags: $('fTags').value.split(/[,、，]/).map(s => s.trim()).filter(Boolean),
       link: $('fLink').value.trim(),
@@ -926,6 +1138,9 @@
 
   function setCompose(v) {
     composeAgent = v;
+    const t = byId(detailId);
+    fillModelSelect($('dModel'), v, t && t.agent === v ? (t.model || '') : defModel(v));
+    $('dModel').hidden = !AGENTS[v] || (v === 'codex' && codexCloud());
     $('dAgent').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
   }
   $('dAgent').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setCompose(b.dataset.v); });
@@ -936,7 +1151,9 @@
     $('dMeta').innerHTML = `<span class="badge ${t.agent || 'none'}">${a ? a.label : '未定'}</span>
       <span class="status" data-s="${t.status}" style="cursor:default">${statusLabel(t.status)}</span>
       ${t.repo ? `<span>📁 ${esc(t.repo)}</span>` : ''}${t.issue ? `<span>#${t.issue.number}</span>` : ''}
-      ${accounts().length > 1 ? `<span>👤 ${esc(acctName(acctFor(t)))}</span>` : ''}`;
+      ${accounts().length > 1 ? `<span>👤 ${esc(acctName(acctFor(t)))}</span>` : ''}
+      ${projFor(t) ? `<span class="pchip" style="--pc:${projFor(t).color}">${esc(projFor(t).name)}</span>` : ''}
+      ${t.model ? `<span class="mchip">${esc(modelLabel(t.agent, t.model))}</span>` : ''}`;
     const open = lastThread?.issue?.state !== 'closed';
     $('dActions').innerHTML = `
       <button type="button" data-d="refresh">↻ 更新</button>
@@ -964,7 +1181,8 @@
     const items = [{ user: th.issue.user, body: th.issue.body, created_at: th.issue.created_at, first: true }, ...th.comments];
     parts.push(items.map(c => {
       const cls = whoClass(c);
-      return `<div class="msg ${cls}"><div class="who"><b>${esc(c.user.login)}</b><span>${fmtDate(c.created_at)}</span>${c.first ? '<span>（依頼）</span>' : ''}</div>
+      const mm = (c.body || '').match(/<!-- ai-model: ([\w.:\-]+) -->/);
+      return `<div class="msg ${cls}"><div class="who"><b>${esc(c.user.login)}</b><span>${fmtDate(c.created_at)}</span>${c.first ? '<span>（依頼）</span>' : ''}${mm ? `<span class="mchip">${esc(modelLabel(t.agent, mm[1]))}</span>` : ''}</div>
         <div class="md">${mdRender(c.body)}</div></div>`;
     }).join(''));
     if (th.issue.state === 'closed') parts.push('<div class="muted">このIssueはクローズされています</div>');
@@ -1049,7 +1267,7 @@
     $('dSend').disabled = true;
     try {
       await gh(`/repos/${t.repo}/issues/${t.issue.number}/comments`, { method: 'POST',
-        body: JSON.stringify({ body: a ? withMode(composeAgent, `${mentionOf(composeAgent)} ${text}`) : text }) }, acctFor(t));
+        body: JSON.stringify({ body: a ? withMode(composeAgent, `${mentionOf(composeAgent)} ${text}${optMarks(composeAgent, $('dModel').value === '__custom' ? '' : $('dModel').value, byId(detailId)?.effort)}`) : text }) }, acctFor(t));
       $('dInput').value = '';
       if (a) {
         if (lastThread?.issue?.state === 'closed')
@@ -1086,6 +1304,9 @@
   function openSettings() {
     renderAccounts(); closeAcctForm();
     $('sCodexMode').value = prefs.codexMode || 'actions';
+    fillModelSelect($('sModelClaude'), 'claude', defModel('claude'));
+    fillModelSelect($('sModelCodex'), 'codex', defModel('codex'));
+    fillEffort($('sEffortCodex'), prefs.defEffort || '');
     if (!accounts().length) openAcctForm(null);
     const first = accounts()[0];
     $('sInstallRepo').value = first?.repo || ''; $('sInstallResult').textContent = '';
@@ -1102,6 +1323,12 @@
   $('settingsBtn').addEventListener('click', openSettings);
   $('sClose').addEventListener('click', () => $('settings').close());
   $('sForm').addEventListener('submit', e => e.preventDefault());
+  const saveDefModels = () => {
+    const v = id => $(id).value === '__custom' ? '' : $(id).value;
+    prefs.defModel = { claude: v('sModelClaude'), codex: v('sModelCodex') };
+    prefs.defEffort = $('sEffortCodex').value; save(PREF, prefs);
+  };
+  ['sModelClaude', 'sModelCodex', 'sEffortCodex'].forEach(id => $(id).addEventListener('change', saveDefModels));
   $('sCodexMode').addEventListener('change', () => {
     prefs.codexMode = $('sCodexMode').value; save(PREF, prefs); renderSetup();
     toast(codexCloud() ? 'Codexは本体（Codexクラウド）で実行します' : 'CodexはGitHub Actionsで実行します');
@@ -1307,7 +1534,7 @@
             const mk = (it.body || '').match(/<!-- ai-tasks:([\w-]+) -->/);
             tasks.push({
               id: mk && !byId(mk[1]) ? mk[1] : uid(), createdAt: Date.parse(it.created_at) || Date.now(), updatedAt: Date.parse(it.updated_at) || Date.now(),
-              agent: m[1].toLowerCase(), title: it.title, prompt: strip(it.body), repo, accountId: acct.id, status: 'running',
+              agent: m[1].toLowerCase(), title: it.title, prompt: strip(it.body), repo, accountId: acct.id, projectId: ensureProjectForRepo(repo)?.id, status: 'running',
               tags: [], link: it.html_url, note: '', issue: { number: it.number, url: it.html_url },
             });
             added++;
@@ -1340,7 +1567,7 @@
             }
             tasks.push({
               id: uid(), createdAt: Date.parse(pr.created_at) || Date.now(), updatedAt: Date.parse(pr.updated_at) || Date.now(),
-              agent: m[1].toLowerCase(), title: pr.title, prompt: strip(pr.body).slice(0, 2000), repo, accountId: acct.id, status,
+              agent: m[1].toLowerCase(), title: pr.title, prompt: strip(pr.body).slice(0, 2000), repo, accountId: acct.id, projectId: ensureProjectForRepo(repo)?.id, status,
               tags: ['PR'], link: pr.html_url, note: '', issue: { number: pr.number, url: pr.html_url }, isPR: true,
             });
             added++;
@@ -1348,7 +1575,7 @@
         } catch (err) { errors.push(err.message); }
       }
       prefs.lastImport = Date.now(); save(PREF, prefs);
-      persist(); render();
+      persist(); renderFilters(); render();
       if (!silent || added || updated)
         toast(`GitHubから${added}件取り込み${updated ? `・${updated}件更新` : ''}${errors.length ? `（エラー: ${errors[0]}）` : ''}`);
     } finally { importing = false; }
@@ -1359,9 +1586,61 @@
     try { await importFromGitHub(false); } finally { btn.disabled = false; }
   });
 
+  // ================= プロジェクトの編集 =================
+  let editingProj = null, projColor = COLORS[0], projAgent = '';
+  const setProjAgent = v => {
+    projAgent = v;
+    $('pAgent').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
+    fillModelSelect($('pModel'), v, editingProj?.agent === v ? editingProj.model : '');
+    $('pEffortField').hidden = v !== 'codex';
+  };
+  const setProjColor = c => { projColor = c; $('pColors').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === c)); };
+  function openProject(p) {
+    editingProj = p;
+    $('projTitle').textContent = p ? 'プロジェクトの設定' : 'プロジェクトを追加';
+    $('pDel').style.display = p ? '' : 'none';
+    $('pColors').innerHTML = COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}" aria-label="${c}"></button>`).join('');
+    setProjColor(p?.color || COLORS[projects.length % COLORS.length]);
+    $('pName').value = p?.name || '';
+    $('pRepo').value = p?.repo || accounts()[0]?.repo || '';
+    $('pAcctField').hidden = accounts().length < 2;
+    $('pAcct').innerHTML = '<option value="">自動</option>' + accounts().map(a => `<option value="${a.id}">${esc(acctName(a))}</option>`).join('');
+    $('pAcct').value = p?.accountId && acctById(p.accountId) ? p.accountId : '';
+    setProjAgent(p?.agent || '');
+    fillEffort($('pEffort'), p?.effort || '');
+    $('pContext').value = p?.context || '';
+    $('repoList').innerHTML = [...new Set([...accounts().map(a => a.repo), ...tasks.map(x => x.repo), ...projects.map(x => x.repo)].filter(Boolean))].map(r => `<option value="${esc(r)}">`).join('');
+    $('projDlg').showModal();
+    if (!p) setTimeout(() => $('pName').focus(), 50);
+  }
+  $('pColors').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setProjColor(b.dataset.c); });
+  $('pAgent').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setProjAgent(b.dataset.v); });
+  $('pCancel').addEventListener('click', () => $('projDlg').close());
+  $('projForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = $('pName').value.trim(); if (!name) return $('pName').focus();
+    const repo = $('pRepo').value.trim();
+    if (repo && !REPO_RE.test(repo)) { toast('リポジトリは owner/repo の形で'); return; }
+    const data = { name, color: projColor, repo, accountId: $('pAcct').value || null, agent: projAgent,
+      model: $('pModel').value === '__custom' ? '' : $('pModel').value, effort: projAgent === 'codex' ? $('pEffort').value : '', context: $('pContext').value.trim() };
+    if (editingProj) Object.assign(editingProj, data);
+    else { const p = newProject(data); prefs.project = p.id; save(PREF, prefs); }
+    saveProjects(); $('projDlg').close(); renderFilters(); render();
+    toast(editingProj ? 'プロジェクトを保存しました' : 'プロジェクトを作成しました');
+  });
+  $('pDel').addEventListener('click', () => {
+    const p = editingProj; if (!p) return;
+    const n = tasks.filter(t => t.projectId === p.id).length;
+    if (!confirm(`プロジェクト「${p.name}」を削除しますか？${n ? `（タスク${n}件は未分類になります）` : ''}`)) return;
+    tasks.forEach(t => { if (t.projectId === p.id) t.projectId = null; });
+    projects = projects.filter(x => x.id !== p.id);
+    if (prefs.project === p.id) prefs.project = 'all';
+    saveProjects(); persist(); save(PREF, prefs); $('projDlg').close(); renderFilters(); render();
+  });
+
   // ================= export / import =================
   $('exportBtn').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify({ app: 'ai-tasks', version: 1, exportedAt: new Date().toISOString(), tasks }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ app: 'ai-tasks', version: 2, exportedAt: new Date().toISOString(), tasks, projects }, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `ai-tasks-${new Date().toISOString().slice(0,10)}.json`;
@@ -1383,7 +1662,12 @@
         if (!cur) { map.set(t.id, t); added++; }
         else if ((t.updatedAt || 0) > (cur.updatedAt || 0)) { map.set(t.id, t); updated++; }
       }
-      tasks = [...map.values()]; persist(); render();
+      tasks = [...map.values()]; persist();
+      if (Array.isArray(j.projects)) {
+        for (const p of j.projects) if (p && p.id && p.name && !projById(p.id)) projects.push(p);
+        saveProjects();
+      }
+      renderFilters(); render();
       toast(`読み込みました（追加${added}件・更新${updated}件）`);
     } catch (err) { toast('読み込めませんでした: ' + err.message); }
   });
