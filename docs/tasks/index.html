@@ -472,6 +472,9 @@
   const CLOUD_MARK = '<!-- codex:cloud -->';
   const codexCloud = () => prefs.codexMode === 'cloud';
   const withMode = (agent, text) => agent === 'codex' && codexCloud() ? `${text}\n\n${CLOUD_MARK}` : text;
+  // 公式のCodex連携（chatgpt-codex-connector）は @codex に反応するため、GitHub Actionsで動かすときは /codex で呼ぶ
+  const mentionOf = agent => agent === 'codex' ? (codexCloud() ? '@codex' : '/codex') : AGENTS[agent].mention;
+  const MENTION_RE = /(?:@claude|@codex|\/codex)\b/i;
 
   async function startOnGitHub(t) {
     if (!ghReady()) { openSettings(); toast('先にGitHub設定をしてください'); return; }
@@ -480,7 +483,7 @@
     const acct = acctById(t.accountId) || acctForRepo(repo);
     const a = AGENTS[t.agent];
     if (!a) { toast('担当（Claude / Codex）を選んでください'); openDialog(t); return; }
-    const body = withMode(t.agent, `${a.mention}\n\n${t.prompt || t.title}\n\n${MARK(t.id)}`);
+    const body = withMode(t.agent, `${mentionOf(t.agent)}\n\n${t.prompt || t.title}\n\n${MARK(t.id)}`);
     const issue = await gh(`/repos/${repo}/issues`, { method: 'POST', body: JSON.stringify({ title: t.title, body }) }, acct);
     Object.assign(t, { repo, accountId: acct.id, issue: { number: issue.number, url: issue.html_url }, link: t.link || issue.html_url, status: 'running', updatedAt: Date.now() });
     persist(); render();
@@ -515,7 +518,7 @@
     const last = th.comments[th.comments.length - 1];
     const lastIsBot = last && (last.user.type === 'Bot' || /\[bot\]$/.test(last.user.login) || /codex-status/.test(last.body || ''));
     // AIへの指示を送ったがまだ返事がない（ワークフロー起動待ち）
-    if (last && !lastIsBot && /@(claude|codex)\b/i.test(last.body || '')) return 'running';
+    if (last && !lastIsBot && MENTION_RE.test(last.body || '')) return 'running';
     if (th.prs.some(p => p.state === 'open') || lastIsBot) return 'review';
     return t.status === 'todo' ? 'running' : t.status;
   }
@@ -762,6 +765,7 @@
   }
 
   function whoClass(c) {
+    if (/chatgpt-codex-connector/i.test(c.user.login)) return 'codex';
     if (/codex-status/.test(c.body || '') || /codex/i.test(c.user.login)) return 'codex';  // chatgpt-codex-connector[bot] も含む
     if (/claude/i.test(c.user.login)) return 'claude';
     return '';
@@ -882,7 +886,7 @@
     $('dSend').disabled = true;
     try {
       await gh(`/repos/${t.repo}/issues/${t.issue.number}/comments`, { method: 'POST',
-        body: JSON.stringify({ body: a ? withMode(composeAgent, `${a.mention} ${text}`) : text }) }, acctFor(t));
+        body: JSON.stringify({ body: a ? withMode(composeAgent, `${mentionOf(composeAgent)} ${text}`) : text }) }, acctFor(t));
       $('dInput').value = '';
       if (a) {
         if (lastThread?.issue?.state === 'closed')
@@ -1064,7 +1068,7 @@
       step(wfOk, '① ワークフロー', `<div class="sub">${wfOk ? 'claude.yml / codex.yml が入っています。' : st.wf.err ? `確認できません ${permHint(st.wf.err)}` : `未導入: ${[!st.wf.claude && 'claude.yml', !st.wf.codex && 'codex.yml'].filter(Boolean).join(' / ')}`}</div>
         <div class="inrow"><button type="button" class="iconbtn" data-setup="wf">${wfOk ? '最新版に更新' : 'ワークフローを入れる'}</button></div>`),
       secretStep('claude', '② Claude のキー'),
-      cloud ? step(true, '③ Codex（本体で実行）', `<div class="sub">実行先が「Codex本体」なのでキーは不要です。<a href="https://chatgpt.com/codex" target="_blank" rel="noopener">chatgpt.com/codex ↗</a> の設定でGitHub連携（Connectors → GitHub）を有効にし、${esc(repo)} へのアクセスを許可してください。</div>`)
+      cloud ? step(true, '③ Codex（本体で実行）', `<div class="sub">実行先が「Codex本体」なのでキーは不要です。ChatGPTにログインして <a href="https://chatgpt.com/codex/cloud/settings/environments" target="_blank" rel="noopener">Codexの環境設定 ↗</a> で ${esc(repo)} の環境を作成してください（未作成だと「create an environment」と返信が来ます）。</div>`)
             : secretStep('codex', '③ Codex のキー'),
       step(!!pr, '④ Codex に PR まで自動で作らせる', `<div class="sub">${pr ? 'ONです。' : st.perm ? 'OFFです。OFFでもブランチは作られ、やりとり画面の「PRを作成」で作れます。' : '状態を読めませんでした（トークンに Administration: Read がない場合）。'}
         <a href="https://github.com/${esc(repo)}/settings/actions" target="_blank" rel="noopener">設定を開く ↗</a> → 一番下の「Allow GitHub Actions to create and approve pull requests」にチェック → Save</div>`, true),
@@ -1124,12 +1128,12 @@
         try { res = await gh(`/search/issues?q=${encodeURIComponent(`is:issue is:open involves:${acct.login} in:body,comments claude OR codex`)}&per_page=50&sort=updated`, {}, acct); }
         catch (err) { errors.push(err.message); continue; }
         for (const it of res.items || []) {
-          const m = (it.body || '').match(/@(claude|codex)\b/i);
+          const m = (it.body || '').match(/[@/](claude|codex)\b/i);
           if (!m) continue;
           const repo = it.repository_url.split('/repos/')[1];
           if (tasks.some(t => t.issue && t.repo.toLowerCase() === repo.toLowerCase() && t.issue.number === it.number)) continue;
           const mk = (it.body || '').match(/<!-- ai-tasks:([\w-]+) -->/);
-          const prompt = (it.body || '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*@(claude|codex)\b\s*/i, '').trim();
+          const prompt = (it.body || '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*[@/](claude|codex)\b\s*/i, '').trim();
           tasks.push({
             id: mk && !byId(mk[1]) ? mk[1] : uid(), createdAt: Date.parse(it.created_at) || Date.now(), updatedAt: Date.parse(it.updated_at) || Date.now(),
             agent: m[1].toLowerCase(), title: it.title, prompt, repo, accountId: acct.id, status: 'running',

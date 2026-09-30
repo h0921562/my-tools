@@ -1,6 +1,6 @@
-# AIタスク用: Issue / PR のコメントで @codex と書くと Codex が作業し、変更を codex/issue-<番号> ブランチに push して PR にします。
+# AIタスク用: Issue / PR のコメントで /codex と書くと Codex が作業し、変更を codex/issue-<番号> ブランチに push して PR にします。
 # 必要なシークレット: OPENAI_API_KEY
-# 本文に <!-- codex:cloud --> がある依頼は Codex本体（公式GitHub連携）に任せ、このワークフローは動かない
+# @codex は公式のCodex連携（ChatGPTのCodexクラウド）が反応するので、こちらは /codex で呼ぶ（二重実行を防ぐ）
 # PRの自動作成には Settings → Actions → General → 「Allow GitHub Actions to create and approve pull requests」をON
 # （OFFでもブランチは push され、AIタスク画面の「PRを作成」から作れます）
 name: Codex
@@ -11,18 +11,14 @@ on:
   issue_comment:
     types: [created]
 
-concurrency:
-  group: codex-${{ github.event.issue.number }}
-  cancel-in-progress: false
-
 jobs:
   ack:
-    # リポジトリの書き込み権限を持つ人の @codex だけに反応する
+    # リポジトリの書き込み権限を持つ人の /codex だけに反応する
     if: |
       github.event.sender.type != 'Bot' &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event_name == 'issue_comment' && github.event.comment.author_association || github.event.issue.author_association) &&
-      ((github.event_name == 'issues' && (contains(github.event.issue.body, '@codex') || contains(github.event.issue.title, '@codex')) && !contains(github.event.issue.body, 'codex:cloud')) ||
-       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex') && !contains(github.event.comment.body, 'codex:cloud')))
+      ((github.event_name == 'issues' && (contains(github.event.issue.body, '/codex') || contains(github.event.issue.title, '/codex'))) ||
+       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/codex')))
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -43,6 +39,10 @@ jobs:
 
   codex:
     needs: ack
+    # 同じIssueへの依頼は順番に処理（ボットのコメントで起動した空振りの実行に取り消されないよう、ジョブ単位で指定）
+    concurrency:
+      group: codex-${{ github.event.issue.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -77,7 +77,7 @@ jobs:
           P="$RUNNER_TEMP/prompt.md"
           {
             echo "あなたは GitHub リポジトリ $REPO で作業するコーディングエージェントです。"
-            echo "下のスレッド（Issue/PR とコメント）のうち、最後に @codex が付いた指示に従って、作業ディレクトリ内のファイルを変更してください。"
+            echo "下のスレッド（Issue/PR とコメント）のうち、最後に /codex が付いた指示に従って、作業ディレクトリ内のファイルを変更してください。"
             echo "- git commit / push はしないでください。終了後にワークフローが自動でコミットし、ブランチ $BRANCH に push して PR にします。"
             echo "- 質問や調査だけの依頼ならファイルは変更しなくて構いません。"
             echo "- 最後に、行ったこと・確認してほしい点を日本語で簡潔にまとめて出力してください。その内容がそのままコメントとして投稿されます。"
