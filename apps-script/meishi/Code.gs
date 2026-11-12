@@ -20,7 +20,7 @@ const IMAGE_FOLDER_NAME = '名刺管理_画像';
 
 // 列の並び（見出し行の名前で列を探すので、後から列を足しても壊れない）
 const COLS = ['id', 'name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address',
-  'website', 'metAt', 'metPlace', 'folder', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt'];
+  'website', 'industry', 'metAt', 'metPlace', 'folder', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt'];
 const NUMBER_COLS = { createdAt: true, updatedAt: true };
 
 /* ================= 合鍵の確認 ================= */
@@ -346,7 +346,7 @@ function opusResult_(id, fields, error) {
   const clean = {};
   const keys = job.kind === 'doc'
     ? ['company', 'title', 'summary', 'person']
-    : ['name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address', 'website'];
+    : ['name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address', 'website', 'industry'];
   if (fields && typeof fields === 'object') {
     keys.forEach(function (k) { if (fields[k]) clean[k] = String(fields[k]).slice(0, 300); });
   }

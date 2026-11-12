@@ -425,6 +425,7 @@
         <button data-act="batch">📷 まとめて登録（複数枚）</button>
         <button data-act="folders">📁 プロジェクトを整理</button>
         <button data-act="docs">📎 資料を追加（会社は自動で判定）</button>
+        <button data-act="salesdesk">📤 表示中を Sales Desk のマスターに追加</button>
         <hr>
         <button data-act="dups">🔍 重複をチェック・統合</button>
         <hr>
@@ -513,6 +514,8 @@
       </div>
       <label>住所</label><input type="text" id="fAddress" autocomplete="off">
       <label>Webサイト</label><input type="url" id="fWebsite" autocomplete="off" placeholder="https://…">
+      <label>業態</label><input type="text" id="fIndustry" list="industryList" autocomplete="off" placeholder="選ぶか自由に入力（読み取り時にOpusが判断）">
+      <datalist id="industryList"></datalist>
       <div id="dupWarn" class="dup-warn" hidden></div>
       <div class="form-sec">
         <div class="form-grid">
@@ -759,7 +762,7 @@ function lsGet(k, d) { try { const v = localStorage.getItem(k); return v == null
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 
 // 後から追加した項目（古いデータ・バックアップ・クラウドには無いことがある）
-const EXTRA_FIELDS = ["website", "metAt", "metPlace", "folder"];
+const EXTRA_FIELDS = ["website", "metAt", "metPlace", "folder", "industry"];
 
 let toastTimer = null;
 function toast(msg) {
@@ -1168,7 +1171,7 @@ function filteredCards() {
   if (activeTag) list = list.filter((c) => (c.tags || []).includes(activeTag));
   if (q) {
     list = list.filter((c) =>
-      [c.name, c.kana, c.company, c.companyKana, c.title, c.phone, c.email, c.address, c.website, c.metPlace, c.folder, c.memo, (c.tags || []).join(" ")]
+      [c.name, c.kana, c.company, c.companyKana, c.title, c.phone, c.email, c.address, c.website, c.industry, c.metPlace, c.folder, c.memo, (c.tags || []).join(" ")]
         .some((v) => normalize(v).includes(q))
       // 電話番号はハイフンや空白の有無を問わず数字だけでも当たるように
       || (/^[\d\-\s()+]{3,}$/.test(q) && digitsOf(c.phone).includes(digitsOf(q)))
@@ -1293,11 +1296,13 @@ function openDetail(id) {
   if (c.address) acts.push(`<a href="https://www.google.com/maps/search/?api=1&query=${esc(encodeURIComponent(c.address.replace(/^〒\s?\d{3}-?\d{4}\s*/, "")))}" target="_blank" rel="noopener"><span class="ic">📍</span>地図</a>`);
   if (site) acts.push(`<a href="${esc(site)}" target="_blank" rel="noopener"><span class="ic">🌐</span>サイト</a>`);
   acts.push(`<button type="button" data-act="vcf"><span class="ic">👤</span>連絡先に保存</button>`);
+  if (c.company) acts.push(`<button type="button" data-act="sd"><span class="ic">📤</span>Sales Deskへ</button>`);
   if (navigator.share) acts.push(`<button type="button" data-act="share"><span class="ic">↗️</span>共有</button>`);
   const box = $("detailActions");
   box.innerHTML = acts.join("");
   box.querySelectorAll("button[data-act]").forEach((b) => b.addEventListener("click", () => {
     if (b.dataset.act === "vcf") saveVcf([c], vcfFileName([c]));
+    else if (b.dataset.act === "sd") sendToSalesDesk([c]);
     else shareCard(c);
   }));
 
@@ -1307,6 +1312,7 @@ function openDetail(id) {
     ["電話", c.phone ? `<span class="copyable" data-copy="${esc(c.phone)}" title="タップでコピー">${esc(c.phone)}</span>` : ""],
     ["メール", c.email ? `<span class="copyable" data-copy="${esc(c.email)}" title="タップでコピー">${esc(c.email)}</span>` : ""],
     ["住所", c.address ? `<span class="copyable" data-copy="${esc(c.address)}" title="タップでコピー">${esc(c.address)}</span>` : ""],
+    ["業態", esc(c.industry)],
     ["Web", site ? `<a href="${esc(site)}" target="_blank" rel="noopener">${esc(c.website)}</a>` : esc(c.website)],
     ["プロジェクト", c.folder ? esc(c.folder.split("/").join(" › ")) : ""],
     ["会った日", c.metAt ? esc(fmtDate(c.metAt)) : ""],
@@ -1415,7 +1421,7 @@ function exportCsv(list) {
   if (!list.length) { toast("対象の名刺がありません"); return; }
   const cols = [["name", "氏名"], ["kana", "ふりがな"], ["company", "会社名"], ["companyKana", "会社名ふりがな"],
     ["title", "部署・役職"], ["phone", "電話"], ["email", "メール"], ["address", "住所"], ["website", "Webサイト"],
-    ["metAt", "会った日"], ["metPlace", "会った場所"], ["folder", "プロジェクト"], ["memo", "メモ"]];
+    ["industry", "業態"], ["metAt", "会った日"], ["metPlace", "会った場所"], ["folder", "プロジェクト"], ["memo", "メモ"]];
   const cell = (v) => {
     let s = Array.isArray(v) ? v.join(", ") : String(v || "");
     if (/^[=+\-@]/.test(s)) s = "'" + s; // 表計算ソフトで数式として実行されないように
@@ -1463,6 +1469,40 @@ function showStickyNote(st) {
   });
 }
 
+// 業態の候補（自由入力もできる）。これまでに使った業態も足す
+const INDUSTRY_PRESETS = ["抹茶・茶葉の生産／卸", "カフェ・喫茶", "飲食店・レストラン", "和菓子・洋菓子", "食品・飲料メーカー", "商社・卸売", "小売・EC",
+  "ホテル・旅館", "輸出入・海外バイヤー", "歯科医院", "医療・クリニック", "美容・サロン", "IT・ソフトウェア", "広告・マーケティング", "士業・コンサル", "その他"];
+function fillIndustryList() {
+  const used = [...new Set(cards.map((c) => (c.industry || "").trim()).filter(Boolean))];
+  $("industryList").innerHTML = [...new Set([...INDUSTRY_PRESETS, ...used])].map((v) => `<option value="${esc(v)}"></option>`).join("");
+}
+
+/* ---------- Sales Desk の共通マスターへ追加 ----------
+ * Sales Desk を「#meishi=<名刺のデータ>」で開く。# 以降はサーバーに送られず、Sales Desk 側の確認画面で
+ * いつものGoogleログインのまま保存される（ここから直接書き込む口や鍵は作らない）。
+ * 同じ名刺を何度送っても、Sales Desk 側で二重登録しない。
+ */
+const SD_KEY = "meishi.salesDeskUrl";
+const SD_DEFAULT = "https://sales-desk.yamauchi-39d.workers.dev/";
+function salesDeskUrl() { return lsGet(SD_KEY, SD_DEFAULT); }
+function sendToSalesDesk(list) {
+  const items = list.filter((c) => c.company && c.name !== NAME_PENDING).slice(0, 200).map((c) => ({
+    card_id: c.id, company: c.company, name: c.name === NAME_UNKNOWN ? "" : (c.name || ""), title: c.title || "",
+    email: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.email || "") ? c.email : "", phone: c.phone || "", website: c.website || "",
+    address: (c.address || "").slice(0, 300), met: [fmtDate(c.metAt), c.metPlace].filter(Boolean).join(" ").slice(0, 300),
+    memo: (c.memo || "").slice(0, 1500), card_url: c.imageFileId ? `https://drive.google.com/file/d/${c.imageFileId}/view` : "",
+    industry: (c.industry || "").slice(0, 80), project: c.folder || "",
+  }));
+  const skipped = list.length - items.length;
+  if (!items.length) { alert("送れる名刺がありません（会社名が入っている名刺だけ送れます）。"); return; }
+  if (!confirm(`${items.length}件を Sales Desk の共通マスターに追加します。${skipped ? `\n（会社名がない${skipped}件は送りません）` : ""}\nSales Desk が開いて確認画面が出るので、事業の振り分けを確認して「追加」を押してください。`)) return;
+  const json = JSON.stringify(items);
+  const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const url = salesDeskUrl().replace(/#.*$/, "") + "#meishi=" + b64;
+  const w = window.open(url, "_blank", "noopener");
+  if (!w) location.href = url; // ポップアップが止められたら同じ画面で開く
+}
+
 // 「会った場所」のプルダウン: これまでに入れた場所を新しい順に並べる（選ぶと入力欄に入る。自由入力もできる）
 function fillPlaceSelect(sel) {
   const seen = new Map();
@@ -1495,6 +1535,8 @@ function openEdit(card, carry) {
   $("fEmail").value = card?.email || "";
   $("fAddress").value = card?.address || "";
   $("fWebsite").value = card?.website || "";
+  $("fIndustry").value = card?.industry || "";
+  fillIndustryList();
   // 新規は「会った日＝今日」を初期値にする（名刺はたいてい受け取った当日に登録するため）
   $("fMetAt").value = card ? String(card.metAt || "").slice(0, 10) : (carry?.metAt || todayYmd());
   const sticky = !card && !carry ? getSticky() : null;
@@ -1582,6 +1624,7 @@ async function saveCard(e) {
       email: $("fEmail").value.trim(),
       address: $("fAddress").value.trim(),
       website: $("fWebsite").value.trim(),
+      industry: $("fIndustry").value.trim(),
       metAt: $("fMetAt").value || "",
       metPlace: $("fMetPlace").value.trim(),
       folder: $("fFolder").value === NEW_PROJECT ? "" : normFolder($("fFolder").value),
@@ -1672,7 +1715,7 @@ async function importJSON(file) {
         name: String(c.name),
         kana: c.kana || "", company: c.company || "", companyKana: c.companyKana || "", title: c.title || "",
         phone: c.phone || "", email: c.email || "", address: c.address || "",
-        website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "", folder: normFolder(c.folder),
+        website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "", folder: normFolder(c.folder), industry: c.industry || "",
         tags: Array.isArray(c.tags) ? c.tags.map(String) : [],
         memo: c.memo || "",
         image: typeof c.image === "string" && c.image.startsWith("data:") ? await dataURLToBlob(c.image) : null,
@@ -1776,7 +1819,7 @@ function cardMeta(c) {
   return {
     id: c.id, name: c.name, kana: c.kana, company: c.company, companyKana: c.companyKana, title: c.title,
     phone: c.phone, email: c.email, address: c.address, tags: c.tags || [],
-    website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "", folder: c.folder || "",
+    website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "", folder: c.folder || "", industry: c.industry || "",
     memo: c.memo, createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
 }
@@ -2036,7 +2079,7 @@ function clearCfg() {
 }
 
 /* ---------- OCR（画像から自動入力） ---------- */
-const FIELD_LABELS = { name: "氏名", kana: "ふりがな(氏名)", company: "会社名", companyKana: "ふりがな(会社名)", title: "役職", phone: "電話", email: "メール", address: "住所", website: "Webサイト" };
+const FIELD_LABELS = { name: "氏名", kana: "ふりがな(氏名)", company: "会社名", companyKana: "ふりがな(会社名)", title: "役職", phone: "電話", email: "メール", address: "住所", website: "Webサイト", industry: "業態" };
 
 // OCRテキストを名刺項目に振り分ける（ヒューリスティック）。完璧ではないので空欄のみ補助する用途。
 function parseCardText(text) {
@@ -2376,7 +2419,7 @@ function setOcrRaw(text) {
   if (done) done.textContent = "";
 }
 
-const FIELD_MAP = { name: "fName", kana: "fKana", company: "fCompany", companyKana: "fCompanyKana", title: "fTitle", phone: "fPhone", email: "fEmail", address: "fAddress", website: "fWebsite" };
+const FIELD_MAP = { name: "fName", kana: "fKana", company: "fCompany", companyKana: "fCompanyKana", title: "fTitle", phone: "fPhone", email: "fEmail", address: "fAddress", website: "fWebsite", industry: "fIndustry" };
 
 // OCRで得たテキストを解析して空欄だけ埋め、結果をフィードバック表示する（クラウド/ブラウザ共通）。
 function applyOcrText(text, source) {
@@ -3329,6 +3372,7 @@ async function init() {
       case "dups": openDupDialog(); break;
       case "folders": openFolderDialog(); break;
       case "docs": pickDocs({ auto: true }); break;
+      case "salesdesk": sendToSalesDesk(list); break;
       case "batch": openBatchDialog(); break;
       case "tags": openTagDialog(); break;
       case "vcf": saveVcf(list, vcfFileName(list)); break;

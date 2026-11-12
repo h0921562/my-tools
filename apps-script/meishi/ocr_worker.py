@@ -21,7 +21,7 @@ import sys
 import tempfile
 import urllib.request
 
-FIELDS = ["name", "kana", "company", "companyKana", "title", "phone", "email", "address", "website"]
+FIELDS = ["name", "kana", "company", "companyKana", "title", "phone", "email", "address", "website", "industry"]
 
 PROMPT = """名刺画像 {path} を Read ツールで読み、次のキーだけを持つ JSON を1つだけ出力してください。説明文は不要です。
 
@@ -34,8 +34,9 @@ PROMPT = """名刺画像 {path} を Read ツールで読み、次のキーだけ
 - email: メールアドレス
 - address: 住所（郵便番号があれば先頭に「〒123-4567 」の形で）
 - website: Webサイトの URL
+- industry: 会社の業態を次から1つ（会社名・役職・ロゴ・URLから判断）: 抹茶・茶葉の生産／卸, カフェ・喫茶, 飲食店・レストラン, 和菓子・洋菓子, 食品・飲料メーカー, 商社・卸売, 小売・EC, ホテル・旅館, 輸出入・海外バイヤー, 歯科医院, 医療・クリニック, 美容・サロン, IT・ソフトウェア, 広告・マーケティング, 士業・コンサル, その他
 
-kana・companyKana 以外で、読めない・載っていない項目は空文字にしてください（推測で埋めない）。"""
+kana・companyKana・industry 以外で、読めない・載っていない項目は空文字にしてください（推測で埋めない）。"""
 
 
 DOC_FIELDS = ["company", "title", "summary", "person"]
