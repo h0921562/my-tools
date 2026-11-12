@@ -815,9 +815,11 @@ function openDetail(id) {
   const tel = (c.phone || "").replace(/[^\d+]/g, "");
   const site = siteHref(c.website);
   const acts = [];
-  if (tel) acts.push(`<a href="tel:${esc(tel)}"><span class="ic">📞</span>電話</a>`);
-  if (tel && /^0[789]0/.test(tel)) acts.push(`<a href="sms:${esc(tel)}"><span class="ic">💬</span>SMS</a>`);
-  if (c.email) acts.push(`<a href="mailto:${esc(encodeURIComponent(c.email).replace(/%40/g, "@"))}"><span class="ic">✉️</span>メール</a>`);
+  // Apps Script版は画面が枠(iframe)の中なので、電話・メールアプリへの切り替えは外側の画面で行う
+  const tgt = GAS ? ' target="_top"' : "";
+  if (tel) acts.push(`<a href="tel:${esc(tel)}"${tgt}><span class="ic">📞</span>電話</a>`);
+  if (tel && /^0[789]0/.test(tel)) acts.push(`<a href="sms:${esc(tel)}"${tgt}><span class="ic">💬</span>SMS</a>`);
+  if (c.email) acts.push(`<a href="mailto:${esc(encodeURIComponent(c.email).replace(/%40/g, "@"))}"${tgt}><span class="ic">✉️</span>メール</a>`);
   if (c.address) acts.push(`<a href="https://www.google.com/maps/search/?api=1&query=${esc(encodeURIComponent(c.address.replace(/^〒\s?\d{3}-?\d{4}\s*/, "")))}" target="_blank" rel="noopener"><span class="ic">📍</span>地図</a>`);
   if (site) acts.push(`<a href="${esc(site)}" target="_blank" rel="noopener"><span class="ic">🌐</span>サイト</a>`);
   acts.push(`<button type="button" data-act="vcf"><span class="ic">👤</span>連絡先に保存</button>`);
@@ -1176,13 +1178,25 @@ function validCloudUrl(u) {
 
 const cloudUrl = () => (localStorage.getItem(CFG_URL) || "").trim();
 const cloudToken = () => (localStorage.getItem(CFG_TOKEN) || "").trim();
-const cloudConfigured = () => validCloudUrl(cloudUrl());
+// Apps Script（HtmlService）から配信されているとき: Googleにログインした本人だけが開ける。
+// 通信は google.script.run 経由で、URL設定もトークンも不要。
+const GAS = !!(window.google && window.google.script && window.google.script.run);
+const cloudConfigured = () => GAS || validCloudUrl(cloudUrl());
+function gasCall(payload) {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler((data) => (data && data.ok) ? resolve(data) : reject(new Error((data && data.error) || "クラウドエラー")))
+      .withFailureHandler((err) => reject(err instanceof Error ? err : new Error(String(err && err.message || err))))
+      .api(payload);
+  });
+}
 
 // URLの #cfg=<exec URL>[&tok=<TOKEN>] から接続設定を取り込む（＝“実質組み込み”）。
 // 目的: exec URL を仕込んだブックマーク/ホーム画面アイコンを1つ作れば、以後は毎回手入力せず自動接続。
 // 秘密は端末のブックマーク内だけに置き、公開ソースには一切含めない（#はサーバ送信されずログにも残らない）。
 // なりすまし対策として、保存済みと異なるURLを入れるときだけ接続先ホストを確認する。
 function bootstrapConfigFromHash() {
+  if (GAS) return; // Apps Script版は接続設定が要らない
   try {
     const h = location.hash || "";
     const m = h.match(/(?:^#|&)cfg=([^&]+)/);
@@ -1213,6 +1227,7 @@ function getPendingDeletes() {
 function setPendingDeletes(arr) { localStorage.setItem(PENDING_DEL, JSON.stringify(arr)); }
 
 async function cloudPost(payload) {
+  if (GAS) return gasCall(payload);
   const url = cloudUrl();
   if (!url) throw new Error("クラウド未設定");
   const token = cloudToken();
@@ -1279,8 +1294,12 @@ async function retrySync() {
 }
 
 // クラウド(スプレッドシート/Drive)から取り込み。クラウドを正とし、他端末の追加/更新/削除を反映。
-async function syncFromCloud() {
+// opts.quiet: 起動時・画面に戻ったときの自動同期（成功してもダイアログを出さない）
+let syncing = false;
+async function syncFromCloud(opts = {}) {
   if (!cloudConfigured()) { alert("先に ☰ →「クラウド保存の設定」からクラウドの URL を設定してください。"); return; }
+  if (syncing) return;
+  syncing = true;
   const btn = $("cloudSyncBtn");
   btn.disabled = true;
   try {
@@ -1291,33 +1310,32 @@ async function syncFromCloud() {
     const remoteIds = new Set(remote.map((r) => String(r.id)));
     const pendDel = new Set(getPendingDeletes().map(String));
     let pulled = 0, removed = 0;
+    const imageJobs = []; // [card, fileId] 画像は文字情報を出した後でまとめて取りに行く
 
     // (1) 追加・更新の取り込み
     for (const rc of remote) {
       const rid = String(rc.id);
       if (pendDel.has(rid)) continue; // これから消す予定のものは取り込まない（復活防止）
       const local = cards.find((c) => c.id === rid);
-      if (local && (rc.updatedAt || 0) <= (local.updatedAt || 0)) continue; // ローカルが新しい/同じ
-      let image = local ? local.image : null;
-      if (rc.imageFileId) {
-        try {
-          const img = await cloudPost({ action: "image", fileId: rc.imageFileId });
-          image = await dataURLToBlob(img.dataUrl);
-        } catch (e) { /* 画像取得失敗は許容（テキストは取り込む） */ }
-      } else {
-        image = null;
+      if (local && (rc.updatedAt || 0) <= (local.updatedAt || 0)) {
+        // 文字情報はローカルが新しい/同じ。画像だけ未取得なら取りに行く（新しい端末での初回など）
+        if (rc.imageFileId && !local.image && local.synced === true) imageJobs.push([local, rc.imageFileId]);
+        continue;
       }
       const merged = {
         id: rid, name: rc.name || "", kana: rc.kana || "",
         company: rc.company || "", companyKana: rc.companyKana || "", title: rc.title || "",
         phone: rc.phone || "", email: rc.email || "", address: rc.address || "",
         tags: Array.isArray(rc.tags) ? rc.tags : [], memo: rc.memo || "",
-        image, createdAt: rc.createdAt || Date.now(), updatedAt: rc.updatedAt || Date.now(),
+        // 画像は差し替わっているかもしれないので取り直す。取れるまでは手元の画像を出しておく
+        image: rc.imageFileId ? (local ? local.image : null) : null,
+        createdAt: rc.createdAt || Date.now(), updatedAt: rc.updatedAt || Date.now(),
         synced: true,
       };
       // 後から追加した項目は、クラウド側（Apps Script）がまだ列を持っていないと返ってこない。
       // その場合は端末に残っている値を消さずに引き継ぐ。
       for (const k of EXTRA_FIELDS) merged[k] = k in rc ? (rc[k] || "") : (local?.[k] || "");
+      if (rc.imageFileId) imageJobs.push([merged, rc.imageFileId]);
       await putCard(merged);
       const idx = cards.findIndex((c) => c.id === merged.id);
       if (idx >= 0) cards[idx] = merged; else cards.push(merged);
@@ -1337,18 +1355,52 @@ async function syncFromCloud() {
 
     render();
     updateSyncUI();
-    alert(`クラウドと同期しました（取り込み ${pulled} 件 / 削除反映 ${removed} 件 / クラウド全 ${remote.length} 件）`);
+    if (!opts.quiet) alert(`クラウドと同期しました（取り込み ${pulled} 件 / 削除反映 ${removed} 件 / クラウド全 ${remote.length} 件）`);
+    else if (pulled || removed) toast(`クラウドから ${pulled} 件取り込み${removed ? `・${removed} 件削除` : ""}`);
+    loadImages(imageJobs); // 待たない（一覧はもう見られる）
   } catch (e) {
-    alert("同期に失敗しました: " + e.message);
+    if (!opts.quiet) alert("同期に失敗しました: " + e.message);
+    else toast("クラウドに接続できませんでした（端末内のデータを表示しています）");
   } finally {
     btn.disabled = false;
+    syncing = false;
   }
+}
+
+// 画像を3件ずつ並行で取得し、取れたものから表示に反映する
+async function loadImages(jobs) {
+  let i = 0, timer = null;
+  const refresh = () => { if (!timer) timer = setTimeout(() => { timer = null; render(); }, 400); };
+  const worker = async () => {
+    while (i < jobs.length) {
+      const [card, fileId] = jobs[i++];
+      try {
+        const img = await cloudPost({ action: "image", fileId });
+        // 取得中に編集・削除されていたら反映しない
+        const cur = cards.find((c) => c.id === card.id);
+        if (cur !== card) continue;
+        card.image = await dataURLToBlob(img.dataUrl);
+        await putCard(card);
+        refresh();
+      } catch (e) { /* 画像取得失敗は許容（次回の同期で再挑戦） */ }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
 }
 
 function updateSyncUI() {
   const bar = $("syncBar");
   $("cloudSyncBtn").hidden = !cloudConfigured();
   bar.hidden = false;
+  if (GAS) {
+    const unsyncedG = cards.filter((c) => c.synced !== true).length + getPendingDeletes().length;
+    bar.innerHTML = unsyncedG
+      ? `<span class="pill warn">未同期 ${unsyncedG} 件</span><button id="retryBtn">再同期</button>`
+      : '<span class="pill ok">☁ Googleドライブに保存中</span><span class="long">（このアカウントの本人だけが見られます）</span>';
+    const rb = $("retryBtn");
+    if (rb) rb.addEventListener("click", retrySync);
+    return;
+  }
   if (!cloudConfigured()) {
     bar.innerHTML = '<span class="pill">クラウド未設定</span>' +
       '<span class="long">データはこのブラウザ内のみに保存されます。☰ →「クラウド保存の設定」から Google 連携を設定できます。</span>';
@@ -2213,10 +2265,24 @@ async function init() {
   $("cfgForm").addEventListener("submit", saveCfg);
   $("cfgTestBtn").addEventListener("click", testCfg);
   $("cfgClearBtn").addEventListener("click", clearCfg);
-  $("cloudSyncBtn").addEventListener("click", syncFromCloud);
+  $("cloudSyncBtn").addEventListener("click", () => syncFromCloud());
   updateSyncUI();
-  // 起動時は削除キューだけ静かに流す（未同期カードの一括pushは行わず、バッジ＋手動「再同期」に委ねる）
-  if (cloudConfigured()) flushPendingDeletes().then(updateSyncUI).catch(() => {});
+  if (GAS) {
+    // Apps Script版: どの端末で開いても同じ一覧になるよう、開いたとき・画面に戻ったときに自動で取り込む
+    $("menu").querySelector('[data-act="cfg"]').hidden = true;
+    document.querySelector("footer").textContent = "データはあなたのGoogleドライブに保存されています（本人のみ）。";
+    syncFromCloud({ quiet: true });
+    let lastSync = Date.now();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && Date.now() - lastSync > 30000) {
+        lastSync = Date.now();
+        syncFromCloud({ quiet: true });
+      }
+    });
+  } else if (cloudConfigured()) {
+    // 起動時は削除キューだけ静かに流す（未同期カードの一括pushは行わず、バッジ＋手動「再同期」に委ねる）
+    flushPendingDeletes().then(updateSyncUI).catch(() => {});
+  }
 }
 
 init().catch((err) => {
