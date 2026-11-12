@@ -1,0 +1,38 @@
+# 名刺の精読（Claude CLI / Opus）。保存先の Apps Script から名刺ごとに起動される。
+# ⚠ 公開リポジトリなのでログは誰でも見られる。ワーカーは名刺の内容を出力しない作りになっている。
+name: meishi-ocr
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "ジョブID（Apps Script が発行）"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meishi-ocr-${{ github.event.inputs.job }}
+  cancel-in-progress: false
+
+jobs:
+  ocr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: apps-script/meishi/ocr_worker.py
+          sparse-checkout-cone-mode: false
+
+      - name: Install Claude CLI
+        run: npm install -g @anthropic-ai/claude-code >/dev/null 2>&1 && claude --version
+
+      - name: Read card with Opus
+        env:
+          JOB_ID: ${{ github.event.inputs.job }}
+          MEISHI_API_URL: ${{ secrets.MEISHI_API_URL }}
+          MEISHI_API_TOKEN: ${{ secrets.MEISHI_API_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: python3 apps-script/meishi/ocr_worker.py

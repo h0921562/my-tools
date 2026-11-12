@@ -71,6 +71,11 @@ function api(payload) {
       case 'delete': return withLock_(function () { return deleteCard_(payload.id); });
       case 'image': return { ok: true, dataUrl: imageDataUrl_(payload.fileId) };
       case 'ocr': return { ok: true, text: ocr_(payload.image) };
+      // Opus（Claude CLI on GitHub Actions）による精読
+      case 'ocrStart': return opusStart_(payload.image);
+      case 'ocrPoll': return opusPoll_(payload.id);
+      case 'ocrJob': return opusJob_(payload.id);       // Actions のワーカーが画像を取りに来る
+      case 'ocrResult': return opusResult_(payload.id, payload.fields, payload.error); // ワーカーが結果を返す
       default: return { ok: false, error: '不明な操作です: ' + payload.action };
     }
   } catch (e) {
@@ -275,4 +280,88 @@ function setup() {
   const r = api({ action: 'ping', token: typeof API_TOKEN !== 'undefined' ? API_TOKEN : '' });
   if (!r.ok) throw new Error(r.error);
   Logger.log('準備できました。データの保存先: ' + r.sheetUrl);
+}
+
+/* ================= Opus による精読（Claude CLI を GitHub Actions で実行） =================
+ * 流れ: アプリ → ocrStart（画像を一時保存して Actions を起動）→ Actions のワーカーが ocrJob で画像を取得し
+ *       Claude CLI（Opus, Max プラン）で読み取り → ocrResult で結果を返す → アプリが ocrPoll で受け取る。
+ * 必要な設定（スクリプト プロパティ）: GITHUB_TOKEN … my-tools の Actions を起動できるトークン。
+ * 未設定ならアプリは Google の読み取りだけで動く（エラーにはしない）。
+ */
+const GH_REPO = 'h0921562/my-tools';
+const GH_WORKFLOW = 'meishi-ocr.yml';
+const JOB_PREFIX = 'ocrjob:';
+const JOB_TTL_MS = 60 * 60 * 1000; // 1時間で捨てる
+
+function opusStart_(dataUrl) {
+  const gh = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
+  if (!gh) return { ok: false, error: 'opus-not-configured' };
+  const m = String(dataUrl || '').match(/^data:(image\/[a-z]+);base64,(.*)$/);
+  if (!m) throw new Error('画像の形式が不正です');
+  cleanupJobs_();
+  const id = Utilities.getUuid();
+  const blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], 'ocr-' + id + '.jpg');
+  const fileId = folder_().createFile(blob).getId();
+  setJob_(id, { status: 'queued', fileId: fileId, at: Date.now() });
+  const res = UrlFetchApp.fetch('https://api.github.com/repos/' + GH_REPO + '/actions/workflows/' + GH_WORKFLOW + '/dispatches', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + gh, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+    payload: JSON.stringify({ ref: 'main', inputs: { job: id } }),
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 204) {
+    trashFile_(fileId);
+    deleteJob_(id);
+    return { ok: false, error: 'Actions を起動できませんでした（' + res.getResponseCode() + '）' };
+  }
+  return { ok: true, id: id };
+}
+
+function opusJob_(id) {
+  const job = getJob_(id);
+  if (!job || !job.fileId) throw new Error('ジョブが見つかりません');
+  const blob = DriveApp.getFileById(job.fileId).getBlob();
+  job.status = 'running';
+  setJob_(id, job);
+  return { ok: true, dataUrl: 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
+}
+
+function opusResult_(id, fields, error) {
+  const job = getJob_(id);
+  if (!job) return { ok: true }; // 期限切れ
+  trashFile_(job.fileId); // 画像はもう要らない
+  const clean = {};
+  const keys = ['name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address', 'website'];
+  if (fields && typeof fields === 'object') {
+    keys.forEach(function (k) { if (fields[k]) clean[k] = String(fields[k]).slice(0, 300); });
+  }
+  setJob_(id, { status: error ? 'error' : 'done', fields: clean, error: error ? String(error).slice(0, 200) : '', at: job.at });
+  return { ok: true };
+}
+
+function opusPoll_(id) {
+  const job = getJob_(id);
+  if (!job) return { ok: true, status: 'gone' };
+  if (job.status === 'done' || job.status === 'error') deleteJob_(id);
+  return { ok: true, status: job.status, fields: job.fields || {}, error: job.error || '' };
+}
+
+function getJob_(id) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(id || ''))) return null;
+  const v = PropertiesService.getScriptProperties().getProperty(JOB_PREFIX + id);
+  return v ? JSON.parse(v) : null;
+}
+function setJob_(id, job) { PropertiesService.getScriptProperties().setProperty(JOB_PREFIX + id, JSON.stringify(job)); }
+function deleteJob_(id) { PropertiesService.getScriptProperties().deleteProperty(JOB_PREFIX + id); }
+function cleanupJobs_() {
+  const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties();
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf(JOB_PREFIX) !== 0) return;
+    try {
+      const j = JSON.parse(all[k]);
+      if (Date.now() - (j.at || 0) > JOB_TTL_MS) { trashFile_(j.fileId); props.deleteProperty(k); }
+    } catch (e) { props.deleteProperty(k); }
+  });
 }

@@ -415,6 +415,7 @@
         <button type="button" id="imgClearBtn" class="danger" style="font-size:12px;padding:4px 10px" hidden>画像を外す</button>
       </div>
       <p class="cfg-hint" id="ocrStatus" style="margin-top:6px" hidden></p>
+      <div class="cfg-hint" id="opusStatus" hidden></div>
       <!-- OCR生テキスト: 振り分けがおかしいときに全文を確認・コピーして報告できるようにする（端末内のみ・外部送信なし） -->
       <details id="ocrRawWrap" style="margin-top:6px" hidden>
         <summary class="cfg-hint" style="cursor:pointer;display:list-item">📄 読み取った全文を表示（振り分けがおかしいときは、これをコピーして報告してください）</summary>
@@ -967,6 +968,7 @@ function openEdit(card, carry) {
   if (card?.image) { prev.src = makeUrl(card.image); prev.hidden = false; $("imgHint").textContent = "クリックで画像を変更"; $("imgClearBtn").hidden = false; }
   else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "タップして名刺を撮影／画像を選択（選ぶと自動で読み取ります）"; $("imgClearBtn").hidden = true; }
   setOcrStatus("");
+  setOpusStatus("");
   clearOcrMarks();
   updateOcrBtn();
   renderTagSuggest();
@@ -1942,6 +1944,8 @@ async function runOcr() {
   btn.disabled = true;
   const seq = ++ocrSeq;
   const alive = () => seq === ocrSeq && $("editDialog").open;
+  // クラウド接続時は Opus の精読も並行で始める（結果は1分前後で届き、未修正の欄を置き換える）
+  if (cloudConfigured()) runOpusOcr(blob, alive);
   try {
     if (cloudConfigured()) await runCloudOcr(blob, alive);   // Google連携済み=高精度OCR
     else await runBrowserOcr(blob, alive);                    // 未設定=ブラウザ内OCR（設定不要・端末内完結）
@@ -1950,6 +1954,63 @@ async function runOcr() {
   } finally {
     if (seq === ocrSeq) btn.disabled = false;
   }
+}
+
+/* ---------- Opus による精読（Claude CLI を GitHub Actions で実行） ---------- */
+function setOpusStatus(msg) {
+  const el = $("opusStatus");
+  el.textContent = msg || "";
+  el.hidden = !msg;
+}
+async function runOpusOcr(blob, alive) {
+  setOpusStatus("");
+  let start;
+  try {
+    start = await cloudPost({ action: "ocrStart", image: await blobToDataURL(blob) });
+  } catch (e) {
+    // 未設定（GITHUB_TOKEN なし）や起動失敗は黙って Google の読み取りだけにする
+    if (alive() && !/opus-not-configured/.test(e.message)) setOpusStatus("🤖 Opusの精読は使えませんでした（" + e.message + "）");
+    return;
+  }
+  if (!alive()) return;
+  const t0 = Date.now();
+  const tick = () => setOpusStatus(`🤖 Opusで精読中…（${Math.round((Date.now() - t0) / 1000)}秒。1分前後かかります。待たずに保存してもOK）`);
+  tick();
+  const timer = setInterval(() => { if (alive()) tick(); else clearInterval(timer); }, 1000);
+  try {
+    // Actions の起動に時間がかかるので、最初は少し待ってから問い合わせる
+    await new Promise((r) => setTimeout(r, 15000));
+    while (alive() && Date.now() - t0 < 4 * 60 * 1000) {
+      const r = await cloudPost({ action: "ocrPoll", id: start.id });
+      if (!alive()) return;
+      if (r.status === "done") { applyOpusFields(r.fields || {}); return; }
+      if (r.status === "error" || r.status === "gone") { setOpusStatus("🤖 Opusの精読に失敗しました" + (r.error ? `（${r.error}）` : "")); return; }
+      await new Promise((res) => setTimeout(res, 4000));
+    }
+    if (alive()) setOpusStatus("🤖 Opusの精読が時間内に終わりませんでした（Googleの読み取り結果のままです）");
+  } catch (e) {
+    if (alive()) setOpusStatus("🤖 Opusの精読に失敗しました（" + e.message + "）");
+  } finally {
+    clearInterval(timer);
+  }
+}
+// 空欄と、自動入力のまま手を付けていない欄（オレンジ枠）だけを Opus の値で置き換える
+function applyOpusFields(fields) {
+  const changed = [];
+  for (const [k, id] of Object.entries(FIELD_MAP)) {
+    const v = (fields[k] || "").trim();
+    if (!v) continue;
+    const el = $(id);
+    const untouched = !el.value.trim() || el.classList.contains("ocr-filled");
+    if (!untouched || el.value.trim() === v) continue;
+    el.value = v;
+    el.classList.add("ocr-filled");
+    changed.push(FIELD_LABELS[k]);
+  }
+  if (changed.length) checkDuplicates();
+  setOpusStatus(changed.length
+    ? "🤖 Opusで精読し、" + changed.join("・") + "を更新しました（オレンジ枠）。"
+    : "🤖 Opusで精読しました（変更なし）。");
 }
 
 /* ---------- 複数カードの保存・削除（整理機能用） ---------- */
