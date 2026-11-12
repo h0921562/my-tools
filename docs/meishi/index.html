@@ -415,6 +415,7 @@
       <div class="menu" id="menu" hidden>
         <button data-act="batch">📷 まとめて登録（複数枚）</button>
         <button data-act="folders">📁 プロジェクトを整理</button>
+        <button data-act="docs">📎 資料を追加（会社は自動で判定）</button>
         <hr>
         <button data-act="dups">🔍 重複をチェック・統合</button>
         <hr>
@@ -575,6 +576,11 @@
   <div class="dialog-body">
     <h2 id="docTitle" style="word-break:break-all"></h2>
     <div class="cfg-hint" id="docSub"></div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap">
+      <span class="cfg-hint" style="margin:0">紐づけ先:</span>
+      <select id="docLink" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px"></select>
+      <button type="button" id="docAuto" style="font-size:12px">🤖 内容から判定</button>
+    </div>
     <div id="docView" style="margin-top:10px"></div>
     <div class="dialog-actions">
       <a id="docOpen" class="btn" target="_blank" rel="noopener" style="text-decoration:none"><button type="button">開く／保存</button></a>
@@ -2768,6 +2774,14 @@ function renderCompanyList(list) {
   const none = list.filter((c) => !c.company).length;
   $("stats").textContent = `${groups.length}社` + (none ? `（会社名なしの名刺 ${none}件）` : "");
   const frag = document.createDocumentFragment();
+  const loose = docs.filter((d) => !d.companyKey && !d.cardId);
+  if (loose.length) {
+    const el = document.createElement("div");
+    el.className = "co-row";
+    el.innerHTML = `<div class="co-ic">📥</div><div style="flex:1"><div class="nm">未分類の資料</div><div class="sub">📎 ${loose.length}件${loose.some((d) => classifying.has(d.id)) ? "　🤖 判定中" : ""}</div></div>`;
+    el.addEventListener("click", () => openCompany("", "未分類の資料"));
+    frag.appendChild(el);
+  }
   for (const g of groups) {
     const el = document.createElement("div");
     el.className = "co-row";
@@ -2790,16 +2804,18 @@ function openCompany(key, name) {
   loadCompanyData();
 }
 function renderCompany(key) {
-  const people = cards.filter((c) => c.company && coKeyOf(c.company) === key);
-  const name = people[0]?.company || $("coDialog").dataset.name || key;
-  const cdocs = docs.filter((d) => d.companyKey === key).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const loose = key === "";
+  const people = loose ? [] : cards.filter((c) => c.company && coKeyOf(c.company) === key);
+  const name = loose ? "未分類の資料" : (people[0]?.company || $("coDialog").dataset.name || key);
+  const cdocs = docs.filter((d) => loose ? (!d.companyKey && !d.cardId) : d.companyKey === key).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   $("coName").textContent = "🏢 " + name;
   const site = people.map((c) => siteHref(c.website)).find(Boolean);
   const addr = people.map((c) => c.address).find(Boolean);
   $("coSub").innerHTML = [site && `<a href="${esc(site)}" target="_blank" rel="noopener">${esc(site.replace(/^https?:\/\//, ""))}</a>`, addr && esc(addr)].filter(Boolean).join("<br>");
   const memoEl = $("coMemo");
   if (document.activeElement !== memoEl) memoEl.value = coInfo.get(key)?.memo || "";
-  memoEl.disabled = !cloudConfigured();
+  memoEl.disabled = !cloudConfigured() || loose;
+  memoEl.parentElement && (memoEl.style.display = loose ? "none" : "");
   $("coMemoState").textContent = cloudConfigured() ? "" : "会社メモと資料の保存には、クラウドへの接続が必要です。";
   $("coPeopleCnt").textContent = `${people.length}人`;
   $("coPeople").innerHTML = people.length ? "" : `<div class="empty-note">この会社の名刺はまだありません</div>`;
@@ -2838,7 +2854,7 @@ function renderDocList(box, list, showPerson) {
     const el = document.createElement("div");
     el.className = "doc-item";
     el.innerHTML = `<span class="ic">${/pdf/.test(d.mime) ? "📄" : "🖼"}</span>
-      <div class="t">${esc(d.title || "資料")}<div class="sub">${esc([fmtDate(new Date(d.createdAt || 0).toISOString().slice(0, 10)), person && "👤 " + person.name, d.size && fmtSize(d.size), d.note].filter(Boolean).join("・"))}</div></div>
+      <div class="t">${esc(d.title || "資料")}${classifying.has(d.id) ? ` <span class="sub">🤖 会社を判定中…</span>` : ""}<div class="sub">${esc([fmtDate(new Date(d.createdAt || 0).toISOString().slice(0, 10)), person && "👤 " + person.name, d.size && fmtSize(d.size), d.note].filter(Boolean).join("・"))}</div></div>
       <button data-act="del" class="danger">削除</button>`;
     el.addEventListener("click", (e) => {
       if (e.target.closest("button")) return deleteDoc(d);
@@ -2875,8 +2891,11 @@ async function addDocs(files) {
       const doc = { id: uuid(), companyKey: t.companyKey || "", company: t.company || "", cardId: t.cardId || "",
         title: f.name || "資料", note: "", size, createdAt: now, updatedAt: now };
       const r = await cloudPost({ action: "docUpsert", doc, file: dataUrl });
-      docs.push(r.doc || doc);
+      const saved = r.doc || doc;
+      docs.push(saved);
       ok++;
+      // 会社が決まっていなければ、資料の中身から判定する（待たない）
+      if (!saved.companyKey) classifyDoc(saved);
     } catch (e) {
       alert(`「${f.name}」を保存できませんでした: ${e.message}`);
     }
@@ -2889,6 +2908,99 @@ function refreshDocViews() {
   if ($("detailDialog").open && detailId) renderDetailDocs(cards.find((x) => x.id === detailId));
   if (lsGet(VIEW_KEY, "list") === "company") render();
 }
+/* ---------- 資料の会社を自動判定 ----------
+ * 1) Googleの文字認識で資料の文字を読み、登録済みの会社名やWebサイトのドメインが出てくれば、その会社に。
+ * 2) 見つからなければ Opus に資料を読ませて、社名・資料名・要約を出してもらう（1分前後）。
+ *    社名が登録済みの会社と同じならそこへ、違えば新しい会社として紐づける。
+ */
+const classifying = new Set();
+function knownCompanies() {
+  const map = new Map(); // key → { name, domains:Set }
+  const add = (name, site) => {
+    if (!name) return;
+    const k = coKeyOf(name);
+    if (k.length < 2) return;
+    if (!map.has(k)) map.set(k, { name, domains: new Set() });
+    const h = siteHref(site);
+    if (h) { try { map.get(k).domains.add(new URL(h).hostname.replace(/^www\./, "")); } catch {} }
+  };
+  cards.forEach((c) => { add(c.company, c.website); const m = (c.email || "").match(/@([\w.-]+)$/); if (m && !/gmail|yahoo|icloud|outlook|hotmail|me\.com/i.test(m[1])) add(c.company, "https://" + m[1]); });
+  docs.forEach((d) => add(d.company));
+  coInfo.forEach((r) => add(r.name));
+  return map;
+}
+function matchCompanyInText(text) {
+  const t = normComp(text);
+  const raw = String(text || "").toLowerCase();
+  let best = null;
+  for (const [k, info] of knownCompanies()) {
+    let score = 0;
+    for (const dom of info.domains) if (raw.includes(dom.toLowerCase())) score += 100; // ドメイン一致はほぼ確実
+    const n = t.split(k).length - 1;
+    if (n) score += k.length * 2 + n;
+    if (score && (!best || score > best.score)) best = { key: k, name: info.name, score };
+  }
+  return best;
+}
+const genericName = (t) => /^(img|image|photo|scan|dsc|pxl|screenshot|スクリーンショット|写真|名称未設定|document|file)[\s_\-\d.]*|^[\d_\-\s]+\.(jpe?g|png|heic|pdf)$/i.test(t || "");
+
+async function linkDoc(d, patch) {
+  Object.assign(d, patch, { updatedAt: Date.now() });
+  await cloudPost({ action: "docUpsert", doc: d });
+  refreshDocViews();
+}
+
+async function classifyDoc(d) {
+  if (!cloudConfigured() || classifying.has(d.id)) return;
+  classifying.add(d.id);
+  refreshDocViews();
+  try {
+    let matched = null;
+    try {
+      const r = await cloudPost({ action: "docText", fileId: d.fileId });
+      matched = matchCompanyInText(r.text);
+    } catch (e) { /* 文字が読めなくても Opus で続ける */ }
+    if (matched) {
+      await linkDoc(d, { companyKey: matched.key, company: matched.name });
+      toast(`資料「${d.title}」を ${matched.name} に紐づけました`);
+      if (!genericName(d.title)) return; // 名前も分かりやすいなら終わり
+    }
+    // Opus で社名・資料名・要約を判定
+    let start;
+    try { start = await cloudPost({ action: "docOpusStart", fileId: d.fileId }); }
+    catch (e) { if (!matched) toast(`資料「${d.title}」の会社を判定できませんでした（未分類に置いています）`); return; }
+    await new Promise((r) => setTimeout(r, 15000));
+    const t0 = Date.now();
+    while (Date.now() - t0 < 5 * 60 * 1000) {
+      const r = await cloudPost({ action: "ocrPoll", id: start.id });
+      if (r.status === "done") {
+        const f = r.fields || {};
+        const patch = {};
+        if (f.title && genericName(d.title)) patch.title = f.title;
+        if (f.summary && !d.note) patch.note = f.summary;
+        if (!matched && f.company) {
+          const k = coKeyOf(f.company);
+          const known = knownCompanies().get(k) || [...knownCompanies()].find(([kk]) => kk.length >= 3 && (kk.includes(k) || k.includes(kk)))?.[1];
+          const key = known ? coKeyOf(known.name) : k;
+          patch.companyKey = key; patch.company = known ? known.name : f.company;
+        }
+        if (Object.keys(patch).length) await linkDoc(d, patch);
+        if (patch.companyKey) toast(`資料を ${patch.company} に紐づけました`);
+        else if (!matched) toast(`資料「${d.title}」の会社は判断できませんでした（未分類に置いています）`);
+        return;
+      }
+      if (r.status === "error" || r.status === "gone") break;
+      await new Promise((res) => setTimeout(res, 5000));
+    }
+    if (!matched) toast(`資料「${d.title}」の会社を判定できませんでした（未分類に置いています）`);
+  } catch (e) {
+    toast("資料の判定に失敗しました: " + e.message);
+  } finally {
+    classifying.delete(d.id);
+    refreshDocViews();
+  }
+}
+
 async function deleteDoc(d) {
   if (!confirm(`資料「${d.title}」を削除しますか？（Googleドライブのゴミ箱に移ります）`)) return;
   try {
@@ -2898,7 +3010,19 @@ async function deleteDoc(d) {
     toast("削除しました");
   } catch (e) { alert("削除できませんでした: " + e.message); }
 }
+let openDocRef = null;
+function fillDocLink(d) {
+  const sel = $("docLink");
+  const opts = [["", "未分類"]];
+  const seen = new Set();
+  for (const [k, info] of knownCompanies()) { if (!seen.has(k)) { seen.add(k); opts.push([k, info.name]); } }
+  opts.sort((a, b) => a[0] === "" ? -1 : b[0] === "" ? 1 : a[1].localeCompare(b[1], "ja"));
+  sel.innerHTML = opts.map(([k, n]) => `<option value="${esc(k)}">${esc(n)}</option>`).join("");
+  sel.value = d.companyKey || "";
+}
 async function openDoc(d) {
+  openDocRef = d;
+  fillDocLink(d);
   $("docTitle").textContent = d.title || "資料";
   $("docSub").textContent = [d.company, d.size && fmtSize(d.size)].filter(Boolean).join("・");
   const view = $("docView");
@@ -3138,6 +3262,19 @@ async function init() {
   $("viewCompany").addEventListener("click", () => { lsSet(VIEW_KEY, "company"); render(); loadCompanyData(); });
   $("coCloseBtn").addEventListener("click", () => $("coDialog").close());
   $("docCloseBtn").addEventListener("click", () => $("docDialog").close());
+  $("docLink").addEventListener("change", async (e) => {
+    const d = openDocRef; if (!d) return;
+    const k = e.target.value;
+    const name = k ? e.target.selectedOptions[0].textContent : "";
+    try { await linkDoc(d, { companyKey: k, company: name }); toast(k ? `${name} に紐づけました` : "未分類にしました"); }
+    catch (err) { alert("変更できませんでした: " + err.message); }
+  });
+  $("docAuto").addEventListener("click", () => {
+    const d = openDocRef; if (!d) return;
+    $("docDialog").close();
+    toast("資料の内容から会社を判定しています…");
+    classifyDoc(d);
+  });
   $("detailCoLink").addEventListener("click", () => {
     const c = cards.find((x) => x.id === detailId);
     if (!c) return;
@@ -3148,7 +3285,7 @@ async function init() {
     const c = cards.find((x) => x.id === detailId);
     if (c) pickDocs({ companyKey: c.company ? coKeyOf(c.company) : "", company: c.company || "", cardId: c.id });
   });
-  $("coDocAdd").addEventListener("click", () => pickDocs({ companyKey: openCoKey, company: $("coName").textContent.replace(/^🏢 /, ""), cardId: "" }));
+  $("coDocAdd").addEventListener("click", () => pickDocs(openCoKey === "" ? { auto: true } : { companyKey: openCoKey, company: $("coName").textContent.replace(/^🏢 /, ""), cardId: "" }));
   $("docFiles").addEventListener("change", (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) addDocs(fs); });
   // 会社メモ: 入力をやめて1秒たったら保存
   let memoTimer = null;
@@ -3182,6 +3319,7 @@ async function init() {
     switch (b.dataset.act) {
       case "dups": openDupDialog(); break;
       case "folders": openFolderDialog(); break;
+      case "docs": pickDocs({ auto: true }); break;
       case "batch": openBatchDialog(); break;
       case "tags": openTagDialog(); break;
       case "vcf": saveVcf(list, vcfFileName(list)); break;

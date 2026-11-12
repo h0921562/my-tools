@@ -38,6 +38,16 @@ PROMPT = """名刺画像 {path} を Read ツールで読み、次のキーだけ
 kana・companyKana 以外で、読めない・載っていない項目は空文字にしてください（推測で埋めない）。"""
 
 
+DOC_FIELDS = ["company", "title", "summary", "person"]
+
+DOC_PROMPT = """資料ファイル {path} を Read ツールで読み、次のキーだけを持つ JSON を1つだけ出力してください。説明文は不要です。
+
+- company: この資料を出している会社・団体の正式名（ロゴ・奥付・会社概要・URL などから判断。法人格も含める）。判断できなければ空文字
+- title: 資料の内容が分かる短い名前（20文字以内。例: 「〇〇サービス紹介」「2026年 製品カタログ」）
+- summary: 資料の要点を日本語で1〜2文（80文字以内）
+- person: 資料に担当者名が書かれていればその氏名。なければ空文字"""
+
+
 def api(payload):
     payload = dict(payload, token=os.environ["MEISHI_API_TOKEN"])
     req = urllib.request.Request(
@@ -53,14 +63,15 @@ def api(payload):
     return data
 
 
-def run_claude(img_path):
+def run_claude(img_path, kind="card"):
+    prompt, fields = (DOC_PROMPT, DOC_FIELDS) if kind == "doc" else (PROMPT, FIELDS)
     out = subprocess.run(
-        ["claude", "-p", PROMPT.format(path=img_path),
+        ["claude", "-p", prompt.format(path=img_path),
          "--model", "opus",
          "--allowedTools", "Read",
          "--output-format", "json",
-         "--max-turns", "4"],
-        capture_output=True, text=True, timeout=240,
+         "--max-turns", "6"],
+        capture_output=True, text=True, timeout=300,
     )
     if out.returncode != 0:
         raise RuntimeError(f"Claude CLI が失敗しました（終了コード {out.returncode}）")
@@ -69,7 +80,7 @@ def run_claude(img_path):
     if not m:
         raise RuntimeError("Claude の出力に JSON がありません")
     raw = json.loads(m.group(0))
-    return {k: str(raw.get(k) or "").strip() for k in FIELDS if str(raw.get(k) or "").strip()}
+    return {k: str(raw.get(k) or "").strip() for k in fields if str(raw.get(k) or "").strip()}
 
 
 def main():
@@ -79,16 +90,17 @@ def main():
         return 1
     try:
         data = api({"action": "ocrJob", "id": job})
-        m = re.match(r"data:image/([a-z]+);base64,(.*)$", data["dataUrl"], re.S)
+        kind = data.get("kind", "card")
+        m = re.match(r"data:([a-z]+)/([a-z0-9.+-]+);base64,(.*)$", data["dataUrl"], re.S)
         if not m:
-            raise RuntimeError("画像の形式が不正です")
-        ext = "png" if m.group(1) == "png" else "jpg"
+            raise RuntimeError("ファイルの形式が不正です")
+        ext = "pdf" if m.group(2) == "pdf" else ("png" if m.group(2) == "png" else "jpg")
         # Claude CLI が追加の許可なしで読めるよう、作業フォルダの中に置く
         with tempfile.TemporaryDirectory(dir=os.getcwd()) as d:
             path = os.path.join(d, f"card.{ext}")
             with open(path, "wb") as f:
-                f.write(base64.b64decode(m.group(2)))
-            fields = run_claude(path)
+                f.write(base64.b64decode(m.group(3)))
+            fields = run_claude(path, kind)
         api({"action": "ocrResult", "id": job, "fields": fields})
         print(f"完了（{len(fields)} 項目）")  # 項目数だけ。中身は出さない
         return 0

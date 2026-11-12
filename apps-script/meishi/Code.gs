@@ -76,6 +76,8 @@ function api(payload) {
       case 'docUpsert': return withLock_(function () { return docUpsert_(payload.doc, payload.file); });
       case 'docDelete': return withLock_(function () { return docDelete_(payload.id); });
       case 'docFile': return { ok: true, dataUrl: docFile_(payload.fileId) };
+      case 'docText': return { ok: true, text: docText_(payload.fileId) };       // 資料の文字（会社の自動判定用）
+      case 'docOpusStart': return opusStartFile_(payload.fileId);              // 資料を Opus に読ませる
       case 'coList': return { ok: true, companies: tableList_(CO_TABLE) };
       case 'coUpsert': return withLock_(function () { return { ok: true, row: tableUpsert_(CO_TABLE, payload.company) }; });
       // Opus（Claude CLI on GitHub Actions）による精読
@@ -266,7 +268,10 @@ function imageDataUrl_(fileId) {
 function ocr_(dataUrl) {
   const m = String(dataUrl || '').match(/^data:([^;,]+);base64,(.*)$/);
   if (!m) throw new Error('画像の形式が不正です');
-  const blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], 'ocr.jpg');
+  return ocrBlob_(Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], 'ocr.jpg'));
+}
+// 画像・PDF の文字を Google ドライブの文字認識で読む
+function ocrBlob_(blob) {
   let docId = null;
   try {
     const file = Drive.Files.create(
@@ -331,15 +336,17 @@ function opusJob_(id) {
   const blob = DriveApp.getFileById(job.fileId).getBlob();
   job.status = 'running';
   setJob_(id, job);
-  return { ok: true, dataUrl: 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
+  return { ok: true, kind: job.kind || 'card', dataUrl: 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
 }
 
 function opusResult_(id, fields, error) {
   const job = getJob_(id);
   if (!job) return { ok: true }; // 期限切れ
-  trashFile_(job.fileId); // 画像はもう要らない
+  if (!job.keep) trashFile_(job.fileId); // 名刺の一時画像はもう要らない（資料ファイルは残す）
   const clean = {};
-  const keys = ['name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address', 'website'];
+  const keys = job.kind === 'doc'
+    ? ['company', 'title', 'summary', 'person']
+    : ['name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address', 'website'];
   if (fields && typeof fields === 'object') {
     keys.forEach(function (k) { if (fields[k]) clean[k] = String(fields[k]).slice(0, 300); });
   }
@@ -489,4 +496,28 @@ function docFile_(fileId) {
   if (!ok) throw new Error('このアプリの資料ではありません');
   const blob = file.getBlob();
   return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
+}
+
+// 資料の文字を読む（PDF・画像）。長い資料は先頭だけで十分
+function docText_(fileId) {
+  docFile_(fileId); // このアプリの資料か確認
+  const text = ocrBlob_(DriveApp.getFileById(fileId).getBlob());
+  return String(text || '').slice(0, 20000);
+}
+
+// 資料ファイルを Opus に読ませるジョブ（ファイルは消さない）
+function opusStartFile_(fileId) {
+  const gh = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
+  if (!gh) return { ok: false, error: 'opus-not-configured' };
+  docFile_(fileId); // このアプリの資料か確認
+  cleanupJobs_();
+  const id = Utilities.getUuid();
+  setJob_(id, { status: 'queued', fileId: fileId, kind: 'doc', keep: true, at: Date.now() });
+  const res = UrlFetchApp.fetch('https://api.github.com/repos/' + GH_REPO + '/actions/workflows/' + GH_WORKFLOW + '/dispatches', {
+    method: 'post', contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + gh, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+    payload: JSON.stringify({ ref: 'main', inputs: { job: id } }), muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 204) { deleteJob_(id); return { ok: false, error: 'Actions を起動できませんでした（' + res.getResponseCode() + '）' }; }
+  return { ok: true, id: id };
 }
