@@ -1404,8 +1404,12 @@ function updateSyncUI() {
     return;
   }
   if (!cloudConfigured()) {
-    bar.innerHTML = '<span class="pill">クラウド未設定</span>' +
-      '<span class="long">データはこのブラウザ内のみに保存されます。☰ →「クラウド保存の設定」から Google 連携を設定できます。</span>';
+    // 未接続のまま使うと、名刺がこの端末（このブラウザ／ホーム画面アプリ）にしか残らない。
+    // ホーム画面アプリは Safari と保存領域が別なので、ここから合鍵リンクを貼ってつなげるようにする。
+    bar.innerHTML = '<span class="pill warn">クラウド未接続</span>' +
+      '<button id="pasteKeyBtn" class="primary">📋 合鍵リンクを貼ってつなぐ</button>' +
+      '<span class="long">つなぐまでは、名刺はこの画面にだけ保存されます。</span>';
+    $("pasteKeyBtn").addEventListener("click", pasteKeyLink);
     return;
   }
   const unsynced = cards.filter((c) => c.synced !== true).length;
@@ -1426,6 +1430,31 @@ function openCfg() {
   $("cfgToken").value = cloudToken();
   $("cfgResult").textContent = "";
   $("cfgDialog").showModal();
+}
+// 合鍵入りリンク（…#cfg=<URL>&tok=<合鍵>）を読み取って接続する。成功したら true
+function connectFromLink(text) {
+  const t = String(text || "");
+  const cm = t.match(/[#&]cfg=([^&\s]+)/);
+  const tm = t.match(/[#&]tok=([^&\s]+)/);
+  if (!cm || !tm) return false;
+  let url, token;
+  try { url = decodeURIComponent(cm[1]).trim(); token = decodeURIComponent(tm[1]).trim(); } catch { return false; }
+  if (!validCloudUrl(url) || !token) return false;
+  localStorage.setItem(CFG_URL, url);
+  localStorage.setItem(CFG_TOKEN, token);
+  updateSyncUI();
+  syncFromCloud({ quiet: true });
+  toast("クラウドにつなぎました");
+  return true;
+}
+async function pasteKeyLink() {
+  let text = "";
+  try { text = await navigator.clipboard.readText(); } catch { /* 読めない環境では手入力へ */ }
+  if (connectFromLink(text)) return;
+  // クリップボードが読めない／中身が合鍵リンクでないときは、貼り付け欄を開く
+  openCfg();
+  $("cfgResult").textContent = "合鍵リンク（https://h0921562.github.io/…#cfg=…）を上の URL 欄に貼り付けて「保存」を押してください。";
+  setTimeout(() => $("cfgUrl").focus(), 50);
 }
 function saveCfg(e) {
   e.preventDefault();
