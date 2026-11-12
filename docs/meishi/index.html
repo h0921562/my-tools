@@ -41,6 +41,8 @@
     }
   }
   * { box-sizing: border-box; }
+  /* display を指定したクラスより hidden 属性を優先（画像なしの名刺で壊れた画像アイコンが出ていた） */
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", Meiryo, sans-serif;
@@ -137,7 +139,7 @@
   .dialog-body { padding: 20px; overflow-y: auto; max-height: calc(100vh - 60px); }
   .dialog-body h2 { margin: 0 0 14px; font-size: 17px; }
   form label { display: block; font-size: 12px; color: var(--text-sub); margin: 10px 0 4px; }
-  form input[type="text"], form input[type="tel"], form input[type="email"], form textarea {
+  form input[type="text"], form input[type="tel"], form input[type="email"], form input[type="url"], form textarea {
     width: 100%; padding: 8px 10px;
     border: 1px solid var(--border); border-radius: 8px;
     background: var(--bg); color: var(--text); font-size: 14px;
@@ -195,14 +197,156 @@
   }
   .name-cands button.current { border-color: var(--accent); font-weight: 700; }
   .cfg-hint code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+  /* ---------- 一覧の補助（表示切替・会社見出し・アバター） ---------- */
+  .toolbar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+  }
+  .toolbar #stats { margin: 0; flex: 1; min-width: 120px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; padding: 5px 10px; font-size: 12px; background: var(--surface); color: var(--text-sub); }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .group-head {
+    grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px;
+    margin: 10px 0 0; padding-bottom: 4px; border-bottom: 1px solid var(--border);
+    font-weight: 700; font-size: 14px;
+  }
+  .group-head:first-child { margin-top: 0; }
+  .group-head .cnt { font-weight: 400; font-size: 12px; color: var(--text-sub); }
+  .avatar {
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 50%; color: #fff; font-weight: 700; flex-shrink: 0;
+  }
+  .card .thumb-placeholder .avatar { width: 56px; height: 56px; font-size: 24px; }
+  .card .met { color: var(--text-sub); font-size: 11px; margin-top: 4px; }
+  /* リスト表示（スマホで件数を多く見る用） */
+  #cardGrid.list { grid-template-columns: 1fr; gap: 0; }
+  #cardGrid.list .card {
+    display: flex; align-items: center; gap: 12px;
+    border-radius: 0; box-shadow: none; border-width: 0 0 1px; background: transparent;
+    padding: 10px 4px;
+  }
+  #cardGrid.list .card:hover { transform: none; background: var(--surface); }
+  #cardGrid.list .card .thumb, #cardGrid.list .card .thumb-placeholder {
+    width: 64px; aspect-ratio: 91 / 55; border-radius: 6px; flex-shrink: 0;
+  }
+  #cardGrid.list .card .thumb-placeholder { background: transparent; }
+  #cardGrid.list .card .thumb-placeholder .avatar { width: 38px; height: 38px; font-size: 16px; }
+  #cardGrid.list .card .info { padding: 0; flex: 1; min-width: 0; }
+  #cardGrid.list .card .name, #cardGrid.list .card .company { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #cardGrid.list .card .tags { margin-top: 3px; }
+  #cardGrid.list .card.unsynced::after { top: 50%; transform: translateY(-50%); right: 4px; }
+  #cardGrid.list .group-head { margin-top: 14px; }
+
+  /* ---------- メニュー ---------- */
+  .menu-wrap { position: relative; }
+  .menu {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.18); min-width: 270px; max-width: calc(100vw - 24px); padding: 6px;
+  }
+  .menu button {
+    display: block; width: 100%; text-align: left; border: none; background: transparent;
+    padding: 9px 10px; border-radius: 6px; font-size: 14px;
+  }
+  .menu button:hover { background: var(--bg); }
+  .menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+
+  /* ---------- 詳細のアクション ---------- */
+  .detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+  .detail-head .avatar { width: 44px; height: 44px; font-size: 18px; }
+  .detail-head h2 { margin: 0 !important; }
+  .detail-sub { color: var(--text-sub); font-size: 13px; margin: 2px 0 12px; }
+  .actions-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 8px; margin: 4px 0 16px; }
+  .actions-row a, .actions-row button {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 9px 4px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); text-decoration: none; font-size: 11px; cursor: pointer;
+  }
+  .actions-row .ic { font-size: 19px; line-height: 1; }
+  .detail-img { cursor: zoom-in; }
+  .detail-img.zoom { cursor: zoom-out; max-height: none; }
+  .copyable { cursor: pointer; }
+  .copyable:hover { text-decoration: underline dotted; }
+
+  /* ---------- フォーム補助 ---------- */
+  .ocr-filled { box-shadow: 0 0 0 2px #f59e0b inset; }
+  .field-note { font-size: 11px; color: #b45309; margin-top: 2px; }
+  .dup-warn {
+    border: 1px solid #f59e0b; background: #fffbeb; color: #92400e;
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; margin-top: 10px; line-height: 1.6;
+  }
+  @media (prefers-color-scheme: dark) {
+    .dup-warn { background: #3a2c0b; color: #fcd34d; }
+    .field-note { color: #fbbf24; }
+  }
+  .dup-warn button { font-size: 12px; padding: 2px 8px; margin-left: 4px; }
+  .tag-suggest { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+  .tag-suggest .tag-chip { font-size: 11px; padding: 2px 8px; }
+  .form-sec { margin-top: 14px; padding-top: 4px; border-top: 1px dashed var(--border); }
+  form input[type="date"] {
+    width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); font-size: 14px; font-family: inherit;
+  }
+  .continuous { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-sub); margin: 0 auto 0 0; cursor: pointer; }
+  .continuous input { margin: 0; }
+  /* 下部固定の保存ボタン（長いフォームでもスクロールせずに保存できる） */
+  .sticky-actions {
+    position: sticky; bottom: -20px; background: var(--surface);
+    margin: 18px -20px -20px; padding: 12px 20px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; justify-content: flex-end; align-items: center; flex-wrap: wrap;
+  }
+
+  /* ---------- 整理（重複・タグ） ---------- */
+  .dup-group { border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+  .dup-group .why { font-size: 11px; color: var(--text-sub); margin-bottom: 6px; }
+  .dup-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .dup-item:first-of-type { border-top: none; }
+  .dup-item .sub { color: var(--text-sub); font-size: 12px; }
+  .tag-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .tag-row .t { flex: 1; font-size: 14px; }
+  .tag-row .n { color: var(--text-sub); font-size: 12px; }
+  .tag-row button { font-size: 12px; padding: 3px 9px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%);
+    background: #111827; color: #fff; padding: 8px 14px; border-radius: 999px;
+    font-size: 13px; z-index: 100; opacity: 0; transition: opacity .2s; pointer-events: none;
+    max-width: calc(100vw - 32px);
+  }
+  #toast.show { opacity: .95; }
+  #fab { display: none; }
+
   /* スマホ幅: 検索を全幅・ボタン圧縮でタップしやすく */
   @media (max-width: 620px) {
-    h1 { font-size: 16px; }
+    header { padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); }
+    h1 { font-size: 16px; flex: 1; }
     .header-row { gap: 8px; }
-    #searchBox { min-width: 100%; order: 10; }
+    #searchBox { min-width: 100%; order: 10; font-size: 16px; } /* 16px未満だとiOSが入力時にズームする */
     button { padding: 7px 11px; font-size: 13px; }
+    #addBtn { display: none; }
+    #fab {
+      display: flex; align-items: center; justify-content: center;
+      position: fixed; right: 18px; bottom: calc(44px + env(safe-area-inset-bottom)); z-index: 20;
+      width: 56px; height: 56px; border-radius: 50%; font-size: 28px; padding: 0;
+      background: var(--accent); color: #fff; border: none; box-shadow: 0 6px 18px rgba(37,99,235,.45);
+    }
+    .tag-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+    .tag-bar::-webkit-scrollbar { display: none; }
+    .tag-chip { white-space: nowrap; }
     #cardGrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-    main { padding: 0 12px 60px; }
+    main { padding: 0 12px 110px; }
+    form input[type="text"], form input[type="tel"], form input[type="email"], form input[type="url"],
+    form input[type="date"], form textarea { font-size: 16px; }
+    /* ダイアログは下からのシート表示 */
+    dialog {
+      width: 100vw; max-width: 100vw; margin: auto 0 0; border-radius: 16px 16px 0 0;
+      max-height: 92vh;
+    }
+    .dialog-body { max-height: 92vh; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+    .sticky-actions { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+    footer { padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+    footer .long, .sync-bar .long { display: none; }
+    #toast { bottom: calc(110px + env(safe-area-inset-bottom)); }
   }
 </style>
 </head>
@@ -211,16 +355,23 @@
   <div class="header-row">
     <h1>📇 名刺管理</h1>
     <input type="search" id="searchBox" placeholder="氏名・会社・メモなどで検索">
-    <select id="sortSelect" title="並び替え">
-      <option value="updated">更新が新しい順</option>
-      <option value="name">氏名順</option>
-      <option value="company">会社名順</option>
-    </select>
     <button class="primary" id="addBtn">＋ 新規登録</button>
-    <button id="exportBtn" title="全データをJSONファイルに書き出し">書き出し</button>
-    <button id="importBtn" title="JSONバックアップから読み込み">読み込み</button>
     <button id="cloudSyncBtn" title="クラウド（スプレッドシート／Drive）と同期" hidden>☁ 同期</button>
-    <button id="cloudCfgBtn" title="クラウド保存の設定">⚙</button>
+    <div class="menu-wrap">
+      <button id="menuBtn" title="その他のメニュー" aria-haspopup="true" aria-expanded="false">☰</button>
+      <div class="menu" id="menu" hidden>
+        <button data-act="dups">🔍 重複をチェック・統合</button>
+        <button data-act="tags">🏷 タグを整理</button>
+        <hr>
+        <button data-act="vcf">📇 表示中を連絡先ファイル(vCard)に</button>
+        <button data-act="csv">📊 表示中をCSVに書き出し</button>
+        <hr>
+        <button data-act="export">💾 バックアップを書き出し(JSON)</button>
+        <button data-act="import">📂 バックアップから読み込み</button>
+        <hr>
+        <button data-act="cfg">⚙ クラウド保存の設定</button>
+      </div>
+    </div>
     <input type="file" id="importFile" accept="application/json,.json">
   </div>
   <div class="tag-bar" id="tagBar"></div>
@@ -228,12 +379,26 @@
 </header>
 
 <main>
-  <div id="stats"></div>
+  <div class="toolbar">
+    <div id="stats"></div>
+    <select id="sortSelect" title="並び替え">
+      <option value="updated">更新が新しい順</option>
+      <option value="met">会った日が新しい順</option>
+      <option value="name">氏名順</option>
+      <option value="company">会社ごと</option>
+    </select>
+    <div class="seg" role="group" aria-label="表示">
+      <button id="viewGrid" title="カード表示">▦</button>
+      <button id="viewList" title="リスト表示">☰</button>
+    </div>
+  </div>
   <div id="cardGrid"></div>
   <div id="empty" hidden>名刺がまだありません。「＋ 新規登録」から追加してください。</div>
 </main>
+<button id="fab" title="新規登録" aria-label="新規登録">＋</button>
+<div id="toast" role="status"></div>
 
-<footer>データはこのブラウザ内（IndexedDB）にのみ保存されます。定期的に「書き出し」でバックアップを取ってください。</footer>
+<footer>データはこのブラウザ内に保存<span class="long">（IndexedDB）されます。定期的に ☰ →「バックアップを書き出し」で保存してください</span>。</footer>
 
 <!-- 登録・編集ダイアログ -->
 <dialog id="editDialog">
@@ -243,10 +408,10 @@
       <label>名刺画像</label>
       <div class="img-drop" id="imgDrop">
         <img id="imgPreview" alt="" hidden>
-        <span id="imgHint">クリックして画像を選択（撮影した名刺写真など）</span>
+        <span id="imgHint">タップして名刺を撮影／画像を選択（選ぶと自動で読み取ります）</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
-        <button type="button" id="ocrBtn" style="font-size:12px;padding:4px 10px" hidden>📷 画像から読み取る</button>
+        <button type="button" id="ocrBtn" style="font-size:12px;padding:4px 10px" hidden>📷 もう一度読み取る</button>
         <button type="button" id="imgClearBtn" class="danger" style="font-size:12px;padding:4px 10px" hidden>画像を外す</button>
       </div>
       <p class="cfg-hint" id="ocrStatus" style="margin-top:6px" hidden></p>
@@ -273,9 +438,21 @@
         <div><label>メール</label><input type="email" id="fEmail" autocomplete="off"></div>
       </div>
       <label>住所</label><input type="text" id="fAddress" autocomplete="off">
+      <label>Webサイト</label><input type="url" id="fWebsite" autocomplete="off" placeholder="https://…">
+      <div id="dupWarn" class="dup-warn" hidden></div>
+      <div class="form-sec">
+        <div class="form-grid">
+          <div><label>会った日</label><input type="date" id="fMetAt"></div>
+          <div><label>会った場所・きっかけ</label><input type="text" id="fMetPlace" autocomplete="off" placeholder="例: 〇〇展示会、△△さんの紹介"></div>
+        </div>
+      </div>
       <label>タグ（カンマ区切り 例: 展示会,取引先）</label><input type="text" id="fTags" autocomplete="off">
+      <div class="tag-suggest" id="tagSuggest"></div>
       <label>メモ</label><textarea id="fMemo"></textarea>
-      <div class="dialog-actions">
+      <div class="sticky-actions">
+        <label class="continuous" id="continuousWrap" title="保存後すぐ次の名刺の登録画面を開きます。会った日・場所・タグは引き継ぎます。">
+          <input type="checkbox" id="continuousChk"> 続けて登録
+        </label>
         <button type="button" id="cancelEditBtn">キャンセル</button>
         <button type="submit" class="primary" id="saveBtn">保存</button>
       </div>
@@ -286,13 +463,51 @@
 <!-- 詳細ダイアログ -->
 <dialog id="detailDialog">
   <div class="dialog-body">
-    <img class="detail-img" id="detailImg" alt="名刺画像" hidden>
-    <h2 id="detailName"></h2>
+    <img class="detail-img" id="detailImg" alt="名刺画像" title="タップで拡大" hidden>
+    <div class="detail-head">
+      <span class="avatar" id="detailAvatar"></span>
+      <div>
+        <h2 id="detailName"></h2>
+      </div>
+    </div>
+    <div class="detail-sub" id="detailSub"></div>
+    <div class="actions-row" id="detailActions"></div>
     <dl class="detail-rows" id="detailRows"></dl>
     <div class="dialog-actions">
       <button class="danger" id="deleteBtn">削除</button>
       <button id="editBtn">編集</button>
       <button class="primary" id="closeDetailBtn">閉じる</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- 重複チェックダイアログ -->
+<dialog id="dupDialog">
+  <div class="dialog-body">
+    <h2>重複の可能性がある名刺</h2>
+    <p class="cfg-hint">同じメール・電話番号、または同じ氏名＋会社の名刺をまとめています。残す名刺を選んで「統合」すると、空いている項目・タグ・メモを残す方へ集めて、他は削除します。</p>
+    <div id="dupList" style="margin-top:12px"></div>
+    <div class="dialog-actions">
+      <button class="primary" id="dupCloseBtn">閉じる</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- タグ整理ダイアログ -->
+<dialog id="tagDialog">
+  <div class="dialog-body">
+    <h2>タグを整理</h2>
+    <p class="cfg-hint">名前を変えると、そのタグが付いた名刺すべてに反映されます。既にあるタグ名に変えると1つにまとまります。</p>
+    <div id="tagList" style="margin-top:10px"></div>
+    <div class="form-sec">
+      <label class="cfg-hint" style="display:block;margin:8px 0 4px">いま表示中の名刺（<span id="bulkCount">0</span>件）にタグを一括追加</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="bulkTag" autocomplete="off" placeholder="タグ名" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px">
+        <button id="bulkTagBtn">追加</button>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button class="primary" id="tagCloseBtn">閉じる</button>
     </div>
   </div>
 </dialog>
@@ -374,6 +589,62 @@ let objectUrls = [];       // 表示のたびに作るURLを解放するため�
 
 const $ = (id) => document.getElementById(id);
 
+const VIEW_KEY = "meishi.view";      // "grid" | "list"
+const SORT_KEY = "meishi.sort";
+function lsGet(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch { return d; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+// 後から追加した項目（古いデータ・バックアップ・クラウドには無いことがある）
+const EXTRA_FIELDS = ["website", "metAt", "metPlace"];
+
+let toastTimer = null;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+// 氏名から決まった色（同じ人はいつも同じ色）
+function avatarColor(s) {
+  let h = 0;
+  for (const ch of String(s || "?")) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return `hsl(${h % 360} 55% 48%)`;
+}
+function avatarHtml(c) {
+  const ch = esc(Array.from((c.name || "?").trim())[0] || "?");
+  return `<span class="avatar" style="background:${avatarColor(c.name)}">${ch}</span>`;
+}
+function fmtDate(ymd) {
+  if (!ymd) return "";
+  const m = String(ymd).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${+m[1]}/${+m[2]}/${+m[3]}` : String(ymd);
+}
+function todayYmd() {
+  const d = new Date(), p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+// Webサイト欄の値をリンクにできる形へ（"example.com" → "https://example.com"）
+function siteHref(u) {
+  const s = (u || "").trim();
+  if (!s) return "";
+  const withProto = /^https?:\/\//i.test(s) ? s : "https://" + s.replace(/^\/+/, "");
+  try { const x = new URL(withProto); return /^https?:$/.test(x.protocol) ? x.href : ""; } catch { return ""; }
+}
+const digitsOf = (s) => (s || "").replace(/\D/g, "").replace(/^81(?=\d{9,10}$)/, "0");
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand("copy"); } catch {}
+    ta.remove(); return ok;
+  }
+}
+
 function uuid() {
   return crypto.randomUUID ? crypto.randomUUID()
     : "xxxx-xxxx-xxxx".replace(/x/g, () => Math.floor(Math.random() * 16).toString(16)) + Date.now();
@@ -419,15 +690,23 @@ function filteredCards() {
   if (activeTag) list = list.filter((c) => (c.tags || []).includes(activeTag));
   if (q) {
     list = list.filter((c) =>
-      [c.name, c.kana, c.company, c.companyKana, c.title, c.phone, c.email, c.address, c.memo, (c.tags || []).join(" ")]
+      [c.name, c.kana, c.company, c.companyKana, c.title, c.phone, c.email, c.address, c.website, c.metPlace, c.memo, (c.tags || []).join(" ")]
         .some((v) => normalize(v).includes(q))
+      // 電話番号はハイフンや空白の有無を問わず数字だけでも当たるように
+      || (/^[\d\-\s()+]{3,}$/.test(q) && digitsOf(c.phone).includes(digitsOf(q)))
     );
   }
   const sort = $("sortSelect").value;
   const key = (c) => normalize(c.kana || c.name);
+  // 会社名は読み（あれば）で並べ、法人格の表記は無視する
+  const compKey = (c) => normalize(c.companyKana || c.company)
+    .replace(/株式会社|有限会社|合同会社|\(株\)|（株）|\(有\)|（有）|かぶしきがいしゃ|ゆうげんがいしゃ/g, "").trim();
   list = [...list];
   if (sort === "name") list.sort((a, b) => key(a).localeCompare(key(b), "ja"));
-  else if (sort === "company") list.sort((a, b) => normalize(a.company).localeCompare(normalize(b.company), "ja"));
+  else if (sort === "company") list.sort((a, b) =>
+    (!a.company - !b.company) || compKey(a).localeCompare(compKey(b), "ja") || key(a).localeCompare(key(b), "ja"));
+  else if (sort === "met") list.sort((a, b) =>
+    (b.metAt || "").localeCompare(a.metAt || "") || (b.createdAt || 0) - (a.createdAt || 0));
   else list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   return list;
 }
@@ -453,25 +732,49 @@ function render() {
     empty.hidden = true;
   }
   $("stats").textContent = cards.length
-    ? `${list.length}件を表示（全${cards.length}件）` : "";
+    ? (list.length === cards.length ? `全${cards.length}件` : `${list.length}件を表示（全${cards.length}件）`) : "";
 
+  const view = lsGet(VIEW_KEY, "grid");
+  grid.classList.toggle("list", view === "list");
+  $("viewGrid").classList.toggle("on", view !== "list");
+  $("viewList").classList.toggle("on", view === "list");
+
+  // 会社ごと表示: 会社名の見出しで区切る（会社名なしは最後にまとめる）
+  const grouped = $("sortSelect").value === "company";
+  const counts = new Map();
+  if (grouped) for (const c of list) { const k = c.company || ""; counts.set(k, (counts.get(k) || 0) + 1); }
+  let lastGroup = null;
+
+  const frag = document.createDocumentFragment();
   for (const c of list) {
+    if (grouped && (c.company || "") !== lastGroup) {
+      lastGroup = c.company || "";
+      const h = document.createElement("div");
+      h.className = "group-head";
+      h.innerHTML = `${esc(lastGroup || "会社名なし")}<span class="cnt">${counts.get(lastGroup)}名</span>`;
+      frag.appendChild(h);
+    }
     const el = document.createElement("div");
     el.className = "card" + (cloudConfigured() && c.synced !== true ? " unsynced" : "");
     el.dataset.id = c.id;
     const thumb = c.image
-      ? `<img class="thumb" src="${makeUrl(c.image)}" alt="">`
-      : `<div class="thumb-placeholder">${esc((c.name || "?").charAt(0))}</div>`;
+      ? `<img class="thumb" src="${makeUrl(c.image)}" alt="" loading="lazy">`
+      : `<div class="thumb-placeholder">${avatarHtml(c)}</div>`;
+    // 会社ごと表示では見出しに会社名があるので役職だけ出す
+    const sub = grouped ? c.title : [c.company, c.title].filter(Boolean).join(" / ");
+    const met = [fmtDate(c.metAt), c.metPlace].filter(Boolean).join("・");
     el.innerHTML = `
       ${thumb}
       <div class="info">
         <div class="name">${esc(c.name)}</div>
-        <div class="company">${esc([c.company, c.title].filter(Boolean).join(" / "))}</div>
+        <div class="company">${esc(sub)}</div>
+        ${met ? `<div class="met">🤝 ${esc(met)}</div>` : ""}
         <div class="tags">${(c.tags || []).map((t) => `<span class="tag-chip">${esc(t)}</span>`).join("")}</div>
       </div>`;
     el.addEventListener("click", () => openDetail(c.id));
-    grid.appendChild(el);
+    frag.appendChild(el);
   }
+  grid.appendChild(frag);
   renderTagBar();
 }
 
@@ -498,28 +801,152 @@ function openDetail(id) {
   if (!c) return;
   detailId = id;
   const img = $("detailImg");
+  img.classList.remove("zoom");
   if (c.image) { img.src = makeUrl(c.image); img.hidden = false; }
   else { img.hidden = true; img.removeAttribute("src"); }
+  const av = $("detailAvatar");
+  av.textContent = Array.from((c.name || "?").trim())[0] || "?";
+  av.style.background = avatarColor(c.name);
+  av.hidden = !!c.image; // 画像があるときはアバター不要
   $("detailName").textContent = c.name + (c.kana ? `（${c.kana}）` : "");
+  $("detailSub").textContent = [c.company, c.title].filter(Boolean).join(" ／ ");
+
+  // ワンタップ操作（あるものだけ出す）
+  const tel = (c.phone || "").replace(/[^\d+]/g, "");
+  const site = siteHref(c.website);
+  const acts = [];
+  // Apps Script版は画面が枠(iframe)の中なので、電話・メールアプリへの切り替えは外側の画面で行う
+  const tgt = GAS ? ' target="_top"' : "";
+  if (tel) acts.push(`<a href="tel:${esc(tel)}"${tgt}><span class="ic">📞</span>電話</a>`);
+  if (tel && /^0[789]0/.test(tel)) acts.push(`<a href="sms:${esc(tel)}"${tgt}><span class="ic">💬</span>SMS</a>`);
+  if (c.email) acts.push(`<a href="mailto:${esc(encodeURIComponent(c.email).replace(/%40/g, "@"))}"${tgt}><span class="ic">✉️</span>メール</a>`);
+  if (c.address) acts.push(`<a href="https://www.google.com/maps/search/?api=1&query=${esc(encodeURIComponent(c.address.replace(/^〒\s?\d{3}-?\d{4}\s*/, "")))}" target="_blank" rel="noopener"><span class="ic">📍</span>地図</a>`);
+  if (site) acts.push(`<a href="${esc(site)}" target="_blank" rel="noopener"><span class="ic">🌐</span>サイト</a>`);
+  acts.push(`<button type="button" data-act="vcf"><span class="ic">👤</span>連絡先に保存</button>`);
+  if (navigator.share) acts.push(`<button type="button" data-act="share"><span class="ic">↗️</span>共有</button>`);
+  const box = $("detailActions");
+  box.innerHTML = acts.join("");
+  box.querySelectorAll("button[data-act]").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.act === "vcf") saveVcf([c], vcfFileName([c]));
+    else shareCard(c);
+  }));
+
   const rows = [
     ["会社名", c.company ? esc(c.company) + (c.companyKana ? `（${esc(c.companyKana)}）` : "") : ""],
     ["部署・役職", esc(c.title)],
-    ["電話", c.phone ? `<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>` : ""],
-    ["メール", c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : ""],
-    ["住所", esc(c.address)],
+    ["電話", c.phone ? `<span class="copyable" data-copy="${esc(c.phone)}" title="タップでコピー">${esc(c.phone)}</span>` : ""],
+    ["メール", c.email ? `<span class="copyable" data-copy="${esc(c.email)}" title="タップでコピー">${esc(c.email)}</span>` : ""],
+    ["住所", c.address ? `<span class="copyable" data-copy="${esc(c.address)}" title="タップでコピー">${esc(c.address)}</span>` : ""],
+    ["Web", site ? `<a href="${esc(site)}" target="_blank" rel="noopener">${esc(c.website)}</a>` : esc(c.website)],
+    ["会った日", c.metAt ? esc(fmtDate(c.metAt)) : ""],
+    ["会った場所", esc(c.metPlace)],
     ["タグ", esc((c.tags || []).join(", "))],
     ["メモ", esc(c.memo)],
     ["登録日", c.createdAt ? new Date(c.createdAt).toLocaleDateString("ja-JP") : ""],
   ].filter(([, v]) => v);
   $("detailRows").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+  $("detailRows").querySelectorAll("[data-copy]").forEach((el) => el.addEventListener("click", async () => {
+    toast((await copyText(el.dataset.copy)) ? "コピーしました" : "コピーできませんでした");
+  }));
   $("detailDialog").showModal();
 }
 
+/* ---------- 連絡先(vCard)・CSV・共有 ---------- */
+function vcfEsc(s) {
+  return String(s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+}
+// 氏名を姓・名に分ける（空白区切りのときだけ。分からなければ全体を姓に入れる）
+function splitName(full) {
+  const p = (full || "").trim().split(/\s+/);
+  if (p.length < 2) return [full || "", ""];
+  // 英語名（First Last）は順序が逆
+  if (/^[A-Za-z]/.test(p[0])) return [p[p.length - 1], p.slice(0, -1).join(" ")];
+  return [p[0], p.slice(1).join(" ")];
+}
+async function cardToVcard(c, withPhoto) {
+  const [fam, giv] = splitName(c.name);
+  const [kf, kg] = splitName(c.kana);
+  const L = ["BEGIN:VCARD", "VERSION:3.0",
+    `N:${vcfEsc(fam)};${vcfEsc(giv)};;;`, `FN:${vcfEsc(c.name)}`];
+  if (c.kana) {
+    // iPhone/Android の「よみがな」
+    L.push(`X-PHONETIC-LAST-NAME:${vcfEsc(kf)}`, `X-PHONETIC-FIRST-NAME:${vcfEsc(kg)}`);
+  }
+  if (c.company) L.push(`ORG:${vcfEsc(c.company)}`);
+  if (c.companyKana) L.push(`X-PHONETIC-ORG:${vcfEsc(c.companyKana)}`);
+  if (c.title) L.push(`TITLE:${vcfEsc(c.title)}`);
+  if (c.phone) L.push(`TEL;TYPE=${/^0[789]0/.test(digitsOf(c.phone)) ? "CELL" : "WORK,VOICE"}:${vcfEsc(c.phone)}`);
+  if (c.email) L.push(`EMAIL;TYPE=INTERNET,WORK:${vcfEsc(c.email)}`);
+  if (c.address) L.push(`ADR;TYPE=WORK:;;${vcfEsc(c.address)};;;;`);
+  const site = siteHref(c.website);
+  if (site) L.push(`URL:${vcfEsc(site)}`);
+  const note = [
+    c.metAt || c.metPlace ? `会った: ${[fmtDate(c.metAt), c.metPlace].filter(Boolean).join(" ")}` : "",
+    (c.tags || []).length ? `タグ: ${c.tags.join(", ")}` : "",
+    c.memo || "",
+  ].filter(Boolean).join("\n");
+  if (note) L.push(`NOTE:${vcfEsc(note)}`);
+  if (withPhoto && c.image) {
+    try {
+      const b64 = (await blobToDataURL(c.image)).split(",")[1];
+      L.push(`PHOTO;ENCODING=b;TYPE=JPEG:${b64}`);
+    } catch {}
+  }
+  L.push("END:VCARD");
+  return L.join("\r\n");
+}
+function vcfFileName(list) {
+  return list.length === 1 ? `${(list[0].name || "contact").replace(/[\\/:*?"<>|\s]+/g, "_")}.vcf` : `meishi-${list.length}.vcf`;
+}
+async function saveVcf(list, filename) {
+  if (!list.length) { toast("対象の名刺がありません"); return; }
+  // 1件のときは名刺画像を連絡先の写真に入れる（大量のときはファイルが重くなるので入れない）
+  const parts = [];
+  for (const c of list) parts.push(await cardToVcard(c, list.length === 1));
+  const file = new File([parts.join("\r\n") + "\r\n"], filename, { type: "text/vcard" });
+  // スマホは共有シート経由が一番確実に「連絡先」アプリへ渡せる
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: filename }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  downloadBlob(file, filename);
+}
+function downloadBlob(blob, filename) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+function exportCsv(list) {
+  if (!list.length) { toast("対象の名刺がありません"); return; }
+  const cols = [["name", "氏名"], ["kana", "ふりがな"], ["company", "会社名"], ["companyKana", "会社名ふりがな"],
+    ["title", "部署・役職"], ["phone", "電話"], ["email", "メール"], ["address", "住所"], ["website", "Webサイト"],
+    ["metAt", "会った日"], ["metPlace", "会った場所"], ["tags", "タグ"], ["memo", "メモ"]];
+  const cell = (v) => {
+    let s = Array.isArray(v) ? v.join(", ") : String(v || "");
+    if (/^[=+\-@]/.test(s)) s = "'" + s; // 表計算ソフトで数式として実行されないように
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const rows = [cols.map((c) => c[1]).join(","), ...list.map((c) => cols.map(([k]) => cell(c[k])).join(","))];
+  // BOM付きUTF-8（Excelで文字化けしない）
+  downloadBlob(new Blob(["\ufeff" + rows.join("\r\n")], { type: "text/csv" }), `meishi-${todayYmd()}.csv`);
+}
+async function shareCard(c) {
+  const text = [c.name + (c.kana ? `（${c.kana}）` : ""), [c.company, c.title].filter(Boolean).join(" "),
+    c.phone && `TEL ${c.phone}`, c.email, c.address, c.website].filter(Boolean).join("\n");
+  try { await navigator.share({ title: c.name, text }); }
+  catch (e) { if (!(e && e.name === "AbortError")) toast((await copyText(text)) ? "コピーしました" : "共有できませんでした"); }
+}
+
 /* ---------- 登録・編集 ---------- */
-function openEdit(card) {
+// carry: 新規登録のときに前回から引き継ぐ値 { metAt, metPlace, tags }
+function openEdit(card, carry) {
   editingId = card ? card.id : null;
   pendingImage = undefined; // 変更なし
-  $("editTitle").textContent = card ? "名刺を編集" : "名刺を登録";
+  ocrSeq++;                 // 実行中の読み取りがあれば結果を捨てる
+  $("ocrBtn").disabled = false;
+  $("editTitle").textContent = card ? "名刺を編集" : (carry ? "続けて登録" : "名刺を登録");
   $("fName").value = card?.name || "";
   $("fKana").value = card?.kana || "";
   $("fCompany").value = card?.company || "";
@@ -528,14 +955,88 @@ function openEdit(card) {
   $("fPhone").value = card?.phone || "";
   $("fEmail").value = card?.email || "";
   $("fAddress").value = card?.address || "";
-  $("fTags").value = (card?.tags || []).join(", ");
+  $("fWebsite").value = card?.website || "";
+  // 新規は「会った日＝今日」を初期値にする（名刺はたいてい受け取った当日に登録するため）
+  $("fMetAt").value = card ? String(card.metAt || "").slice(0, 10) : (carry?.metAt || todayYmd());
+  $("fMetPlace").value = card ? (card.metPlace || "") : (carry?.metPlace || "");
+  $("fTags").value = (card ? (card.tags || []) : (carry?.tags || [])).join(", ");
   $("fMemo").value = card?.memo || "";
+  $("continuousWrap").hidden = !!card;
+  $("continuousChk").checked = !card && !!carry;
   const prev = $("imgPreview");
   if (card?.image) { prev.src = makeUrl(card.image); prev.hidden = false; $("imgHint").textContent = "クリックで画像を変更"; $("imgClearBtn").hidden = false; }
-  else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "クリックして画像を選択（撮影した名刺写真など）"; $("imgClearBtn").hidden = true; }
+  else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "タップして名刺を撮影／画像を選択（選ぶと自動で読み取ります）"; $("imgClearBtn").hidden = true; }
   setOcrStatus("");
+  clearOcrMarks();
   updateOcrBtn();
+  renderTagSuggest();
+  checkDuplicates();
   $("editDialog").showModal();
+  $("editDialog").querySelector(".dialog-body").scrollTop = 0;
+}
+
+// OCRで自動入力した欄の目印（ユーザーが触ったら消す）
+function clearOcrMarks() {
+  document.querySelectorAll("#editForm .ocr-filled").forEach((el) => el.classList.remove("ocr-filled"));
+}
+
+// よく使うタグ（使用回数順）をワンタップで追加できるように
+function renderTagSuggest() {
+  const box = $("tagSuggest");
+  const cur = new Set($("fTags").value.split(/[,、，]/).map((t) => t.trim()).filter(Boolean));
+  const freq = new Map();
+  for (const c of cards) for (const t of c.tags || []) freq.set(t, (freq.get(t) || 0) + 1);
+  const top = [...freq.entries()].filter(([t]) => !cur.has(t))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja")).slice(0, 10);
+  box.innerHTML = "";
+  for (const [t] of top) {
+    const b = document.createElement("span");
+    b.className = "tag-chip";
+    b.textContent = "＋" + t;
+    b.addEventListener("click", () => {
+      const v = $("fTags").value.trim();
+      $("fTags").value = v ? v.replace(/[,、，\s]*$/, "") + ", " + t : t;
+      renderTagSuggest();
+    });
+    box.appendChild(b);
+  }
+}
+
+/* ---------- 重複の判定 ---------- */
+const normName = (s) => normalize(s).replace(/[\s　・.]/g, "");
+const normComp = (s) => normalize(s).replace(/株式会社|有限会社|合同会社|\(株\)|（株）|\(有\)|（有）|inc\.?|co\.?,?\s?ltd\.?|corporation|corp\.?|[\s　,.]/g, "");
+// 2枚の名刺が同じ人らしい理由（無ければ空文字）
+function dupReason(a, b) {
+  if (a.email && b.email && a.email.trim().toLowerCase() === b.email.trim().toLowerCase()) return "メールが同じ";
+  const pa = digitsOf(a.phone), pb = digitsOf(b.phone);
+  // 代表番号は同じ会社の別人でも一致するので、携帯番号どうし／氏名も同じ場合だけ重複とみなす
+  if (pa.length >= 10 && pa === pb && (/^0[789]0/.test(pa) || normName(a.name) === normName(b.name))) return "電話番号が同じ";
+  if (normName(a.name) && normName(a.name) === normName(b.name)) {
+    const ca = normComp(a.company), cb = normComp(b.company);
+    if (ca && cb && ca === cb) return "氏名と会社が同じ";
+    if (!ca || !cb) return "氏名が同じ";
+  }
+  return "";
+}
+
+// 入力中の内容と同じ人らしい既存の名刺があれば知らせる（保存は止めない）
+function checkDuplicates() {
+  const box = $("dupWarn");
+  const draft = { name: $("fName").value.trim(), company: $("fCompany").value.trim(),
+    phone: $("fPhone").value.trim(), email: $("fEmail").value.trim() };
+  const hits = draft.name || draft.email || draft.phone
+    ? cards.filter((c) => c.id !== editingId).map((c) => [c, dupReason(draft, c)]).filter(([, r]) => r).slice(0, 3)
+    : [];
+  if (!hits.length) { box.hidden = true; box.innerHTML = ""; return; }
+  box.innerHTML = "⚠ 登録済みの名刺と重なっているかもしれません:<br>" + hits.map(([c, r]) =>
+    `・${esc(c.name)}${c.company ? `（${esc(c.company)}）` : ""} — ${r}<button type="button" data-id="${esc(c.id)}">開く</button>`).join("<br>") +
+    "<br><span style='opacity:.8'>同じ人の新しい名刺なら、このまま保存して後で「☰ → 重複をチェック・統合」でまとめられます。</span>";
+  box.querySelectorAll("button[data-id]").forEach((b) => b.addEventListener("click", () => {
+    if (!confirm("入力中の内容は保存せずに、既存の名刺を開きますか？")) return;
+    $("editDialog").close();
+    openDetail(b.dataset.id);
+  }));
+  box.hidden = false;
 }
 
 async function saveCard(e) {
@@ -555,6 +1056,9 @@ async function saveCard(e) {
       phone: $("fPhone").value.trim(),
       email: $("fEmail").value.trim(),
       address: $("fAddress").value.trim(),
+      website: $("fWebsite").value.trim(),
+      metAt: $("fMetAt").value || "",
+      metPlace: $("fMetPlace").value.trim(),
       tags: [...new Set($("fTags").value.split(/[,、，]/).map((t) => t.trim()).filter(Boolean))],
       memo: $("fMemo").value.trim(),
       image: pendingImage === undefined ? (existing?.image || null) : pendingImage,
@@ -562,15 +1066,24 @@ async function saveCard(e) {
       updatedAt: now,
       synced: false,
     };
-    if (!card.name) { alert("氏名を入力してください"); return; }
+    if (!card.name) { alert("氏名を入力してください"); $("fName").focus(); return; }
     // 画像変更の意図を確定（pendingImageは以降のUI操作で変わるため先に確保）
     const imageArg = pendingImage === undefined ? undefined
       : (pendingImage === null ? null : await blobToDataURL(pendingImage));
     await putCard(card);
     const idx = cards.findIndex((c) => c.id === card.id);
     if (idx >= 0) cards[idx] = card; else cards.push(card);
+    const continuous = !existing && $("continuousChk").checked;
     $("editDialog").close();
     render();
+    if (continuous) {
+      // 展示会などで何枚も続けて登録するとき: 会った日・場所・タグを引き継いで次の登録画面へ
+      const carry = { metAt: card.metAt, metPlace: card.metPlace, tags: card.tags };
+      toast(`「${card.name}」を保存しました。次の名刺をどうぞ`);
+      openEdit(null, carry);
+    } else {
+      toast(existing ? "保存しました" : `「${card.name}」を登録しました`);
+    }
     // クラウドへ反映（設定時のみ／失敗してもローカルには保存済み）
     if (cloudConfigured()) {
       try {
@@ -631,6 +1144,7 @@ async function importJSON(file) {
         name: String(c.name),
         kana: c.kana || "", company: c.company || "", companyKana: c.companyKana || "", title: c.title || "",
         phone: c.phone || "", email: c.email || "", address: c.address || "",
+        website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "",
         tags: Array.isArray(c.tags) ? c.tags.map(String) : [],
         memo: c.memo || "",
         image: typeof c.image === "string" && c.image.startsWith("data:") ? await dataURLToBlob(c.image) : null,
@@ -664,13 +1178,25 @@ function validCloudUrl(u) {
 
 const cloudUrl = () => (localStorage.getItem(CFG_URL) || "").trim();
 const cloudToken = () => (localStorage.getItem(CFG_TOKEN) || "").trim();
-const cloudConfigured = () => validCloudUrl(cloudUrl());
+// Apps Script（HtmlService）から配信されているとき: Googleにログインした本人だけが開ける。
+// 通信は google.script.run 経由で、URL設定もトークンも不要。
+const GAS = !!(window.google && window.google.script && window.google.script.run);
+const cloudConfigured = () => GAS || validCloudUrl(cloudUrl());
+function gasCall(payload) {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler((data) => (data && data.ok) ? resolve(data) : reject(new Error((data && data.error) || "クラウドエラー")))
+      .withFailureHandler((err) => reject(err instanceof Error ? err : new Error(String(err && err.message || err))))
+      .api(payload);
+  });
+}
 
 // URLの #cfg=<exec URL>[&tok=<TOKEN>] から接続設定を取り込む（＝“実質組み込み”）。
 // 目的: exec URL を仕込んだブックマーク/ホーム画面アイコンを1つ作れば、以後は毎回手入力せず自動接続。
 // 秘密は端末のブックマーク内だけに置き、公開ソースには一切含めない（#はサーバ送信されずログにも残らない）。
 // なりすまし対策として、保存済みと異なるURLを入れるときだけ接続先ホストを確認する。
 function bootstrapConfigFromHash() {
+  if (GAS) return; // Apps Script版は接続設定が要らない
   try {
     const h = location.hash || "";
     const m = h.match(/(?:^#|&)cfg=([^&]+)/);
@@ -701,6 +1227,7 @@ function getPendingDeletes() {
 function setPendingDeletes(arr) { localStorage.setItem(PENDING_DEL, JSON.stringify(arr)); }
 
 async function cloudPost(payload) {
+  if (GAS) return gasCall(payload);
   const url = cloudUrl();
   if (!url) throw new Error("クラウド未設定");
   const token = cloudToken();
@@ -721,6 +1248,7 @@ function cardMeta(c) {
   return {
     id: c.id, name: c.name, kana: c.kana, company: c.company, companyKana: c.companyKana, title: c.title,
     phone: c.phone, email: c.email, address: c.address, tags: c.tags || [],
+    website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "",
     memo: c.memo, createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
 }
@@ -766,8 +1294,12 @@ async function retrySync() {
 }
 
 // クラウド(スプレッドシート/Drive)から取り込み。クラウドを正とし、他端末の追加/更新/削除を反映。
-async function syncFromCloud() {
-  if (!cloudConfigured()) { alert("先に ⚙ からクラウドの URL を設定してください。"); return; }
+// opts.quiet: 起動時・画面に戻ったときの自動同期（成功してもダイアログを出さない）
+let syncing = false;
+async function syncFromCloud(opts = {}) {
+  if (!cloudConfigured()) { alert("先に ☰ →「クラウド保存の設定」からクラウドの URL を設定してください。"); return; }
+  if (syncing) return;
+  syncing = true;
   const btn = $("cloudSyncBtn");
   btn.disabled = true;
   try {
@@ -778,30 +1310,32 @@ async function syncFromCloud() {
     const remoteIds = new Set(remote.map((r) => String(r.id)));
     const pendDel = new Set(getPendingDeletes().map(String));
     let pulled = 0, removed = 0;
+    const imageJobs = []; // [card, fileId] 画像は文字情報を出した後でまとめて取りに行く
 
     // (1) 追加・更新の取り込み
     for (const rc of remote) {
       const rid = String(rc.id);
       if (pendDel.has(rid)) continue; // これから消す予定のものは取り込まない（復活防止）
       const local = cards.find((c) => c.id === rid);
-      if (local && (rc.updatedAt || 0) <= (local.updatedAt || 0)) continue; // ローカルが新しい/同じ
-      let image = local ? local.image : null;
-      if (rc.imageFileId) {
-        try {
-          const img = await cloudPost({ action: "image", fileId: rc.imageFileId });
-          image = await dataURLToBlob(img.dataUrl);
-        } catch (e) { /* 画像取得失敗は許容（テキストは取り込む） */ }
-      } else {
-        image = null;
+      if (local && (rc.updatedAt || 0) <= (local.updatedAt || 0)) {
+        // 文字情報はローカルが新しい/同じ。画像だけ未取得なら取りに行く（新しい端末での初回など）
+        if (rc.imageFileId && !local.image && local.synced === true) imageJobs.push([local, rc.imageFileId]);
+        continue;
       }
       const merged = {
         id: rid, name: rc.name || "", kana: rc.kana || "",
         company: rc.company || "", companyKana: rc.companyKana || "", title: rc.title || "",
         phone: rc.phone || "", email: rc.email || "", address: rc.address || "",
         tags: Array.isArray(rc.tags) ? rc.tags : [], memo: rc.memo || "",
-        image, createdAt: rc.createdAt || Date.now(), updatedAt: rc.updatedAt || Date.now(),
+        // 画像は差し替わっているかもしれないので取り直す。取れるまでは手元の画像を出しておく
+        image: rc.imageFileId ? (local ? local.image : null) : null,
+        createdAt: rc.createdAt || Date.now(), updatedAt: rc.updatedAt || Date.now(),
         synced: true,
       };
+      // 後から追加した項目は、クラウド側（Apps Script）がまだ列を持っていないと返ってこない。
+      // その場合は端末に残っている値を消さずに引き継ぐ。
+      for (const k of EXTRA_FIELDS) merged[k] = k in rc ? (rc[k] || "") : (local?.[k] || "");
+      if (rc.imageFileId) imageJobs.push([merged, rc.imageFileId]);
       await putCard(merged);
       const idx = cards.findIndex((c) => c.id === merged.id);
       if (idx >= 0) cards[idx] = merged; else cards.push(merged);
@@ -821,21 +1355,55 @@ async function syncFromCloud() {
 
     render();
     updateSyncUI();
-    alert(`クラウドと同期しました（取り込み ${pulled} 件 / 削除反映 ${removed} 件 / クラウド全 ${remote.length} 件）`);
+    if (!opts.quiet) alert(`クラウドと同期しました（取り込み ${pulled} 件 / 削除反映 ${removed} 件 / クラウド全 ${remote.length} 件）`);
+    else if (pulled || removed) toast(`クラウドから ${pulled} 件取り込み${removed ? `・${removed} 件削除` : ""}`);
+    loadImages(imageJobs); // 待たない（一覧はもう見られる）
   } catch (e) {
-    alert("同期に失敗しました: " + e.message);
+    if (!opts.quiet) alert("同期に失敗しました: " + e.message);
+    else toast("クラウドに接続できませんでした（端末内のデータを表示しています）");
   } finally {
     btn.disabled = false;
+    syncing = false;
   }
+}
+
+// 画像を3件ずつ並行で取得し、取れたものから表示に反映する
+async function loadImages(jobs) {
+  let i = 0, timer = null;
+  const refresh = () => { if (!timer) timer = setTimeout(() => { timer = null; render(); }, 400); };
+  const worker = async () => {
+    while (i < jobs.length) {
+      const [card, fileId] = jobs[i++];
+      try {
+        const img = await cloudPost({ action: "image", fileId });
+        // 取得中に編集・削除されていたら反映しない
+        const cur = cards.find((c) => c.id === card.id);
+        if (cur !== card) continue;
+        card.image = await dataURLToBlob(img.dataUrl);
+        await putCard(card);
+        refresh();
+      } catch (e) { /* 画像取得失敗は許容（次回の同期で再挑戦） */ }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
 }
 
 function updateSyncUI() {
   const bar = $("syncBar");
   $("cloudSyncBtn").hidden = !cloudConfigured();
   bar.hidden = false;
+  if (GAS) {
+    const unsyncedG = cards.filter((c) => c.synced !== true).length + getPendingDeletes().length;
+    bar.innerHTML = unsyncedG
+      ? `<span class="pill warn">未同期 ${unsyncedG} 件</span><button id="retryBtn">再同期</button>`
+      : '<span class="pill ok">☁ Googleドライブに保存中</span><span class="long">（このアカウントの本人だけが見られます）</span>';
+    const rb = $("retryBtn");
+    if (rb) rb.addEventListener("click", retrySync);
+    return;
+  }
   if (!cloudConfigured()) {
     bar.innerHTML = '<span class="pill">クラウド未設定</span>' +
-      '<span>データはこのブラウザ内のみに保存されます。⚙ から Google 連携を設定できます。</span>';
+      '<span class="long">データはこのブラウザ内のみに保存されます。☰ →「クラウド保存の設定」から Google 連携を設定できます。</span>';
     return;
   }
   const unsynced = cards.filter((c) => c.synced !== true).length;
@@ -899,7 +1467,7 @@ function clearCfg() {
 }
 
 /* ---------- OCR（画像から自動入力） ---------- */
-const FIELD_LABELS = { name: "氏名", kana: "ふりがな(氏名)", company: "会社名", companyKana: "ふりがな(会社名)", title: "役職", phone: "電話", email: "メール", address: "住所" };
+const FIELD_LABELS = { name: "氏名", kana: "ふりがな(氏名)", company: "会社名", companyKana: "ふりがな(会社名)", title: "役職", phone: "電話", email: "メール", address: "住所", website: "Webサイト" };
 
 // OCRテキストを名刺項目に振り分ける（ヒューリスティック）。完璧ではないので空欄のみ補助する用途。
 function parseCardText(text) {
@@ -930,6 +1498,13 @@ function parseCardText(text) {
   // メール
   const email = (joined.match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/) || [])[0];
   if (email) res.fields.email = email;
+
+  // Webサイト（http(s):// か www. で始まるもの。メールアドレス内のドメインは拾わない）
+  for (const line of lines) {
+    if (/@/.test(line) && !/https?:\/\//i.test(line)) continue;
+    const m = line.match(/(?:https?:\/\/|www\.)[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(?:\/[^\s　]*)?/i);
+    if (m) { res.fields.website = m[0].replace(/[.,;:)\]、。]+$/, ""); break; }
+  }
 
   // 電話（FAX行は電話から除外。TELラベルや携帯を優先）
   const phoneRe = /0\d{1,4}[-\s(]?\d{1,4}[-\s)]?\d{3,4}/g;
@@ -1232,7 +1807,7 @@ function setOcrRaw(text) {
   if (done) done.textContent = "";
 }
 
-const FIELD_MAP = { name: "fName", kana: "fKana", company: "fCompany", companyKana: "fCompanyKana", title: "fTitle", phone: "fPhone", email: "fEmail", address: "fAddress" };
+const FIELD_MAP = { name: "fName", kana: "fKana", company: "fCompany", companyKana: "fCompanyKana", title: "fTitle", phone: "fPhone", email: "fEmail", address: "fAddress", website: "fWebsite" };
 
 // OCRで得たテキストを解析して空欄だけ埋め、結果をフィードバック表示する（クラウド/ブラウザ共通）。
 function applyOcrText(text, source) {
@@ -1262,10 +1837,12 @@ function applyOcrText(text, source) {
     const el = $(FIELD_MAP[k]);
     if (el.value.trim()) { skipped.push(FIELD_LABELS[k]); continue; }
     el.value = parsed.fields[k];
+    el.classList.add("ocr-filled"); // 自動入力した欄に目印（確認を促す。触ると消える）
     applied.push(FIELD_LABELS[k]);
   }
+  if (applied.length) checkDuplicates();
   const missingLabels = parsed.missing.map((k) => FIELD_LABELS[k]);
-  let msg = (applied.length ? "✓ 自動入力: " + applied.join("・") + "。"
+  let msg = (applied.length ? "✓ 自動入力: " + applied.join("・") + "（オレンジ枠の欄）。念のため確認してください。"
     : "自動で振り分けられる項目が見つかりませんでした。") + `（${source}）`;
   if (warns.length) msg += " ⚠ " + warns.join(" ");
   if (missingLabels.length) msg += " 読み取れず: " + missingLabels.join("・") + "（手入力してください）。";
@@ -1277,7 +1854,7 @@ function applyOcrText(text, source) {
   }
   // ブラウザ内OCRは漢字が弱い。取りこぼしがあれば、無料のGoogle連携で精度が上がる旨を案内。
   if (/ブラウザ内/.test(source) && (missingLabels.length || !applied.length)) {
-    msg += " ※漢字の氏名・会社名の精度が要るなら、⚙ から無料のGoogle連携を設定すると大幅に向上します。";
+    msg += " ※漢字の氏名・会社名の精度が要るなら、☰ →「クラウド保存の設定」から無料のGoogle連携を設定すると大幅に向上します。";
   }
   setOcrStatus(msg);
   setOcrRaw(parsed.rawLines.join("\n"));
@@ -1331,35 +1908,235 @@ async function preprocessForOcr(blob) {
   ctx.putImageData(img, 0, 0);
   return canvas;
 }
-async function runBrowserOcr(blob) {
+// alive(): この読み取りがまだ有効か（フォームを閉じた・別の名刺を開いた・画像を変えた後なら false）。
+// ⚠ これが無いと「続けて登録」で、前の名刺の読み取り結果が次の名刺の空欄に入ってしまう。
+async function runBrowserOcr(blob, alive) {
   setOcrStatus("ブラウザ内OCRを準備中…（初回は辞書データの取得に時間がかかります）");
   const T = await loadTesseract();
   const input = await preprocessForOcr(blob).catch(() => blob); // 前処理に失敗しても元画像で続行
   const { data } = await T.recognize(input, "jpn+eng", {
-    logger: (mm) => { if (mm && mm.status && typeof mm.progress === "number") setOcrStatus(`読み取り中…（${mm.status} ${Math.round(mm.progress * 100)}%）`); },
+    logger: (mm) => { if (alive() && mm && mm.status && typeof mm.progress === "number") setOcrStatus(`読み取り中…（${mm.status} ${Math.round(mm.progress * 100)}%）`); },
   });
-  applyOcrText((data && data.text) || "", "ブラウザ内OCR");
+  if (alive()) applyOcrText((data && data.text) || "", "ブラウザ内OCR");
 }
-async function runCloudOcr(blob) {
+async function runCloudOcr(blob, alive) {
   setOcrStatus("読み取り中…（数秒かかります）");
   const dataUrl = await blobToDataURL(blob);
   const data = await cloudPost({ action: "ocr", image: dataUrl });
-  applyOcrText((data && data.text) || "", "Google OCR");
+  if (alive()) applyOcrText((data && data.text) || "", "Google OCR");
 }
+let ocrSeq = 0; // 読み取りの世代番号（フォームを開き直すたび・画像を変えるたびに進める）
 
 async function runOcr() {
   const blob = currentEditImageBlob();
   if (!blob) { setOcrStatus("先に名刺画像を選んでください。"); return; }
   const btn = $("ocrBtn");
   btn.disabled = true;
+  const seq = ++ocrSeq;
+  const alive = () => seq === ocrSeq && $("editDialog").open;
   try {
-    if (cloudConfigured()) await runCloudOcr(blob);   // Google連携済み=高精度OCR
-    else await runBrowserOcr(blob);                    // 未設定=ブラウザ内OCR（設定不要・端末内完結）
+    if (cloudConfigured()) await runCloudOcr(blob, alive);   // Google連携済み=高精度OCR
+    else await runBrowserOcr(blob, alive);                    // 未設定=ブラウザ内OCR（設定不要・端末内完結）
   } catch (err) {
-    setOcrStatus("⚠ 読み取りに失敗しました: " + (err && err.message ? err.message : err) + "（claude.aiのArtifact版はセキュリティ制限でブラウザ内OCRを取得できません。github.io版や端末保存のHTMLを、通信できる状態でお試しください）");
+    if (alive()) setOcrStatus("⚠ 読み取りに失敗しました: " + (err && err.message ? err.message : err) + "（claude.aiのArtifact版はセキュリティ制限でブラウザ内OCRを取得できません。github.io版や端末保存のHTMLを、通信できる状態でお試しください）");
   } finally {
-    btn.disabled = false;
+    if (seq === ocrSeq) btn.disabled = false;
   }
+}
+
+/* ---------- 複数カードの保存・削除（整理機能用） ---------- */
+// 変更済みのカードを保存し、クラウド設定があれば送る。imageArgs: Map(id → dataURL) 画像を差し替えるものだけ。
+async function persistCards(list, imageArgs) {
+  const now = Date.now();
+  for (const c of list) {
+    c.updatedAt = now; c.synced = false;
+    await putCard(c);
+  }
+  render();
+  if (!cloudConfigured()) return;
+  for (const c of list) {
+    try {
+      await pushCard(c, imageArgs && imageArgs.has(c.id) ? imageArgs.get(c.id) : undefined);
+      c.synced = true;
+      await putCard(c);
+    } catch (e) { /* 未同期として残る（再同期で送られる） */ }
+  }
+  render();
+  updateSyncUI();
+}
+async function removeCard(id) {
+  await deleteCard(id);
+  cards = cards.filter((x) => x.id !== id);
+  render();
+  if (cloudConfigured()) {
+    try { await cloudPost({ action: "delete", id }); }
+    catch (e) { const p = getPendingDeletes(); p.push(id); setPendingDeletes(p); }
+  }
+}
+
+/* ---------- 重複のチェック・統合 ---------- */
+const DUP_IGNORE = "meishi.dupIgnore"; // 「重複ではない」とした組（id のペア）
+const pairKey = (a, b) => [a, b].sort().join("|");
+function getDupIgnore() { try { return new Set(JSON.parse(lsGet(DUP_IGNORE, "[]"))); } catch { return new Set(); } }
+
+function findDupGroups() {
+  const ignore = getDupIgnore();
+  const parent = new Map(cards.map((c) => [c.id, c.id]));
+  const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+  const reasons = new Map();
+  for (let i = 0; i < cards.length; i++) {
+    for (let j = i + 1; j < cards.length; j++) {
+      const a = cards[i], b = cards[j];
+      if (ignore.has(pairKey(a.id, b.id))) continue;
+      const r = dupReason(a, b);
+      if (!r) continue;
+      const ra = find(a.id), rb = find(b.id);
+      if (ra !== rb) parent.set(ra, rb);
+      reasons.set(a.id, r); reasons.set(b.id, r);
+    }
+  }
+  const groups = new Map();
+  for (const c of cards) {
+    if (!reasons.has(c.id)) continue;
+    const r = find(c.id);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(c);
+  }
+  return [...groups.values()].filter((g) => g.length > 1)
+    .map((g) => ({ items: g, why: [...new Set(g.map((c) => reasons.get(c.id)))].join("・") }));
+}
+// 情報が多い名刺ほど「残す方」の初期候補にする
+function completeness(c) {
+  return ["kana", "company", "companyKana", "title", "phone", "email", "address", "website", "metAt", "metPlace", "memo"]
+    .filter((k) => c[k]).length + (c.image ? 2 : 0) + (c.tags || []).length * 0.1;
+}
+
+function openDupDialog() {
+  renderDupList();
+  $("dupDialog").showModal();
+}
+function renderDupList() {
+  const groups = findDupGroups();
+  const box = $("dupList");
+  if (!groups.length) { box.innerHTML = `<p style="text-align:center;color:var(--text-sub);padding:20px 0">重複らしい名刺は見つかりませんでした 👍</p>`; return; }
+  box.innerHTML = groups.map((g, gi) => {
+    const best = [...g.items].sort((a, b) => completeness(b) - completeness(a) || (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+    return `<div class="dup-group" data-g="${gi}">
+      <div class="why">${esc(g.why)}（${g.items.length}枚）</div>
+      ${g.items.map((c) => `<label class="dup-item">
+        <input type="radio" name="keep${gi}" value="${esc(c.id)}"${c.id === best.id ? " checked" : ""}>
+        <div><b>${esc(c.name)}</b>${c.image ? " 🖼" : ""}
+          <div class="sub">${esc([c.company, c.title].filter(Boolean).join(" / "))}</div>
+          <div class="sub">${esc([c.phone, c.email].filter(Boolean).join(" ・ "))}</div>
+          <div class="sub">登録 ${c.createdAt ? new Date(c.createdAt).toLocaleDateString("ja-JP") : "-"}${c.metAt ? " ／ 会った日 " + esc(fmtDate(c.metAt)) : ""}</div>
+        </div></label>`).join("")}
+      <div class="dialog-actions" style="margin-top:8px">
+        <button data-act="ignore">重複ではない</button>
+        <button class="primary" data-act="merge">選んだ名刺に統合</button>
+      </div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll(".dup-group").forEach((el) => {
+    const g = groups[+el.dataset.g];
+    el.querySelector('[data-act="ignore"]').addEventListener("click", () => {
+      const ig = getDupIgnore();
+      for (let i = 0; i < g.items.length; i++) for (let j = i + 1; j < g.items.length; j++) ig.add(pairKey(g.items[i].id, g.items[j].id));
+      lsSet(DUP_IGNORE, JSON.stringify([...ig]));
+      renderDupList();
+    });
+    el.querySelector('[data-act="merge"]').addEventListener("click", async (ev) => {
+      const keepId = el.querySelector("input:checked")?.value;
+      if (!keepId) return;
+      const others = g.items.filter((c) => c.id !== keepId);
+      if (!confirm(`「${g.items.find((c) => c.id === keepId).name}」に${others.length}枚をまとめます。\nまとめた側の名刺は削除されます（足りない項目・タグ・メモは残す方へ移します）。よろしいですか？`)) return;
+      ev.target.disabled = true;
+      try { await mergeCards(keepId, others.map((c) => c.id)); toast("統合しました"); }
+      catch (e) { alert("統合に失敗しました: " + e.message); }
+      renderDupList();
+    });
+  });
+}
+
+async function mergeCards(keepId, otherIds) {
+  const keep = cards.find((c) => c.id === keepId);
+  const others = otherIds.map((id) => cards.find((c) => c.id === id)).filter(Boolean);
+  if (!keep || !others.length) return;
+  const extra = []; // 残す方と食い違う値（消さずにメモへ残す）
+  for (const k of ["kana", "company", "companyKana", "title", "phone", "email", "address", "website", "metPlace"]) {
+    for (const o of others) {
+      const v = (o[k] || "").trim();
+      if (!v) continue;
+      if (!keep[k]) keep[k] = v;
+      else if (normalize(keep[k]).replace(/\s/g, "") !== normalize(v).replace(/\s/g, "")) extra.push(`${FIELD_LABELS[k] || (k === "metPlace" ? "会った場所" : k)}: ${v}`);
+    }
+  }
+  // 会った日は一番古い日（初めて会った日）を残す
+  const mets = [keep.metAt, ...others.map((o) => o.metAt)].filter(Boolean).sort();
+  if (mets.length) keep.metAt = mets[0];
+  keep.tags = [...new Set([...(keep.tags || []), ...others.flatMap((o) => o.tags || [])])];
+  const memos = [keep.memo, ...others.map((o) => o.memo)].map((m) => (m || "").trim()).filter(Boolean);
+  const memo = [...new Set(memos)];
+  if (extra.length) memo.push("【統合した名刺の情報】\n" + [...new Set(extra)].join("\n"));
+  keep.memo = memo.join("\n\n");
+  keep.createdAt = Math.min(keep.createdAt || Date.now(), ...others.map((o) => o.createdAt || Date.now()));
+  const imageArgs = new Map();
+  if (!keep.image) {
+    const withImg = others.find((o) => o.image);
+    if (withImg) { keep.image = withImg.image; imageArgs.set(keep.id, await blobToDataURL(withImg.image)); }
+  }
+  // 先に残す方を保存してから、他を消す（途中で失敗しても情報が消えない順序）
+  await persistCards([keep], imageArgs);
+  for (const o of others) await removeCard(o.id);
+  render();
+  updateSyncUI();
+}
+
+/* ---------- タグの整理 ---------- */
+function openTagDialog() {
+  renderTagList();
+  $("bulkCount").textContent = filteredCards().length;
+  $("bulkTag").value = "";
+  $("tagDialog").showModal();
+}
+function renderTagList() {
+  const freq = new Map();
+  for (const c of cards) for (const t of c.tags || []) freq.set(t, (freq.get(t) || 0) + 1);
+  const box = $("tagList");
+  if (!freq.size) { box.innerHTML = `<p class="cfg-hint">タグはまだありません。</p>`; return; }
+  box.innerHTML = [...freq.entries()].sort((a, b) => a[0].localeCompare(b[0], "ja")).map(([t, n]) =>
+    `<div class="tag-row"><span class="t">${esc(t)}</span><span class="n">${n}件</span>
+      <button data-t="${esc(t)}" data-act="rename">名前変更</button>
+      <button data-t="${esc(t)}" data-act="delete" class="danger">外す</button></div>`).join("");
+  box.querySelectorAll("button").forEach((b) => b.addEventListener("click", async () => {
+    const t = b.dataset.t;
+    const targets = cards.filter((c) => (c.tags || []).includes(t));
+    if (b.dataset.act === "rename") {
+      const nv = (prompt(`「${t}」の新しい名前（既にあるタグ名にするとまとまります）`, t) || "").trim();
+      if (!nv || nv === t) return;
+      if (/[,、，]/.test(nv)) { alert("タグ名にカンマは使えません"); return; }
+      for (const c of targets) c.tags = [...new Set(c.tags.map((x) => x === t ? nv : x))];
+      if (activeTag === t) activeTag = nv;
+    } else {
+      if (!confirm(`${targets.length}件の名刺から「${t}」を外しますか？（名刺は消えません）`)) return;
+      for (const c of targets) c.tags = c.tags.filter((x) => x !== t);
+    }
+    await persistCards(targets);
+    renderTagList();
+    toast(`${targets.length}件を更新しました`);
+  }));
+}
+async function bulkAddTag() {
+  const t = $("bulkTag").value.trim();
+  if (!t) return;
+  if (/[,、，]/.test(t)) { alert("タグ名にカンマは使えません"); return; }
+  const targets = filteredCards().filter((c) => !(c.tags || []).includes(t));
+  if (!targets.length) { toast("追加が必要な名刺はありません"); return; }
+  if (!confirm(`表示中の名刺${targets.length}件に「${t}」を付けますか？`)) return;
+  for (const c of targets) c.tags = [...(c.tags || []), t];
+  await persistCards(targets);
+  $("bulkTag").value = "";
+  renderTagList();
+  toast(`${targets.length}件に追加しました`);
 }
 
 /* ---------- イベント ---------- */
@@ -1367,11 +2144,53 @@ async function init() {
   bootstrapConfigFromHash(); // ブックマーク/アイコンのURLにexec URLを仕込めば毎回の手入力が不要になる
   db = await openDB();
   cards = await getAllCards();
+  const savedSort = lsGet(SORT_KEY, "updated");
+  if ([...$("sortSelect").options].some((o) => o.value === savedSort)) $("sortSelect").value = savedSort;
   render();
 
   $("addBtn").addEventListener("click", () => openEdit(null));
+  $("fab").addEventListener("click", () => openEdit(null));
   $("searchBox").addEventListener("input", render);
-  $("sortSelect").addEventListener("change", render);
+  $("sortSelect").addEventListener("change", () => { lsSet(SORT_KEY, $("sortSelect").value); render(); });
+  $("viewGrid").addEventListener("click", () => { lsSet(VIEW_KEY, "grid"); render(); });
+  $("viewList").addEventListener("click", () => { lsSet(VIEW_KEY, "list"); render(); });
+
+  // メニュー
+  const menu = $("menu");
+  const closeMenu = () => { menu.hidden = true; $("menuBtn").setAttribute("aria-expanded", "false"); };
+  $("menuBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+    $("menuBtn").setAttribute("aria-expanded", String(!menu.hidden));
+  });
+  document.addEventListener("click", (e) => { if (!menu.hidden && !menu.contains(e.target)) closeMenu(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+  menu.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-act]");
+    if (!b) return;
+    closeMenu();
+    const list = filteredCards();
+    switch (b.dataset.act) {
+      case "dups": openDupDialog(); break;
+      case "tags": openTagDialog(); break;
+      case "vcf": saveVcf(list, vcfFileName(list)); break;
+      case "csv": exportCsv(list); break;
+      case "export": exportJSON(); break;
+      case "import": $("importFile").click(); break;
+      case "cfg": openCfg(); break;
+    }
+  });
+  $("dupCloseBtn").addEventListener("click", () => $("dupDialog").close());
+  $("tagCloseBtn").addEventListener("click", () => $("tagDialog").close());
+  $("bulkTagBtn").addEventListener("click", bulkAddTag);
+  $("bulkTag").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); bulkAddTag(); } });
+
+  // 入力中: 重複の確認・OCR目印の解除・タグ候補の更新
+  for (const id of ["fName", "fCompany", "fPhone", "fEmail"]) $(id).addEventListener("input", checkDuplicates);
+  $("editForm").addEventListener("input", (e) => e.target.classList.remove("ocr-filled"));
+  $("fTags").addEventListener("input", renderTagSuggest);
+  // 名刺画像はタップで拡大／縮小
+  $("detailImg").addEventListener("click", () => $("detailImg").classList.toggle("zoom"));
   $("editForm").addEventListener("submit", saveCard);
   $("cancelEditBtn").addEventListener("click", () => $("editDialog").close());
   $("closeDetailBtn").addEventListener("click", () => $("detailDialog").close());
@@ -1391,16 +2210,20 @@ async function init() {
       $("imgClearBtn").hidden = false;
       updateOcrBtn();
       setOcrStatus("");
+      // 画像を選んだらそのまま読み取る（空欄だけ埋めるので、入力済みの内容は変わらない）
+      runOcr();
     } catch (err) {
       alert("画像の読み込みに失敗しました: " + err.message);
     }
   });
   $("imgClearBtn").addEventListener("click", () => {
     pendingImage = null; // 画像削除の意図（保存時に反映。オンライン時は即クラウドにも反映）
+    ocrSeq++;
+    $("ocrBtn").disabled = false;
     const prev = $("imgPreview");
     prev.hidden = true;
     prev.removeAttribute("src");
-    $("imgHint").textContent = "クリックして画像を選択（撮影した名刺写真など）";
+    $("imgHint").textContent = "タップして名刺を撮影／画像を選択（選ぶと自動で読み取ります）";
     $("imgClearBtn").hidden = true;
     updateOcrBtn();
     setOcrStatus("");
@@ -1425,24 +2248,12 @@ async function init() {
     const c = cards.find((x) => x.id === detailId);
     if (!c) return;
     if (!confirm(`「${c.name}」を削除しますか？`)) return;
-    await deleteCard(c.id);
-    cards = cards.filter((x) => x.id !== c.id);
     $("detailDialog").close();
+    await removeCard(c.id);
     render();
-    if (cloudConfigured()) {
-      try {
-        await cloudPost({ action: "delete", id: c.id });
-      } catch (e) {
-        const p = getPendingDeletes();
-        p.push(c.id);
-        setPendingDeletes(p);
-      }
-      updateSyncUI();
-    }
+    if (cloudConfigured()) updateSyncUI();
   });
 
-  $("exportBtn").addEventListener("click", exportJSON);
-  $("importBtn").addEventListener("click", () => $("importFile").click());
   $("importFile").addEventListener("change", (e) => {
     const f = e.target.files[0];
     e.target.value = "";
@@ -1450,15 +2261,28 @@ async function init() {
   });
 
   // クラウド設定・同期
-  $("cloudCfgBtn").addEventListener("click", openCfg);
   $("cfgCancelBtn").addEventListener("click", () => $("cfgDialog").close());
   $("cfgForm").addEventListener("submit", saveCfg);
   $("cfgTestBtn").addEventListener("click", testCfg);
   $("cfgClearBtn").addEventListener("click", clearCfg);
-  $("cloudSyncBtn").addEventListener("click", syncFromCloud);
+  $("cloudSyncBtn").addEventListener("click", () => syncFromCloud());
   updateSyncUI();
-  // 起動時は削除キューだけ静かに流す（未同期カードの一括pushは行わず、バッジ＋手動「再同期」に委ねる）
-  if (cloudConfigured()) flushPendingDeletes().then(updateSyncUI).catch(() => {});
+  if (GAS) {
+    // Apps Script版: どの端末で開いても同じ一覧になるよう、開いたとき・画面に戻ったときに自動で取り込む
+    $("menu").querySelector('[data-act="cfg"]').hidden = true;
+    document.querySelector("footer").textContent = "データはあなたのGoogleドライブに保存されています（本人のみ）。";
+    syncFromCloud({ quiet: true });
+    let lastSync = Date.now();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && Date.now() - lastSync > 30000) {
+        lastSync = Date.now();
+        syncFromCloud({ quiet: true });
+      }
+    });
+  } else if (cloudConfigured()) {
+    // 起動時は削除キューだけ静かに流す（未同期カードの一括pushは行わず、バッジ＋手動「再同期」に委ねる）
+    flushPendingDeletes().then(updateSyncUI).catch(() => {});
+  }
 }
 
 init().catch((err) => {
