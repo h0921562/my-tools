@@ -20,7 +20,7 @@ const IMAGE_FOLDER_NAME = '名刺管理_画像';
 
 // 列の並び（見出し行の名前で列を探すので、後から列を足しても壊れない）
 const COLS = ['id', 'name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address',
-  'website', 'metAt', 'metPlace', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt'];
+  'website', 'metAt', 'metPlace', 'folder', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt'];
 const NUMBER_COLS = { createdAt: true, updatedAt: true };
 
 /* ================= 合鍵の確認 ================= */

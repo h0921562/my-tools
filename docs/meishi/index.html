@@ -240,6 +240,32 @@
   #cardGrid.list .card.unsynced::after { top: 50%; transform: translateY(-50%); right: 4px; }
   #cardGrid.list .group-head { margin-top: 14px; }
 
+  /* ---------- フォルダ ---------- */
+  .folder-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .folder-btn {
+    display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+    font-weight: 600; background: var(--surface);
+  }
+  .folder-btn .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folder-sub { display: flex; gap: 6px; flex-wrap: wrap; }
+  .folder-sub:empty { display: none; }
+  .folder-sub .tag-chip::before { content: "📁 "; }
+  .fold-item {
+    display: flex; align-items: center; gap: 8px; padding: 9px 6px; border-bottom: 1px solid var(--border);
+    cursor: pointer; border-radius: 6px;
+  }
+  .fold-item:hover { background: var(--bg); }
+  .fold-item.on { background: var(--accent-soft, rgba(37,99,235,.1)); }
+  .fold-item .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fold-item .n { color: var(--text-sub); font-size: 12px; }
+  .fold-item button { font-size: 12px; padding: 2px 8px; }
+  .card .folder-chip { color: var(--text-sub); font-size: 11px; margin-right: 6px; }
+  #batchBar {
+    position: sticky; top: 0; z-index: 15; margin: 0 0 10px; padding: 8px 12px; border-radius: 10px;
+    background: #eff6ff; color: #1e40af; font-size: 13px; border: 1px solid #bfdbfe;
+  }
+  @media (prefers-color-scheme: dark) { #batchBar { background: #172554; color: #bfdbfe; border-color: #1e3a8a; } }
+
   /* ---------- メニュー ---------- */
   .menu-wrap { position: relative; }
   .menu {
@@ -368,6 +394,9 @@
     <div class="menu-wrap">
       <button id="menuBtn" title="その他のメニュー" aria-haspopup="true" aria-expanded="false">☰</button>
       <div class="menu" id="menu" hidden>
+        <button data-act="batch">📷 まとめて登録（複数枚）</button>
+        <button data-act="folders">📁 フォルダを整理</button>
+        <hr>
         <button data-act="dups">🔍 重複をチェック・統合</button>
         <button data-act="tags">🏷 タグを整理</button>
         <hr>
@@ -387,6 +416,12 @@
 </header>
 
 <main>
+  <div id="batchBar" hidden></div>
+  <div class="folder-row">
+    <button id="folderBtn" class="folder-btn" title="フォルダを選ぶ・整理する">📁 <span class="path" id="folderLabel">すべて</span> ▾</button>
+    <button id="batchBtn" title="名刺の写真を何枚でもまとめて登録" style="margin-left:auto">📷 まとめて登録</button>
+    <div class="folder-sub" id="folderSub" style="flex-basis:100%"></div>
+  </div>
   <div class="toolbar">
     <div id="stats"></div>
     <select id="sortSelect" title="並び替え">
@@ -455,6 +490,9 @@
           <div><label>会った場所・きっかけ</label><input type="text" id="fMetPlace" autocomplete="off" placeholder="例: 〇〇展示会、△△さんの紹介"></div>
         </div>
       </div>
+      <label>フォルダ（プロジェクト）<span style="font-weight:400;color:var(--text-sub)">　「/」で区切ると階層になります（例: 2026展示会/東京）</span></label>
+      <input type="text" id="fFolder" list="folderList" autocomplete="off" placeholder="未分類">
+      <datalist id="folderList"></datalist>
       <label>タグ（カンマ区切り 例: 展示会,取引先）</label><input type="text" id="fTags" autocomplete="off">
       <div class="tag-suggest" id="tagSuggest"></div>
       <label>メモ</label><textarea id="fMemo"></textarea>
@@ -488,6 +526,50 @@
       <button id="editBtn">編集</button>
       <button class="primary" id="closeDetailBtn">閉じる</button>
     </div>
+  </div>
+</dialog>
+
+<!-- フォルダダイアログ -->
+<dialog id="folderDialog">
+  <div class="dialog-body">
+    <h2>フォルダ</h2>
+    <p class="cfg-hint">タップで開きます。プロジェクトごとに名刺を分けられます。名刺のフォルダは、名刺の「編集」か、下の「まとめて移動」で変えられます。</p>
+    <div id="folderTree" style="margin-top:10px"></div>
+    <div class="form-sec">
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input type="text" id="newFolder" autocomplete="off" placeholder="新しいフォルダ名（例: 2026展示会/東京）" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px">
+        <button id="newFolderBtn">作成</button>
+      </div>
+      <p class="cfg-hint" style="margin-top:10px">いま表示中の名刺（<span id="moveCount">0</span>件）をまとめて移動:</p>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="moveFolder" list="folderList" autocomplete="off" placeholder="移動先フォルダ（空欄＝未分類）" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px">
+        <button id="moveBtn">移動</button>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button class="primary" id="folderCloseBtn">閉じる</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- まとめて登録ダイアログ -->
+<dialog id="batchDialog">
+  <div class="dialog-body">
+    <h2>まとめて登録（複数枚）</h2>
+    <p class="cfg-hint">名刺の写真を何枚でもまとめて選べます。1枚ずつ名刺として登録し、文字を自動で読み取ります（クラウド接続時はOpusで精読）。下の内容は全部の名刺に入ります。</p>
+    <form id="batchForm">
+      <div class="form-grid">
+        <div><label>会った日</label><input type="date" id="bMetAt"></div>
+        <div><label>会った場所・きっかけ</label><input type="text" id="bMetPlace" autocomplete="off"></div>
+      </div>
+      <label>フォルダ（プロジェクト）</label><input type="text" id="bFolder" list="folderList" autocomplete="off" placeholder="未分類">
+      <label>タグ（カンマ区切り）</label><input type="text" id="bTags" autocomplete="off">
+      <input type="file" id="batchFiles" accept="image/*" multiple hidden>
+      <div class="sticky-actions">
+        <button type="button" id="batchCancelBtn">キャンセル</button>
+        <button type="button" class="primary" id="batchPickBtn">📷 写真を選ぶ（複数可）</button>
+      </div>
+    </form>
   </div>
 </dialog>
 
@@ -605,7 +687,7 @@ function lsGet(k, d) { try { const v = localStorage.getItem(k); return v == null
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 
 // 後から追加した項目（古いデータ・バックアップ・クラウドには無いことがある）
-const EXTRA_FIELDS = ["website", "metAt", "metPlace"];
+const EXTRA_FIELDS = ["website", "metAt", "metPlace", "folder"];
 
 let toastTimer = null;
 function toast(msg) {
@@ -694,13 +776,128 @@ function normalize(s) {
     .replace(/[ァ-ヶ]/g, (m) => String.fromCharCode(m.charCodeAt(0) - 0x60));
 }
 
+/* ---------- フォルダ（プロジェクト） ----------
+ * 名刺の folder に「親/子」の形で入れる（""＝未分類）。親フォルダを開くと子フォルダの名刺も出る。
+ * 名刺の入っていない空のフォルダは、この端末にだけ覚えておく（名刺を入れるとクラウドにも載る）。
+ */
+const FOLDER_KEY = "meishi.folder";        // 開いているフォルダ（ALL=すべて, ""=未分類）
+const EMPTY_FOLDERS_KEY = "meishi.emptyFolders";
+const ALL = "\u0000all";
+let activeFolder = lsGet(FOLDER_KEY, ALL);
+const normFolder = (f) => String(f || "").split("/").map((x) => x.trim()).filter(Boolean).join("/");
+const inFolder = (c, f) => f === ALL ? true : f === "" ? !c.folder : (c.folder === f || (c.folder || "").startsWith(f + "/"));
+function getEmptyFolders() { try { return JSON.parse(lsGet(EMPTY_FOLDERS_KEY, "[]")); } catch { return []; } }
+function setEmptyFolders(a) { lsSet(EMPTY_FOLDERS_KEY, JSON.stringify([...new Set(a)])); }
+// すべてのフォルダ（親フォルダも含む）を並べ替えて返す
+function allFolders() {
+  const set = new Set();
+  const add = (f) => { const parts = normFolder(f).split("/").filter(Boolean); for (let i = 1; i <= parts.length; i++) set.add(parts.slice(0, i).join("/")); };
+  cards.forEach((c) => c.folder && add(c.folder));
+  getEmptyFolders().forEach(add);
+  return [...set].sort((a, b) => a.localeCompare(b, "ja"));
+}
+function setActiveFolder(f) {
+  activeFolder = f;
+  lsSet(FOLDER_KEY, f);
+  render();
+}
+function renderFolderUI() {
+  const label = activeFolder === ALL ? "すべて" : activeFolder === "" ? "未分類" : activeFolder.split("/").join(" › ");
+  $("folderLabel").textContent = label;
+  // 開いているフォルダの直下の子フォルダをチップで出す（ワンタップで潜れる）
+  const box = $("folderSub");
+  box.innerHTML = "";
+  const base = activeFolder === ALL || activeFolder === "" ? "" : activeFolder + "/";
+  const kids = activeFolder === "" ? [] : allFolders().filter((f) => f.startsWith(base) && !f.slice(base.length).includes("/"));
+  if (activeFolder !== ALL) {
+    const up = document.createElement("span");
+    up.className = "tag-chip"; up.style.opacity = ".8";
+    up.textContent = "← " + (activeFolder.includes("/") ? activeFolder.split("/").slice(0, -1).join(" › ") : "すべて");
+    up.addEventListener("click", () => setActiveFolder(activeFolder.includes("/") ? activeFolder.split("/").slice(0, -1).join("/") : ALL));
+    box.appendChild(up);
+  }
+  for (const f of kids) {
+    const n = cards.filter((c) => inFolder(c, f)).length;
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+    chip.textContent = `${f.slice(base.length)}（${n}）`;
+    chip.addEventListener("click", () => setActiveFolder(f));
+    box.appendChild(chip);
+  }
+  $("folderList").innerHTML = allFolders().map((f) => `<option value="${esc(f)}"></option>`).join("");
+}
+function openFolderDialog() {
+  renderFolderTree();
+  $("moveCount").textContent = filteredCards().length;
+  $("folderDialog").showModal();
+}
+function renderFolderTree() {
+  const rows = [[ALL, "すべて", 0, cards.length], ["", "未分類", 0, cards.filter((c) => !c.folder).length]];
+  for (const f of allFolders()) rows.push([f, f.split("/").pop(), f.split("/").length - 1, cards.filter((c) => inFolder(c, f)).length]);
+  const box = $("folderTree");
+  box.innerHTML = rows.map(([f, nm, depth, n]) => {
+    const real = f !== ALL && f !== "";
+    return `<div class="fold-item${f === activeFolder ? " on" : ""}" data-f="${esc(f)}" style="padding-left:${6 + depth * 18}px">
+      <span>${f === ALL ? "🗂" : "📁"}</span><span class="nm">${esc(nm)}</span><span class="n">${n}件</span>
+      ${real ? `<button data-act="rename">名前</button><button data-act="del" class="danger">削除</button>` : ""}</div>`;
+  }).join("");
+  box.querySelectorAll(".fold-item").forEach((el) => el.addEventListener("click", async (e) => {
+    const f = el.dataset.f;
+    const act = e.target.closest("button")?.dataset.act;
+    if (!act) { setActiveFolder(f); $("folderDialog").close(); return; }
+    e.stopPropagation();
+    const targets = cards.filter((c) => inFolder(c, f));
+    if (act === "rename") {
+      const nv = normFolder(prompt(`「${f}」の新しい名前（「/」で階層。既にあるフォルダ名にするとまとまります）`, f) || "");
+      if (!nv || nv === f) return;
+      for (const c of targets) c.folder = nv + c.folder.slice(f.length);
+      setEmptyFolders(getEmptyFolders().map((x) => x === f || x.startsWith(f + "/") ? nv + x.slice(f.length) : x));
+      if (inFolder({ folder: activeFolder }, f) && activeFolder !== ALL) activeFolder = nv + activeFolder.slice(f.length);
+      await persistCards(targets);
+      toast(`${targets.length}件を移しました`);
+    } else {
+      const parent = f.includes("/") ? f.split("/").slice(0, -1).join("/") : "";
+      if (!confirm(`フォルダ「${f}」を削除しますか？\n中の名刺${targets.length}件は消えずに「${parent || "未分類"}」へ移ります。`)) return;
+      for (const c of targets) c.folder = parent;
+      setEmptyFolders(getEmptyFolders().filter((x) => !(x === f || x.startsWith(f + "/"))));
+      if (activeFolder !== ALL && inFolder({ folder: activeFolder }, f)) activeFolder = parent || ALL;
+      await persistCards(targets);
+    }
+    lsSet(FOLDER_KEY, activeFolder);
+    render();
+    renderFolderTree();
+  }));
+}
+function createFolder() {
+  const f = normFolder($("newFolder").value);
+  if (!f) return;
+  setEmptyFolders([...getEmptyFolders(), f]);
+  $("newFolder").value = "";
+  renderFolderTree();
+  render();
+  toast(`フォルダ「${f}」を作りました`);
+}
+async function moveShownCards() {
+  const f = normFolder($("moveFolder").value);
+  const targets = filteredCards().filter((c) => (c.folder || "") !== f);
+  if (!targets.length) { toast("移動が必要な名刺はありません"); return; }
+  if (!confirm(`表示中の名刺${targets.length}件を「${f || "未分類"}」へ移動しますか？`)) return;
+  for (const c of targets) c.folder = f;
+  if (f) setEmptyFolders(getEmptyFolders().filter((x) => x !== f));
+  await persistCards(targets);
+  $("moveFolder").value = "";
+  renderFolderTree();
+  $("moveCount").textContent = filteredCards().length;
+  toast(`${targets.length}件を移動しました`);
+}
+
 function filteredCards() {
   const q = normalize($("searchBox").value.trim());
-  let list = cards;
+  let list = cards.filter((c) => inFolder(c, activeFolder));
   if (activeTag) list = list.filter((c) => (c.tags || []).includes(activeTag));
   if (q) {
     list = list.filter((c) =>
-      [c.name, c.kana, c.company, c.companyKana, c.title, c.phone, c.email, c.address, c.website, c.metPlace, c.memo, (c.tags || []).join(" ")]
+      [c.name, c.kana, c.company, c.companyKana, c.title, c.phone, c.email, c.address, c.website, c.metPlace, c.folder, c.memo, (c.tags || []).join(" ")]
         .some((v) => normalize(v).includes(q))
       // 電話番号はハイフンや空白の有無を問わず数字だけでも当たるように
       || (/^[\d\-\s()+]{3,}$/.test(q) && digitsOf(c.phone).includes(digitsOf(q)))
@@ -778,7 +975,7 @@ function render() {
       <div class="info">
         <div class="name">${esc(c.name)}</div>
         <div class="company">${esc(sub)}</div>
-        ${met ? `<div class="met">🤝 ${esc(met)}</div>` : ""}
+        ${met ? `<div class="met">🤝 ${esc(met)}</div>` : ""}${c.folder && c.folder !== activeFolder ? `<span class="folder-chip">📁 ${esc(c.folder.split("/").pop())}</span>` : ""}
         <div class="tags">${(c.tags || []).map((t) => `<span class="tag-chip">${esc(t)}</span>`).join("")}</div>
       </div>`;
     el.addEventListener("click", () => openDetail(c.id));
@@ -786,6 +983,7 @@ function render() {
   }
   grid.appendChild(frag);
   renderTagBar();
+  renderFolderUI();
 }
 
 function renderTagBar() {
@@ -853,6 +1051,7 @@ function openDetail(id) {
     ["メール", c.email ? `<span class="copyable" data-copy="${esc(c.email)}" title="タップでコピー">${esc(c.email)}</span>` : ""],
     ["住所", c.address ? `<span class="copyable" data-copy="${esc(c.address)}" title="タップでコピー">${esc(c.address)}</span>` : ""],
     ["Web", site ? `<a href="${esc(site)}" target="_blank" rel="noopener">${esc(c.website)}</a>` : esc(c.website)],
+    ["フォルダ", c.folder ? esc(c.folder.split("/").join(" › ")) : ""],
     ["会った日", c.metAt ? esc(fmtDate(c.metAt)) : ""],
     ["会った場所", esc(c.metPlace)],
     ["タグ", esc((c.tags || []).join(", "))],
@@ -959,7 +1158,7 @@ function exportCsv(list) {
   if (!list.length) { toast("対象の名刺がありません"); return; }
   const cols = [["name", "氏名"], ["kana", "ふりがな"], ["company", "会社名"], ["companyKana", "会社名ふりがな"],
     ["title", "部署・役職"], ["phone", "電話"], ["email", "メール"], ["address", "住所"], ["website", "Webサイト"],
-    ["metAt", "会った日"], ["metPlace", "会った場所"], ["tags", "タグ"], ["memo", "メモ"]];
+    ["metAt", "会った日"], ["metPlace", "会った場所"], ["folder", "フォルダ"], ["tags", "タグ"], ["memo", "メモ"]];
   const cell = (v) => {
     let s = Array.isArray(v) ? v.join(", ") : String(v || "");
     if (/^[=+\-@]/.test(s)) s = "'" + s; // 表計算ソフトで数式として実行されないように
@@ -997,6 +1196,8 @@ function openEdit(card, carry) {
   $("fMetAt").value = card ? String(card.metAt || "").slice(0, 10) : (carry?.metAt || todayYmd());
   $("fMetPlace").value = card ? (card.metPlace || "") : (carry?.metPlace || "");
   $("fTags").value = (card ? (card.tags || []) : (carry?.tags || [])).join(", ");
+  // 新規は、開いているフォルダに入れる
+  $("fFolder").value = card ? (card.folder || "") : (carry ? (carry.folder || "") : (activeFolder === ALL ? "" : activeFolder));
   $("fMemo").value = card?.memo || "";
   $("continuousWrap").hidden = !!card;
   $("continuousChk").checked = !card && !!carry;
@@ -1097,6 +1298,8 @@ async function saveCard(e) {
       website: $("fWebsite").value.trim(),
       metAt: $("fMetAt").value || "",
       metPlace: $("fMetPlace").value.trim(),
+      folder: normFolder($("fFolder").value),
+      _auto: [], // 手で保存した名刺は、後から届く読み取り結果で上書きしない
       tags: [...new Set($("fTags").value.split(/[,、，]/).map((t) => t.trim()).filter(Boolean))],
       memo: $("fMemo").value.trim(),
       image: pendingImage === undefined ? (existing?.image || null) : pendingImage,
@@ -1116,7 +1319,7 @@ async function saveCard(e) {
     render();
     if (continuous) {
       // 展示会などで何枚も続けて登録するとき: 会った日・場所・タグを引き継いで次の登録画面へ
-      const carry = { metAt: card.metAt, metPlace: card.metPlace, tags: card.tags };
+      const carry = { metAt: card.metAt, metPlace: card.metPlace, tags: card.tags, folder: card.folder };
       toast(`「${card.name}」を保存しました。次の名刺をどうぞ`);
       openEdit(null, carry);
     } else {
@@ -1182,7 +1385,7 @@ async function importJSON(file) {
         name: String(c.name),
         kana: c.kana || "", company: c.company || "", companyKana: c.companyKana || "", title: c.title || "",
         phone: c.phone || "", email: c.email || "", address: c.address || "",
-        website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "",
+        website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "", folder: normFolder(c.folder),
         tags: Array.isArray(c.tags) ? c.tags.map(String) : [],
         memo: c.memo || "",
         image: typeof c.image === "string" && c.image.startsWith("data:") ? await dataURLToBlob(c.image) : null,
@@ -1286,7 +1489,7 @@ function cardMeta(c) {
   return {
     id: c.id, name: c.name, kana: c.kana, company: c.company, companyKana: c.companyKana, title: c.title,
     phone: c.phone, email: c.email, address: c.address, tags: c.tags || [],
-    website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "",
+    website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "", folder: c.folder || "",
     memo: c.memo, createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
 }
@@ -2080,6 +2283,170 @@ function applyOpusFields(fields) {
     : "🤖 Opusで精読しました（変更なし）。");
 }
 
+/* ---------- まとめて登録（何枚でも） ----------
+ * 選んだ写真を1枚ずつ名刺として先に保存し（画像だけでも消えないように）、その後で文字を読み取って埋める。
+ * クラウド接続時: Googleの読み取りで即埋め → Opusの精読結果で、自動で埋めた欄を置き換える。
+ * 未接続時: ブラウザ内OCRで順に読み取る。
+ * 読み取りで埋めた欄は card._auto に記録し、ユーザーが編集・保存したら消す（手で直した欄は上書きしない）。
+ */
+const NAME_PENDING = "（読み取り中）";
+const NAME_UNKNOWN = "（氏名を確認）";
+const REVIEW_TAG = "要確認";
+const batch = { total: 0, read: 0, opusWaiting: 0, opusDone: 0, running: false };
+
+function openBatchDialog() {
+  $("bMetAt").value = todayYmd();
+  $("bMetPlace").value = "";
+  $("bTags").value = "";
+  $("bFolder").value = activeFolder === ALL ? "" : activeFolder;
+  $("batchDialog").showModal();
+}
+
+function updateBatchBar() {
+  const bar = $("batchBar");
+  if (!batch.total) { bar.hidden = true; return; }
+  const parts = [`📷 まとめて登録 ${batch.total}枚：読み取り ${batch.read}/${batch.total}`];
+  if (batch.opusWaiting || batch.opusDone) parts.push(`🤖 Opus精読 ${batch.opusDone}/${batch.opusDone + batch.opusWaiting}`);
+  const done = batch.read >= batch.total && batch.opusWaiting === 0;
+  bar.textContent = parts.join("　") + (done ? "　✓ 完了" : "（この画面を開いたままにしてください）");
+  bar.hidden = false;
+  if (done) setTimeout(() => { if (batch.read >= batch.total && batch.opusWaiting === 0) { batch.total = batch.read = batch.opusDone = 0; updateBatchBar(); } }, 6000);
+}
+
+// 画像から文字を読む（クラウド＝Google、未接続＝ブラウザ内OCR）
+async function ocrTextFor(blob) {
+  if (cloudConfigured()) {
+    const data = await cloudPost({ action: "ocr", image: await blobToDataURL(blob) });
+    return (data && data.text) || "";
+  }
+  const T = await loadTesseract();
+  const input = await preprocessForOcr(blob).catch(() => blob);
+  const { data } = await T.recognize(input, "jpn+eng");
+  return (data && data.text) || "";
+}
+
+// 読み取った項目を名刺に入れる。overwrite=true なら、自動で埋めた欄（_auto）も置き換える
+function fillCardFields(card, fields, overwrite) {
+  const auto = new Set(card._auto || []);
+  let changed = false;
+  for (const k of Object.keys(FIELD_MAP)) {
+    const v = (fields[k] || "").trim();
+    if (!v) continue;
+    const cur = (card[k] || "").trim();
+    const isPlaceholder = k === "name" && (cur === NAME_PENDING || cur === NAME_UNKNOWN);
+    if (!cur || isPlaceholder || (overwrite && auto.has(k))) {
+      if (cur !== v) { card[k] = v; changed = true; }
+      auto.add(k);
+    }
+  }
+  if (card.name === NAME_PENDING) { card.name = NAME_UNKNOWN; changed = true; }
+  // 氏名が読めたら「要確認」を外す（自分で付けたタグでなければ）
+  const hasName = card.name && card.name !== NAME_UNKNOWN;
+  const tags = card.tags || [];
+  if (hasName && card._reviewTag && tags.includes(REVIEW_TAG)) { card.tags = tags.filter((t) => t !== REVIEW_TAG); card._reviewTag = false; changed = true; }
+  if (!hasName && !tags.includes(REVIEW_TAG)) { card.tags = [...tags, REVIEW_TAG]; card._reviewTag = true; changed = true; }
+  card._auto = [...auto];
+  return changed;
+}
+
+async function startBatch(files) {
+  $("batchDialog").close();
+  const common = {
+    metAt: $("bMetAt").value || "",
+    metPlace: $("bMetPlace").value.trim(),
+    folder: normFolder($("bFolder").value),
+    tags: [...new Set($("bTags").value.split(/[,、，]/).map((t) => t.trim()).filter(Boolean))],
+  };
+  if (common.folder) setEmptyFolders(getEmptyFolders().filter((x) => x !== common.folder));
+  batch.total += files.length;
+  updateBatchBar();
+  toast(`${files.length}枚を登録します`);
+
+  // 1) まず全部を「読み取り中」の名刺として保存（画像を確実に残す）
+  const created = [];
+  for (const file of files) {
+    let blob;
+    try { blob = await compressImage(file); } catch { batch.read++; updateBatchBar(); continue; }
+    const now = Date.now();
+    const card = {
+      id: uuid(), name: NAME_PENDING, kana: "", company: "", companyKana: "", title: "",
+      phone: "", email: "", address: "", website: "",
+      metAt: common.metAt, metPlace: common.metPlace, folder: common.folder,
+      tags: [...common.tags], memo: "", image: blob,
+      createdAt: now, updatedAt: now, synced: false, _auto: [],
+    };
+    await putCard(card);
+    cards.push(card);
+    created.push(card);
+  }
+  render();
+
+  // 2) 画像をクラウドへ（並行2件）
+  if (cloudConfigured()) {
+    await runPool(created, 2, async (c) => {
+      try { await pushCard(c, await blobToDataURL(c.image)); c.synced = true; await putCard(c); } catch {}
+    });
+    render(); updateSyncUI();
+  }
+
+  // 3) 読み取り（クラウドは並行3件、ブラウザ内OCRは重いので1件ずつ）
+  await runPool(created, cloudConfigured() ? 3 : 1, async (c) => {
+    if (cloudConfigured()) startBatchOpus(c); // Opusは別に走らせる（1分前後）
+    try {
+      const text = await ocrTextFor(c.image);
+      const cur = cards.find((x) => x.id === c.id);
+      if (cur && fillCardFields(cur, parseCardText(text).fields, false)) await saveBatchCard(cur);
+    } catch (e) {
+      const cur = cards.find((x) => x.id === c.id);
+      if (cur && fillCardFields(cur, {}, false)) await saveBatchCard(cur);
+    }
+    batch.read++;
+    updateBatchBar();
+  });
+}
+
+async function runPool(items, n, fn) {
+  let i = 0;
+  const worker = async () => { while (i < items.length) await fn(items[i++]); };
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+}
+
+async function saveBatchCard(card) {
+  card.updatedAt = Date.now();
+  card.synced = false;
+  await putCard(card);
+  render();
+  if (cloudConfigured()) {
+    try { await pushCard(card); card.synced = true; await putCard(card); } catch {}
+    updateSyncUI();
+  }
+}
+
+async function startBatchOpus(card) {
+  let start;
+  try { start = await cloudPost({ action: "ocrStart", image: await blobToDataURL(card.image) }); }
+  catch { return; } // 未設定・起動失敗なら Google の結果のまま
+  batch.opusWaiting++;
+  updateBatchBar();
+  const t0 = Date.now();
+  await new Promise((r) => setTimeout(r, 15000));
+  try {
+    while (Date.now() - t0 < 5 * 60 * 1000) {
+      const r = await cloudPost({ action: "ocrPoll", id: start.id });
+      if (r.status === "done") {
+        const cur = cards.find((x) => x.id === card.id);
+        if (cur && fillCardFields(cur, r.fields || {}, true)) await saveBatchCard(cur);
+        break;
+      }
+      if (r.status === "error" || r.status === "gone") break;
+      await new Promise((res) => setTimeout(res, 5000));
+    }
+  } catch {}
+  batch.opusWaiting--;
+  batch.opusDone++;
+  updateBatchBar();
+}
+
 /* ---------- 複数カードの保存・削除（整理機能用） ---------- */
 // 変更済みのカードを保存し、クラウド設定があれば送る。imageArgs: Map(id → dataURL) 画像を差し替えるものだけ。
 async function persistCards(list, imageArgs) {
@@ -2198,6 +2565,7 @@ async function mergeCards(keepId, otherIds) {
   const others = otherIds.map((id) => cards.find((c) => c.id === id)).filter(Boolean);
   if (!keep || !others.length) return;
   const extra = []; // 残す方と食い違う値（消さずにメモへ残す）
+  if (!keep.folder) keep.folder = (others.find((o) => o.folder) || {}).folder || "";
   for (const k of ["kana", "company", "companyKana", "title", "phone", "email", "address", "website", "metPlace"]) {
     for (const o of others) {
       const v = (o[k] || "").trim();
@@ -2308,6 +2676,8 @@ async function init() {
     const list = filteredCards();
     switch (b.dataset.act) {
       case "dups": openDupDialog(); break;
+      case "folders": openFolderDialog(); break;
+      case "batch": openBatchDialog(); break;
       case "tags": openTagDialog(); break;
       case "vcf": saveVcf(list, vcfFileName(list)); break;
       case "csv": exportCsv(list); break;
@@ -2317,6 +2687,15 @@ async function init() {
     }
   });
   $("dupCloseBtn").addEventListener("click", () => $("dupDialog").close());
+  $("folderBtn").addEventListener("click", openFolderDialog);
+  $("folderCloseBtn").addEventListener("click", () => $("folderDialog").close());
+  $("newFolderBtn").addEventListener("click", createFolder);
+  $("newFolder").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); createFolder(); } });
+  $("moveBtn").addEventListener("click", moveShownCards);
+  $("batchCancelBtn").addEventListener("click", () => $("batchDialog").close());
+  $("batchBtn").addEventListener("click", openBatchDialog);
+  $("batchPickBtn").addEventListener("click", () => $("batchFiles").click());
+  $("batchFiles").addEventListener("change", (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) startBatch(fs); });
   $("tagCloseBtn").addEventListener("click", () => $("tagDialog").close());
   $("bulkTagBtn").addEventListener("click", bulkAddTag);
   $("bulkTag").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); bulkAddTag(); } });
