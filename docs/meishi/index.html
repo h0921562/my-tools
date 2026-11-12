@@ -185,11 +185,6 @@
   .detail-rows dd { margin: 0; word-break: break-word; white-space: pre-wrap; }
   .detail-rows dd a { color: var(--accent); }
   #importFile, #imgInput { display: none; }
-  footer {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    text-align: center; font-size: 11px; color: var(--text-sub);
-    padding: 6px; background: var(--bg); border-top: 1px solid var(--border);
-  }
   .sync-bar {
     max-width: 1100px; margin: 8px auto 0;
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -407,7 +402,7 @@
     #addBtn { display: none; }
     #fab {
       display: flex; align-items: center; justify-content: center;
-      position: fixed; right: 18px; bottom: calc(44px + env(safe-area-inset-bottom)); z-index: 20;
+      position: fixed; right: 18px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 20;
       width: 56px; height: 56px; border-radius: 50%; font-size: 28px; padding: 0;
       background: var(--accent); color: #fff; border: none; box-shadow: 0 6px 18px rgba(37,99,235,.45);
     }
@@ -426,9 +421,8 @@
     .dialog-body { max-height: 92vh; max-height: 92dvh; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
     dialog { max-height: 92dvh; }
     .sticky-actions { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
-    footer { padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
-    footer .long, .sync-bar .long { display: none; }
-    #toast { bottom: calc(110px + env(safe-area-inset-bottom)); }
+    .sync-bar .long { display: none; }
+    #toast { bottom: calc(90px + env(safe-area-inset-bottom)); }
   }
 </style>
 </head>
@@ -506,9 +500,6 @@
   </div>
 </div>
 <div id="toast" role="status"></div>
-
-<footer id="footNote">データはこのブラウザ内に保存<span class="long">（IndexedDB）されます。定期的に ☰ →「バックアップを書き出し」で保存してください</span>。</footer>
-
 <!-- 登録・編集ダイアログ -->
 <dialog id="editDialog">
   <div class="dialog-body">
@@ -2213,10 +2204,6 @@ function updateSyncUI() {
     $("gateLocal").textContent = n ? `この端末の中に名刺が ${n} 枚あります。つなぐと自動でクラウドに保存されます（消えません）。` : "";
   }
   bar.hidden = false;
-  // 画面下の一言: いまの保存先を正しく伝える（クラウド接続中なのに「ブラウザ内に保存」と出さない）
-  if (!GAS) $("footNote").innerHTML = cloudConfigured()
-    ? '☁ クラウド（Googleドライブ）に保存<span class="long">しています。どの端末からも同じ一覧を開けます</span>。'
-    : 'データはこのブラウザ内にだけ保存<span class="long">されています。☰ →「クラウド保存の設定」でつなぐと、どの端末からも開けます</span>。';
   if (GAS) {
     const unsyncedG = cards.filter((c) => c.synced !== true).length + getPendingDeletes().length;
     if (!unsyncedG) { bar.innerHTML = ""; bar.hidden = true; return; }
@@ -3824,7 +3811,6 @@ async function init() {
   updateSyncUI();
   if (GAS) {
     $("menu").querySelector('[data-act="cfg"]').hidden = true;
-    document.querySelector("footer").textContent = "データはあなたのGoogleドライブに保存されています（本人のみ）。";
   }
   // どの端末で開いても同じ一覧になるよう、開いたとき・画面に戻ったとき・通信が戻ったときに自動で同期する
   // （端末内の未送信分は先に送ってから取り込むので、消えることはない）。後からつないだ端末でも働くよう、常に見張る。
