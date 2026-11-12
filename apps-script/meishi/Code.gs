@@ -530,16 +530,15 @@ function opusStartFile_(fileId) {
  * 会社名のある名刺を、Sales Desk に自動で送る（全件マスターへ、業態に合う事業へ。抹茶なら抹茶の営業リスト）。
  * Opus の読み取りが終わるのを待つため、最後の更新から3分たった名刺だけ送る。
  * アプリが使われるたび（名刺の保存・一覧の取得・読み取り結果の受け取り）に、2分に1回まで動く。
- * 必要な設定（スクリプト プロパティ）: SALES_DESK_TOKEN（Sales Desk の MEISHI_INTAKE_TOKEN と同じ値）。
- *   未設定なら何もしない。送った結果はシートの sdStatus 列に残す（ok / conflict:… / error:…）。
+ * 認証: Config.gs の SD_PRIVATE_KEY（秘密鍵）で送る内容に署名する。Sales Desk は公開鍵で確かめる。
+ *   代わりにスクリプト プロパティ SALES_DESK_TOKEN（合言葉）でもよい。どちらもなければ何もしない。送った結果はシートの sdStatus 列に残す（ok / conflict:… / error:…）。
  */
 const SALES_DESK_URL_DEFAULT = 'https://sales-desk.yamauchi-39d.workers.dev';
 const SD_SETTLE_MS = 3 * 60 * 1000;
 
 function maybePushSalesDesk_() {
   try {
-    const props = PropertiesService.getScriptProperties();
-    if (!props.getProperty('SALES_DESK_TOKEN')) return;
+    if (!sdAuthReady_()) return;
     const cache = CacheService.getScriptCache();
     if (cache.get('sdPushLock')) return;
     cache.put('sdPushLock', '1', 120);
@@ -550,10 +549,26 @@ function maybePushSalesDesk_() {
 // エディタから手動で実行してもよい（結果はログに出る）
 function pushSalesDesk() { Logger.log(JSON.stringify(pushSalesDesk_())); }
 
+function sdPrivateKey_() {
+  return (typeof SD_PRIVATE_KEY === 'string' && SD_PRIVATE_KEY.indexOf('PRIVATE KEY') >= 0) ? SD_PRIVATE_KEY : '';
+}
+function sdAuthReady_() {
+  return !!(sdPrivateKey_() || PropertiesService.getScriptProperties().getProperty('SALES_DESK_TOKEN'));
+}
+// 署名つきの送信ヘッダー（時刻.本文のSHA-256 を RSA-SHA256 で署名）。鍵がなければ合言葉。
+function sdHeaders_(body) {
+  const key = sdPrivateKey_();
+  if (!key) return { 'X-Meishi-Token': PropertiesService.getScriptProperties().getProperty('SALES_DESK_TOKEN') };
+  const time = String(Date.now());
+  const hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, body, Utilities.Charset.UTF_8)
+    .map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
+  const sig = Utilities.computeRsaSha256Signature(time + '.' + hash, key);
+  return { 'X-Meishi-Time': time, 'X-Meishi-Signature': Utilities.base64Encode(sig) };
+}
+
 function pushSalesDesk_() {
   const props = PropertiesService.getScriptProperties();
-  const token = props.getProperty('SALES_DESK_TOKEN');
-  if (!token) return { skipped: 'SALES_DESK_TOKEN が未設定です' };
+  if (!sdAuthReady_()) return { skipped: 'Sales Desk への認証（SD_PRIVATE_KEY か SALES_DESK_TOKEN）が未設定です' };
   const base = (props.getProperty('SALES_DESK_URL') || SALES_DESK_URL_DEFAULT).replace(/\/+$/, '');
   const sh = sheet_(), ci = colIndex_(sh);
   const n = sh.getLastRow() - 1;
@@ -582,9 +597,10 @@ function pushSalesDesk_() {
     };
   });
   const send = function (list) {
+    const body = JSON.stringify({ items: list });
     return UrlFetchApp.fetch(base + '/api/meishi-intake/auto', {
-      method: 'post', contentType: 'application/json', headers: { 'X-Meishi-Token': token },
-      payload: JSON.stringify({ items: list }), muteHttpExceptions: true,
+      method: 'post', contentType: 'application/json; charset=utf-8', headers: sdHeaders_(body),
+      payload: Utilities.newBlob(body).getBytes(), muteHttpExceptions: true,
     });
   };
   const mark = function (row, v) { sh.getRange(row, ci.idx.sdStatus + 1).setNumberFormat('@').setValue(String(v).slice(0, 300)); };
