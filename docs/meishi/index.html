@@ -223,17 +223,20 @@
   #cardGrid.list .card {
     display: flex; align-items: center; gap: 12px;
     border-radius: 0; box-shadow: none; border-width: 0 0 1px; background: transparent;
-    padding: 10px 4px;
+    padding: 8px 4px;
   }
   #cardGrid.list .card:hover { transform: none; background: var(--surface); }
   #cardGrid.list .card .thumb, #cardGrid.list .card .thumb-placeholder {
-    width: 64px; aspect-ratio: 91 / 55; border-radius: 6px; flex-shrink: 0;
+    width: 48px; aspect-ratio: 91 / 55; border-radius: 4px; flex-shrink: 0;
   }
   #cardGrid.list .card .thumb-placeholder { background: transparent; }
-  #cardGrid.list .card .thumb-placeholder .avatar { width: 38px; height: 38px; font-size: 16px; }
+  #cardGrid.list .card .thumb-placeholder .avatar { width: 28px; height: 28px; font-size: 13px; }
   #cardGrid.list .card .info { padding: 0; flex: 1; min-width: 0; }
   #cardGrid.list .card .name, #cardGrid.list .card .company { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #cardGrid.list .card .tags { margin-top: 3px; }
+  /* 会った日とタグを1行にまとめて、1画面に多く並べる */
+  #cardGrid.list .card .met, #cardGrid.list .card .tags { display: inline-flex; vertical-align: middle; margin-top: 2px; }
+  #cardGrid.list .card .met { margin-right: 6px; }
+  #cardGrid.list .card .tags .tag-chip { font-size: 10px; padding: 0 6px; line-height: 1.6; }
   #cardGrid.list .card.unsynced::after { top: 50%; transform: translateY(-50%); right: 4px; }
   #cardGrid.list .group-head { margin-top: 14px; }
 
@@ -735,7 +738,7 @@ function render() {
   $("stats").textContent = cards.length
     ? (list.length === cards.length ? `全${cards.length}件` : `${list.length}件を表示（全${cards.length}件）`) : "";
 
-  const view = lsGet(VIEW_KEY, "grid");
+  const view = lsGet(VIEW_KEY, "list");
   grid.classList.toggle("list", view === "list");
   $("viewGrid").classList.toggle("on", view !== "list");
   $("viewList").classList.toggle("on", view === "list");
