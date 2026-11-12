@@ -480,7 +480,7 @@
 <button id="fab" title="新規登録" aria-label="新規登録">＋</button>
 <div id="toast" role="status"></div>
 
-<footer>データはこのブラウザ内に保存<span class="long">（IndexedDB）されます。定期的に ☰ →「バックアップを書き出し」で保存してください</span>。</footer>
+<footer id="footNote">データはこのブラウザ内に保存<span class="long">（IndexedDB）されます。定期的に ☰ →「バックアップを書き出し」で保存してください</span>。</footer>
 
 <!-- 登録・編集ダイアログ -->
 <dialog id="editDialog">
@@ -852,30 +852,70 @@ async function compressImage(file, maxDim = 1400, quality = 0.82) {
 const AUTOCROP_KEY = "meishi.autocrop";
 const autoCropOn = () => lsGet(AUTOCROP_KEY, "1") === "1";
 
-// 解析用に縮小 → 白黒 → ぼかし → 大津の方法で明暗に分け、名刺側を 1 にした図を返す
-function cardMask(full, W, H, maxSide) {
+/* ---------- 名刺の検出 ----------
+ * 写真の中から名刺の四隅を見つける。机の色や名刺のデザインはさまざまなので、見分け方を3通り試して
+ * 一番名刺らしく取れたものを使う:
+ *   dist  … 写真の縁の色（＝机の色）と違うところ（色のついた机・濃い帯のある名刺に強い）
+ *   white … 白っぽいところ（手で持っている・机がごちゃついているときに強い）
+ *   dark  … 暗いところ（黒い名刺×明るい机）
+ * それぞれ、文字やロゴの穴を埋め → まとまりごとに外周から四角形を当てはめ → 四角さと縦横比で名刺かどうかを判定する。 */
+function cardAnalyze(full, W, H, maxSide) {
   const s = Math.min(1, maxSide / Math.max(W, H));
-  const w = Math.max(1, Math.round(W * s)), h = Math.max(1, Math.round(H * s));
+  const w = Math.max(1, Math.round(W * s)), h = Math.max(1, Math.round(H * s)), total = w * h;
   const small = document.createElement("canvas");
   small.width = w; small.height = h;
   const sctx = small.getContext("2d", { willReadFrequently: true });
   sctx.drawImage(full, 0, 0, w, h);
   const px = sctx.getImageData(0, 0, w, h).data;
-  const gray = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) gray[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
-  // ぼかし（3x3）で文字の細かい模様をならす
-  const g = new Float32Array(w * h);
+  // 机の色: 写真の縁（外周3%）の中央値
+  const m = Math.max(2, Math.round(Math.min(w, h) * 0.03)), rs = [], gs = [], bs = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (x >= m && y >= m && x < w - m && y < h - m) { x = w - m - 1; continue; }
+    const i = (y * w + x) * 4; rs.push(px[i]); gs.push(px[i + 1]); bs.push(px[i + 2]);
+  }
+  const med = (a) => { a.sort((p, q) => p - q); return a[a.length >> 1] || 0; };
+  const br = med(rs), bg = med(gs), bb = med(bs);
+  const dist = new Float32Array(total), white = new Float32Array(total), dark = new Float32Array(total), edge = new Float32Array(total);
+  for (let i = 0; i < total; i++) {
+    const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+    dist[i] = Math.min(255, Math.hypot(r - br, g - bg, b - bb) * 1.2);
+    white[i] = Math.min(r, g, b);
+    dark[i] = 255 - (0.299 * r + 0.587 * g + 0.114 * b);
+  }
+  // 机そのものの色むらの大きさ（縁の9割がこの値以下）。「机ではないところ」を広めに拾うしきい値に使う
+  const bd = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (x >= m && y >= m && x < w - m && y < h - m) { x = w - m - 1; continue; }
+    bd.push(dist[y * w + x]);
+  }
+  bd.sort((p, q) => p - q);
+  const loose = Math.max(22, (bd[Math.floor(bd.length * 0.9)] || 0) * 1.5 + 10);
+  // 輪郭の強さ（明るさの変化）。白い机に白い名刺のように色では分けられないときに、影や紙の縁を手がかりにする
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const k = y * w + x;
+    const gx = dark[k - w + 1] + 2 * dark[k + 1] + dark[k + w + 1] - dark[k - w - 1] - 2 * dark[k - 1] - dark[k + w - 1];
+    const gy = dark[k + w - 1] + 2 * dark[k + w] + dark[k + w + 1] - dark[k - w - 1] - 2 * dark[k - w] - dark[k - w + 1];
+    edge[k] = Math.min(255, Math.hypot(gx, gy));
+  }
+  const es = Array.from(edge).sort((p, q) => p - q);
+  const edgeThr = Math.max(10, es[Math.floor(total * 0.9)] || 0);
+  return { px, w, h, s, total, loose, edgeThr, maps: { dist, white, dark, edge } };
+}
+
+// ぼかし（3x3）→ 二値化（しきい値は大津の方法、fixed があればその値）→ 穴を埋める → 細いつながりを切る
+// outline: 輪郭の線から作るとき。線の切れ目をつないでから中を塗る
+function cardMaskOf(map, w, h, fixed, outline) {
+  const total = w * h, g = new Float32Array(total);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     let sum = 0, n = 0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       const xx = x + dx, yy = y + dy;
-      if (xx >= 0 && yy >= 0 && xx < w && yy < h) { sum += gray[yy * w + xx]; n++; }
+      if (xx >= 0 && yy >= 0 && xx < w && yy < h) { sum += map[yy * w + xx]; n++; }
     }
     g[y * w + x] = sum / n;
   }
   const hist = new Array(256).fill(0);
   for (const v of g) hist[Math.min(255, v | 0)]++;
-  const total = w * h;
   let sumAll = 0; for (let i = 0; i < 256; i++) sumAll += i * hist[i];
   let sumB = 0, wB = 0, best = 0, thr = 128;
   for (let t = 0; t < 256; t++) {
@@ -886,50 +926,185 @@ function cardMask(full, W, H, maxSide) {
     const between = wB * wF * (mB - mF) * (mB - mF);
     if (between > best) { best = between; thr = t; }
   }
-  const mask = new Uint8Array(total);
-  for (let i = 0; i < total; i++) mask[i] = g[i] > thr ? 1 : 0;
-  // 写真の縁がほとんど明るいなら、名刺の方が暗い（暗い名刺×明るい机）とみなして反転
-  let edgeBright = 0, edgeN = 0;
-  for (let x = 0; x < w; x++) { edgeBright += mask[x] + mask[(h - 1) * w + x]; edgeN += 2; }
-  for (let y = 0; y < h; y++) { edgeBright += mask[y * w] + mask[y * w + w - 1]; edgeN += 2; }
-  if (edgeBright / edgeN > 0.5) for (let i = 0; i < total; i++) mask[i] ^= 1;
-  return { mask, w, h, s, total };
+  if (fixed != null) thr = fixed;
+  let mask = new Uint8Array(total);
+  for (let i = 0; i < total; i++) mask[i] = (outline ? map[i] : g[i]) > thr ? 1 : 0;
+  const morph = (src, keepAll) => {
+    const dst = new Uint8Array(total);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let all = 1, any = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy;
+        const v = xx >= 0 && yy >= 0 && xx < w && yy < h ? src[yy * w + xx] : 0;
+        if (v) any = 1; else all = 0;
+      }
+      dst[y * w + x] = keepAll ? all : any;
+    }
+    return dst;
+  };
+  if (outline) mask = morph(mask, false);
+  // 穴埋め: 写真の縁からたどれない 0 は、まとまりの内側（文字・ロゴ・写真）なので 1 にする
+  const out = new Uint8Array(total), stack = new Int32Array(total); let sp = 0;
+  const seed = (k) => { if (!mask[k] && !out[k]) { out[k] = 1; stack[sp++] = k; } };
+  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
+  while (sp) {
+    const k = stack[--sp], x = k % w, y = (k / w) | 0;
+    if (x > 0) seed(k - 1); if (x < w - 1) seed(k + 1); if (y > 0) seed(k - w); if (y < h - 1) seed(k + w);
+  }
+  for (let i = 0; i < total; i++) mask[i] = out[i] ? 0 : 1;
+  if (outline) mask = morph(mask, true); // つなぐために太らせた分を戻す（中身のない線はここで消える）
+  // 細いつながり（影・ペン・指先など）を切る: 縮めてから戻す
+  return morph(morph(mask, true), false);
 }
 
-// つながったまとまりごとに、面積と四隅（左上=x+y最小, 右下=x+y最大, 右上=x-y最大, 左下=x-y最小）を出す
-function cardBlobs(mask, w, h, minArea) {
+// つながったまとまりごとに、面積・外周の点・写真の縁に触れている点の数・平均の色を出す
+function cardComponents(mask, px, w, h, minArea) {
   const total = w * h, seen = new Uint8Array(total), stack = new Int32Array(total), out = [];
   for (let i = 0; i < total; i++) {
     if (!mask[i] || seen[i]) continue;
-    let sp = 0, area = 0, tl, tr, br, bl, mn1 = Infinity, mx1 = -Infinity, mn2 = Infinity, mx2 = -Infinity;
+    let sp = 0, area = 0, edge = 0, r = 0, g = 0, b = 0; const pts = [];
     stack[sp++] = i; seen[i] = 1;
     while (sp) {
       const k = stack[--sp]; area++;
       const x = k % w, y = (k / w) | 0;
-      if (x + y < mn1) { mn1 = x + y; tl = [x, y]; }
-      if (x + y > mx1) { mx1 = x + y; br = [x, y]; }
-      if (x - y > mx2) { mx2 = x - y; tr = [x, y]; }
-      if (x - y < mn2) { mn2 = x - y; bl = [x, y]; }
+      r += px[k * 4]; g += px[k * 4 + 1]; b += px[k * 4 + 2];
+      const onEdge = x === 0 || y === 0 || x === w - 1 || y === h - 1;
+      if (onEdge) edge++;
+      if (onEdge || !mask[k - 1] || !mask[k + 1] || !mask[k - w] || !mask[k + w]) pts.push([x, y]);
       if (x > 0 && mask[k - 1] && !seen[k - 1]) { seen[k - 1] = 1; stack[sp++] = k - 1; }
       if (x < w - 1 && mask[k + 1] && !seen[k + 1]) { seen[k + 1] = 1; stack[sp++] = k + 1; }
       if (y > 0 && mask[k - w] && !seen[k - w]) { seen[k - w] = 1; stack[sp++] = k - w; }
       if (y < h - 1 && mask[k + w] && !seen[k + w]) { seen[k + w] = 1; stack[sp++] = k + w; }
     }
-    if (area >= minArea) out.push({ area, quad: [tl, tr, br, bl] });
+    if (area >= minArea) out.push({ area, pts, edge, color: [r / area, g / area, b / area] });
   }
   return out;
 }
 
-// まとまりが名刺らしい四角形か（四角さ・縦横比）。名刺らしければ四角形の面積を返す
-function cardLikeArea(c) {
-  const q = c.quad, d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-  const polyArea = Math.abs(q.reduce((a, p, i) => { const n = q[(i + 1) % 4]; return a + p[0] * n[1] - n[0] * p[1]; }, 0)) / 2;
-  if (!polyArea || c.area / polyArea < 0.85) return 0;   // 四角形でない（手などが混ざっている）
-  const ws = Math.max(d(q[0], q[1]), d(q[3], q[2])), hs = Math.max(d(q[0], q[3]), d(q[1], q[2]));
-  if (!ws || !hs) return 0;
-  const ratio = ws > hs ? ws / hs : hs / ws;
-  if (ratio < 1.25 || ratio > 2.2) return 0;             // 名刺の縦横比（約1.65）から遠い
-  return polyArea;
+// 外周の点を囲む四角形を当てはめる（凸包 → 足す面積が一番小さい辺から削って4辺に → 各辺を外周の点に合わせ直す）
+function cardFitQuad(pts) {
+  if (pts.length < 8) return null;
+  const P = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [], upper = [];
+  for (const p of P) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop(); lower.push(p); }
+  for (let i = P.length - 1; i >= 0; i--) { const p = P[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop(); upper.push(p); }
+  let hull = lower.slice(0, -1).concat(upper.slice(0, -1));
+  if (hull.length < 4) return null;
+  const meet = (a, b, c, d) => { // 直線 a-b と 直線 c-d の交点
+    const x1 = b[0] - a[0], y1 = b[1] - a[1], x2 = d[0] - c[0], y2 = d[1] - c[1], den = x1 * y2 - y1 * x2;
+    if (Math.abs(den) < 1e-9) return null;
+    const t = ((c[0] - a[0]) * y2 - (c[1] - a[1]) * x2) / den;
+    return [a[0] + x1 * t, a[1] + y1 * t];
+  };
+  while (hull.length > 4) {
+    const n = hull.length; let bi = -1, bestA = Infinity, bx = null;
+    for (let i = 0; i < n; i++) {
+      const a = hull[(i - 1 + n) % n], b = hull[i], c = hull[(i + 1) % n], d = hull[(i + 2) % n];
+      const X = meet(a, b, d, c);
+      if (!X) continue;
+      // 交点は、辺 b-c の外側（a→b の先、d→c の先）になければならない
+      if ((X[0] - b[0]) * (b[0] - a[0]) + (X[1] - b[1]) * (b[1] - a[1]) < 0) continue;
+      if ((X[0] - c[0]) * (c[0] - d[0]) + (X[1] - c[1]) * (c[1] - d[1]) < 0) continue;
+      const area = Math.abs(cross(b, X, c)) / 2;
+      if (area < bestA) { bestA = area; bi = i; bx = X; }
+    }
+    if (bi < 0) return null;
+    const next = [];
+    for (let i = 0; i < n; i++) { if (i === bi) next.push(bx); else if (i !== (bi + 1) % n) next.push(hull[i]); }
+    hull = next;
+  }
+  // 各辺を、その近くにある外周の点に合わせ直す（指で欠けたところや角の丸みは無視される）
+  const lines = hull.map((p, i) => {
+    const q = hull[(i + 1) % 4], len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+    const ux = (q[0] - p[0]) / len, uy = (q[1] - p[1]) / len, tol = Math.max(2, len * 0.02);
+    let n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+    for (const [x, y] of pts) {
+      const t = ((x - p[0]) * ux + (y - p[1]) * uy) / len, dn = Math.abs(-(x - p[0]) * uy + (y - p[1]) * ux);
+      if (dn > tol || t < 0.08 || t > 0.92) continue;
+      n++; sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y;
+    }
+    if (n < 6) return [p, q];
+    const mx = sx / n, my = sy / n, ang = 0.5 * Math.atan2(2 * (sxy / n - mx * my), (sxx / n - mx * mx) - (syy / n - my * my));
+    return [[mx, my], [mx + Math.cos(ang), my + Math.sin(ang)]];
+  });
+  let quad = hull.map((p, i) => {
+    const X = meet(lines[(i + 3) % 4][0], lines[(i + 3) % 4][1], lines[i][0], lines[i][1]);
+    const far = Math.hypot(hull[(i + 1) % 4][0] - p[0], hull[(i + 1) % 4][1] - p[1]) * 0.15;
+    return X && Math.hypot(X[0] - p[0], X[1] - p[1]) <= far ? X : p;
+  });
+  // 左上から時計回り（左上・右上・右下・左下）に並べる
+  const cx = quad.reduce((a, p) => a + p[0], 0) / 4, cy = quad.reduce((a, p) => a + p[1], 0) / 4;
+  quad.sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
+  let first = 0; quad.forEach((p, i) => { if (p[0] + p[1] < quad[first][0] + quad[first][1]) first = i; });
+  quad = quad.slice(first).concat(quad.slice(0, first));
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const area = Math.abs(quad.reduce((a, p, i) => { const q = quad[(i + 1) % 4]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+  const ws = Math.max(d(quad[0], quad[1]), d(quad[3], quad[2])), hs = Math.max(d(quad[0], quad[3]), d(quad[1], quad[2]));
+  if (!area || !ws || !hs) return null;
+  return { quad, area, ratio: ws > hs ? ws / hs : hs / ws };
+}
+
+/* 写真から名刺を探す。返り値: { s, cards: [四隅…], crowded }
+ *   cards が2枚以上 … 名刺が何枚か並んでいる（読む順）   1枚 … 切り抜く名刺   0枚 … 見つからない
+ *   crowded … 名刺が重なっていそうで分けられない（一部だけ切り出すと残りを取りこぼすので、写真のまま扱う） */
+function detectCards(full, W, H, maxSide) {
+  const A = cardAnalyze(full, W, H, maxSide), { w, h, s, total, px } = A;
+  const build = (key, map, fixed, outline) => {
+    const comps = cardComponents(cardMaskOf(map, w, h, fixed, outline), px, w, h, total * 0.012);
+    for (const c of comps) {
+      c.bg = c.edge > c.pts.length * 0.12;           // 写真の縁に長く触れている＝机や手・腕
+      c.fit = c.bg ? null : cardFitQuad(c.pts);
+      const rect = c.fit ? c.area / c.fit.area : 0;  // 四角さ（指で欠けた分などは下がる）
+      c.rect = rect;
+      c.card = !!c.fit && rect >= 0.8 && rect <= 1.12 && c.fit.ratio >= 1.25 && c.fit.ratio <= 2.05; // 名刺の縦横比は約1.65
+    }
+    return { key, comps };
+  };
+  // dist2 は「机でないところ全部」（白地に濃い帯のある名刺などを丸ごと拾う）
+  const hyps = [build("dist", A.maps.dist), build("dist2", A.maps.dist, A.loose), build("white", A.maps.white), build("dark", A.maps.dark)];
+  const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 70;
+  // 名刺と同じような色で、名刺1.3枚分より大きい「名刺でない」まとまり＝重なった名刺の山
+  const pile = (ref) => hyps.some((hy) => hy.comps.some((c) => !c.card && !c.bg && c.area >= ref.fit.area * 1.3 && near(c.color, ref.color)));
+  const ctr = (c) => [c.fit.quad.reduce((a, p) => a + p[0], 0) / 4, c.fit.quad.reduce((a, p) => a + p[1], 0) / 4];
+
+  // 何枚か並んでいるか（同じくらいの大きさの名刺が2枚以上）
+  let multi = null;
+  for (const hy of hyps) {
+    const cs = hy.comps.filter((c) => c.card);
+    if (cs.length < 2) continue;
+    // 名刺どうしは同じくらいの大きさ。中くらいの1枚を基準に、小さな紙片は外し、大きすぎるもの（重なった名刺）があれば分けない
+    const big = cs.slice().sort((a, b) => a.fit.area - b.fit.area)[cs.length >> 1];
+    const same = cs.filter((c) => c.fit.area >= big.fit.area * 0.5 && c.fit.area <= big.fit.area * 1.6);
+    const mean = same.reduce((a, c) => a + c.rect, 0) / same.length;
+    const over = cs.some((c) => c.fit.area > big.fit.area * 1.6);
+    if (same.length >= 2 && (!multi || same.length > multi.cards.length || (same.length === multi.cards.length && mean > multi.mean))) multi = { cards: same, big, mean, over };
+  }
+  if (multi) {
+    if (multi.cards.length > 30 || multi.over || pile(multi.big)) return { s, cards: [], crowded: true };
+    const side = Math.sqrt(multi.big.fit.area / 1.65); // 名刺の短い辺のおよその長さ
+    const sorted = multi.cards.slice().sort((a, b) => ctr(a)[1] - ctr(b)[1]), rows = [];
+    for (const c of sorted) {
+      const row = rows[rows.length - 1];
+      if (row && ctr(c)[1] - row.y < side * 0.6) row.items.push(c); else rows.push({ y: ctr(c)[1], items: [c] });
+    }
+    return { s, cards: rows.flatMap((r) => r.items.sort((a, b) => ctr(a)[0] - ctr(b)[0])).map((c) => c.fit.quad) };
+  }
+  // 1枚: 写真の1割以上を占める名刺のうち一番大きいもの（ほぼ同じ大きさなら、より四角いもの）
+  const pick = (list) => list.flatMap((hy) => hy.comps.filter((c) => c.card && c.fit.area >= total * 0.1 && c.fit.area <= total * 0.92));
+  let cands = pick(hyps);
+  // 色では見つからないとき（白い机に白い名刺など）だけ、輪郭から探す
+  // 取りこぼしを避けるため、輪郭で見つかった大きなまとまりがちょうど1つのときに限る
+  if (!cands.length) {
+    const eh = build("edge", A.maps.edge, A.edgeThr, true);
+    if (eh.comps.filter((c) => !c.bg && c.area >= total * 0.03).length === 1) cands = pick([eh]);
+  }
+  if (!cands.length) return { s, cards: [] };
+  let best = cands.reduce((a, c) => (c.fit.area > a.fit.area ? c : a));
+  for (const c of cands) if (c.fit.area >= best.fit.area * 0.8 && c.rect > best.rect + 0.03) best = c;
+  if (pile(best)) return { s, cards: [], crowded: true };
+  return { s, cards: [best.fit.quad] };
 }
 
 // 四隅（解析用の座標）で囲まれた部分を、元の写真から長方形に切り出す
@@ -970,61 +1145,25 @@ async function warpCard(sd, W, H, quad, s) {
   return await new Promise((res) => out.toBlob(res, "image/jpeg", 0.85));
 }
 
-async function autoCropCard(blob) {
-  const bmp = await createImageBitmap(blob);
-  const W = bmp.width, H = bmp.height;
-  const full = document.createElement("canvas");
-  full.width = W; full.height = H;
-  const fctx = full.getContext("2d", { willReadFrequently: true });
-  fctx.drawImage(bmp, 0, 0);
-  bmp.close();
-  const { mask, w, h, s, total } = cardMask(full, W, H, 360);
-  // 一番大きなまとまりを名刺とみなす
-  const best = cardBlobs(mask, w, h, total * 0.12).sort((a, b) => b.area - a.area)[0];
-  if (!best) return null;                               // 名刺が小さすぎる／見つからない
-  const polyArea = cardLikeArea(best);
-  if (!polyArea || polyArea > total * 0.92) return null; // 四角でない／もう名刺だけが写っている
-  return await warpCard(fctx.getImageData(0, 0, W, H).data, W, H, best.quad, s);
-}
-
-/* 1枚の写真に名刺が何枚か並んでいるとき、1枚ずつに切り分ける。
- * 名刺らしい四角形（大きさがそろったもの）が2枚以上見つかったときだけ、切り分けた画像を返す。
- * 小さく写った名刺でも文字が読めるよう、元の写真は大きめ（長辺2800px）のまま切り出す。 */
-async function splitCards(file) {
+// 写真を解析・切り出し用のキャンバスに読み込む（向きを直し、長辺を maxDim までに縮める）
+async function loadCardCanvas(file, maxDim) {
   const bmp = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() => createImageBitmap(file));
-  const sc = Math.min(1, 2800 / Math.max(bmp.width, bmp.height));
+  const sc = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
   const W = Math.max(1, Math.round(bmp.width * sc)), H = Math.max(1, Math.round(bmp.height * sc));
   const full = document.createElement("canvas");
   full.width = W; full.height = H;
   const fctx = full.getContext("2d", { willReadFrequently: true });
   fctx.drawImage(bmp, 0, 0, W, H);
   bmp.close();
-  const { mask, w, h, s, total } = cardMask(full, W, H, 480);
-  const blobs = cardBlobs(mask, w, h, total * 0.02).map((c) => ({ ...c, poly: cardLikeArea(c) }));
-  let found = blobs.filter((c) => c.poly);
-  // 同じくらいの大きさのものが2つ以上写っているのに、きれいに分けられない（重なっている・手が写っている など）ときは
-  // "crowded" を返す。一部だけ切り出すと残りの名刺を取りこぼすので、呼び出し側は写真をそのまま1枚として扱う。
-  const bigArea = Math.max(0, ...blobs.map((c) => c.area));
-  const crowded = blobs.filter((c) => c.area >= bigArea * 0.4).length > 1 ? "crowded" : null;
-  if (found.length < 2) return crowded;
-  const biggest = Math.max(...found.map((c) => c.poly));
-  if (blobs.some((c) => !c.poly && c.area >= biggest * 0.4)) return "crowded";
-  found = found.filter((c) => c.poly >= biggest * 0.4);  // 名刺どうしは同じくらいの大きさ。小さな紙片などは外す
-  if (found.length < 2 || found.length > 30) return crowded;
-  // 読む順（上の段から、左→右）に並べる
-  const ctr = (c) => [c.quad.reduce((a, p) => a + p[0], 0) / 4, c.quad.reduce((a, p) => a + p[1], 0) / 4];
-  const side = Math.sqrt(biggest / 1.65);                // 名刺の短い辺のおよその長さ
-  found.sort((a, b) => ctr(a)[1] - ctr(b)[1]);
-  const rows = [];
-  for (const c of found) {
-    const row = rows[rows.length - 1];
-    if (row && ctr(c)[1] - row.y < side * 0.6) row.items.push(c); else rows.push({ y: ctr(c)[1], items: [c] });
-  }
-  const ordered = rows.flatMap((r) => r.items.sort((a, b) => ctr(a)[0] - ctr(b)[0]));
-  const sd = fctx.getImageData(0, 0, W, H).data;
-  const out = [];
-  for (const c of ordered) { const b = await warpCard(sd, W, H, c.quad, s); if (b) out.push(b); }
-  return out.length > 1 ? out : "crowded";
+  return { full, fctx, W, H };
+}
+
+// 互換用: 1枚の画像から名刺を切り抜く（見つからなければ null）
+async function autoCropCard(blob) {
+  const { full, fctx, W, H } = await loadCardCanvas(blob, 2800);
+  const det = detectCards(full, W, H, 400);
+  if (det.cards.length !== 1) return null;
+  return await warpCard(fctx.getImageData(0, 0, W, H).data, W, H, det.cards[0], det.s);
 }
 
 // 4点の対応から射影変換の係数を求める（from の座標 → to の座標）
@@ -1052,26 +1191,28 @@ function homography(from, to) {
   return b.map((v, i) => v / A[i][i]);
 }
 
-// 画像を取り込む共通処理: 縮小 → （オンなら）自動トリミング
-async function prepareCardImage(file) {
-  const blob = await compressImage(file);
-  if (!autoCropOn()) return { blob, original: null };
+// 写真1枚から名刺の画像を取り出す（写真を入れた時点で切り抜く）。
+// 名刺が何枚か写っていれば1枚ずつに分けて返す（opts.single なら分けない）。
+// 小さく写った名刺でも文字が読めるよう、元の写真は大きめ（長辺2800px）のまま切り出す。
+async function prepareCardImages(file, opts = {}) {
   try {
-    const cropped = await autoCropCard(blob);
-    if (cropped) return { blob: cropped, original: blob };
+    const { full, fctx, W, H } = await loadCardCanvas(file, 2800);
+    const det = detectCards(full, W, H, 480);
+    const many = det.cards.length > 1;
+    // 名刺が何枚か写っていそうだが分けられない: 1枚だけ切り抜くと他が消えるので、写真全体を残す
+    if (det.crowded || (many && opts.single)) return [{ blob: await compressImage(file, 2000), original: null, crowded: !opts.single }];
+    if (many || (det.cards.length === 1 && autoCropOn())) {
+      const sd = fctx.getImageData(0, 0, W, H).data, out = [];
+      for (const q of det.cards) { const b = await warpCard(sd, W, H, q, det.s); if (b) out.push(b); }
+      if (many && out.length > 1) return out.map((blob) => ({ blob, original: null }));
+      if (!many && out.length === 1) return [{ blob: out[0], original: await compressImage(file) }];
+    }
   } catch (e) { /* 失敗しても元の写真で続ける */ }
-  return { blob, original: null };
+  return [{ blob: await compressImage(file), original: null }];
 }
-
-// 写真1枚から名刺の画像を取り出す。名刺が何枚か写っていれば1枚ずつに分けて返す
-async function prepareCardImages(file) {
-  try {
-    const parts = await splitCards(file);
-    if (Array.isArray(parts)) return parts.map((blob) => ({ blob, original: null }));
-    // 名刺が何枚か写っていそうだが分けられなかった: 1枚だけ切り抜くと他が消えるので、写真全体を残す
-    if (parts === "crowded") return [{ blob: await compressImage(file, 2000), original: null, crowded: true }];
-  } catch (e) { /* 分けられなければ1枚として扱う */ }
-  return [await prepareCardImage(file)];
+// 画像を取り込む共通処理（1枚だけ）: 縮小 → （オンなら）自動トリミング
+async function prepareCardImage(file) {
+  return (await prepareCardImages(file, { single: true }))[0];
 }
 
 /* ---------- 表示 ---------- */
@@ -2037,6 +2178,10 @@ function updateSyncUI() {
   $("cloudSyncBtn").hidden = true;
   $("menuSync").hidden = !cloudConfigured();
   bar.hidden = false;
+  // 画面下の一言: いまの保存先を正しく伝える（クラウド接続中なのに「ブラウザ内に保存」と出さない）
+  if (!GAS) $("footNote").innerHTML = cloudConfigured()
+    ? '☁ クラウド（Googleドライブ）に保存<span class="long">しています。どの端末からも同じ一覧を開けます</span>。'
+    : 'データはこのブラウザ内にだけ保存<span class="long">されています。☰ →「クラウド保存の設定」でつなぐと、どの端末からも開けます</span>。';
   if (GAS) {
     const unsyncedG = cards.filter((c) => c.synced !== true).length + getPendingDeletes().length;
     if (!unsyncedG) { bar.innerHTML = ""; bar.hidden = true; return; }
