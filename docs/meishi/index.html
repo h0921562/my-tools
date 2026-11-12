@@ -438,7 +438,6 @@
       <button id="menuBtn" title="その他のメニュー" aria-haspopup="true" aria-expanded="false">☰</button>
       <div class="menu" id="menu" hidden>
         <button data-act="sync" id="menuSync" hidden>☁ 今すぐ同期</button>
-        <button data-act="batch">📷 まとめて登録（複数枚）</button>
         <button data-act="folders">📁 プロジェクトを整理</button>
         <button data-act="docs">📎 資料を追加（会社は自動で判定）</button>
         <button data-act="salesdesk">📤 表示中を今すぐ Sales Desk に追加（通常は自動）</button>
@@ -465,7 +464,6 @@
   <div class="folder-row">
     <select id="projectSelect" class="folder-btn" title="プロジェクトで絞り込む" style="max-width:60%"></select>
     <button id="folderBtn" title="プロジェクトを作る・名前変更・削除">⚙</button>
-    <button id="batchBtn" title="名刺の写真を何枚でもまとめて登録" style="margin-left:auto">📷 まとめて登録</button>
   </div>
   <div class="toolbar">
     <div id="stats"></div>
@@ -2873,7 +2871,7 @@ function openBatchDialog() {
 function updateBatchBar() {
   const bar = $("batchBar");
   if (!batch.total) { bar.hidden = true; return; }
-  const parts = [`📷 まとめて登録 ${batch.total}枚：読み取り ${batch.read}/${batch.total}`];
+  const parts = [`📷 ${batch.total}枚を登録中：読み取り ${batch.read}/${batch.total}`];
   if (batch.opusWaiting || batch.opusDone) parts.push(`🤖 Opus精読 ${batch.opusDone}/${batch.opusDone + batch.opusWaiting}`);
   const done = batch.read >= batch.total && batch.opusWaiting === 0;
   bar.textContent = parts.join("　") + (done ? "　✓ 完了" : "（この画面を開いたままにしてください）");
@@ -3685,7 +3683,6 @@ async function init() {
   $("newFolder").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); createFolder(); } });
   $("moveBtn").addEventListener("click", moveShownCards);
   $("batchCancelBtn").addEventListener("click", () => $("batchDialog").close());
-  $("batchBtn").addEventListener("click", openBatchDialog);
   $("batchPickBtn").addEventListener("click", () => $("batchFiles").click());
   $("batchFiles").addEventListener("change", (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) startBatch(fs); });
   $("tagCloseBtn").addEventListener("click", () => $("tagDialog").close());
