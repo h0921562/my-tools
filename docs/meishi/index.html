@@ -1541,7 +1541,7 @@ function openDetail(id) {
     ["メール", c.email ? `<span class="copyable" data-copy="${esc(c.email)}" title="タップでコピー">${esc(c.email)}</span>` : ""],
     ["住所", c.address ? `<span class="copyable" data-copy="${esc(c.address)}" title="タップでコピー">${esc(c.address)}</span>` : ""],
     ["業態", esc(c.industry)],
-    ["Sales Desk", !c.company ? "" : c.sdStatus === "ok" ? "✓ マスターに登録済み" : String(c.sdStatus || "").startsWith("conflict") ? "⚠ 要確認（同じ名前の会社が複数あるため、Sales Desk 側で選んでください）" : String(c.sdStatus || "").startsWith("error") ? "⚠ 登録できませんでした（内容を確認してください）" : "自動で登録待ち（読み取りが終わって数分後）"],
+    ["Sales Desk", !c.company ? "" : c.sdStatus === "ok" ? "✓ マスターに登録済み" : String(c.sdStatus || "").startsWith("conflict") ? "⚠ 要確認（同じ名前の会社が複数あるため、Sales Desk 側で選んでください）" : String(c.sdStatus || "").startsWith("error") ? "⚠ 登録できませんでした（内容を確認してください）" : "自動で登録します（保存・読み取りが終わるとすぐ送られます）"],
     ["Web", site ? `<a href="${esc(site)}" target="_blank" rel="noopener">${esc(c.website)}</a>` : esc(c.website)],
     ["プロジェクト", c.folder ? esc(c.folder.split("/").join(" › ")) : ""],
     ["会った日", c.metAt ? esc(fmtDate(c.metAt)) : ""],
@@ -1890,6 +1890,7 @@ async function saveCard(e) {
         await pushCard(card, imageArg);
         card.synced = true;
         await putCard(card);
+        pushSalesDeskNow([card.id]); // 保存できたら、待たずに Sales Desk へ
       } catch (e) {
         card.synced = false;
       }
@@ -2058,6 +2059,25 @@ async function pushCard(card, imageArg) {
   const payload = { action: "upsert", card: cardMeta(card) };
   if (imageArg !== undefined) payload.image = imageArg;
   await cloudPost(payload);
+}
+
+// Sales Desk へすぐ送る（保存した直後・読み取りが終わった直後に呼ぶ）。
+// 失敗しても何もしない: 送りそびれた名刺は、保存先が後からまとめて送る。
+async function pushSalesDeskNow(ids) {
+  if (!cloudConfigured()) return;
+  const list = ids.map((id) => cards.find((c) => c.id === id)).filter((c) => c && c.synced === true && c.company && c.name
+    && c.name !== NAME_PENDING && c.sdStatus !== "ok" && !String(c.sdStatus || "").startsWith("conflict"));
+  if (!list.length) return;
+  try {
+    const r = await cloudPost({ action: "sdPush", ids: list.map((c) => c.id) });
+    const st = (r.result && r.result.statuses) || {};
+    let changed = false;
+    for (const c of list) {
+      if (st[c.id] == null || c.sdStatus === st[c.id]) continue;
+      c.sdStatus = st[c.id]; await putCard(c); changed = true;
+    }
+    if (changed && $("detailDialog").open && detailId && list.some((c) => c.id === detailId)) openDetail(detailId);
+  } catch (e) { /* あとで自動で送られる */ }
 }
 
 // 未同期カードをクラウドへ送る。
@@ -2968,7 +2988,7 @@ async function startBatch(files, common) {
 
   // 3) 読み取り（クラウドは並行3件、ブラウザ内OCRは重いので1件ずつ）
   await runPool(created, cloudConfigured() ? 3 : 1, async (c) => {
-    if (cloudConfigured()) startBatchOpus(c); // Opusは別に走らせる（1分前後）
+    const opus = cloudConfigured() ? startBatchOpus(c) : null; // Opusは別に走らせる（1分前後）
     try {
       const text = await ocrTextFor(c.image);
       const cur = cards.find((x) => x.id === c.id);
@@ -2979,6 +2999,8 @@ async function startBatch(files, common) {
     }
     batch.read++;
     updateBatchBar();
+    // 読み取り（Google と Opus の両方）が終わったら、待たずに Sales Desk へ
+    if (opus) opus.then(() => pushSalesDeskNow([c.id]));
   });
 }
 

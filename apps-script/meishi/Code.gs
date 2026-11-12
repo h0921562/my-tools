@@ -66,7 +66,8 @@ function api(payload) {
   try {
     payload = payload || {};
     checkToken_(payload.token);
-    if (payload.action !== 'ocrJob') maybePushSalesDesk_(); // 名刺が使われるたびに、未登録の名刺を Sales Desk へ（2分に1回まで）
+    // 名刺が使われるたびに、送りそびれた名刺を Sales Desk へ（45秒に1回まで）。ふだんは sdPush ですぐ送られる
+    if (payload.action !== 'ocrJob' && payload.action !== 'sdPush') maybePushSalesDesk_();
     switch (payload.action) {
       case 'ping': sheet_(); folder_(); return { ok: true, sheetUrl: spreadsheet_().getUrl() };
       case 'list': return { ok: true, cards: listCards_() };
@@ -84,6 +85,8 @@ function api(payload) {
       case 'coList': return { ok: true, companies: tableList_(CO_TABLE) };
       case 'coUpsert': return withLock_(function () { return { ok: true, row: tableUpsert_(CO_TABLE, payload.company) }; });
       // Opus（Claude CLI on GitHub Actions）による精読
+      // 読み取りが終わった／保存した名刺を、待たずに Sales Desk へ送る（アプリが名刺ごとに呼ぶ）
+      case 'sdPush': return { ok: true, result: pushSalesDesk_((payload.ids || []).slice(0, 50).map(String)) };
       case 'ocrStart': return opusStart_(payload.image);
       case 'ocrPoll': return opusPoll_(payload.id);
       case 'ocrJob': return opusJob_(payload.id);       // Actions のワーカーが画像を取りに来る
@@ -528,20 +531,21 @@ function opusStartFile_(fileId) {
 
 /* ================= Sales Desk の共通マスターへ自動登録 =================
  * 会社名のある名刺を、Sales Desk に自動で送る（全件マスターへ、業態に合う事業へ。抹茶なら抹茶の営業リスト）。
- * Opus の読み取りが終わるのを待つため、最後の更新から3分たった名刺だけ送る。
- * アプリが使われるたび（名刺の保存・一覧の取得・読み取り結果の受け取り）に、2分に1回まで動く。
+ * ふだんは、アプリが「読み取りが終わった・保存した」時点で sdPush を呼び、その名刺をすぐ送る。
+ * それとは別に、送りそびれた名刺（途中でアプリを閉じた など）を拾うため、アプリが使われるたびに
+ * 45秒に1回まで、最後の更新から90秒たった名刺をまとめて送る。
  * 認証: Config.gs の SD_PRIVATE_KEY（秘密鍵）で送る内容に署名する。Sales Desk は公開鍵で確かめる。
  *   代わりにスクリプト プロパティ SALES_DESK_TOKEN（合言葉）でもよい。どちらもなければ何もしない。送った結果はシートの sdStatus 列に残す（ok / conflict:… / error:…）。
  */
 const SALES_DESK_URL_DEFAULT = 'https://sales-desk.yamauchi-39d.workers.dev';
-const SD_SETTLE_MS = 3 * 60 * 1000;
+const SD_SETTLE_MS = 90 * 1000;
 
 function maybePushSalesDesk_() {
   try {
     if (!sdAuthReady_()) return;
     const cache = CacheService.getScriptCache();
     if (cache.get('sdPushLock')) return;
-    cache.put('sdPushLock', '1', 120);
+    cache.put('sdPushLock', '1', 45);
     pushSalesDesk_();
   } catch (e) { /* 名刺の操作は止めない */ }
 }
@@ -566,7 +570,11 @@ function sdHeaders_(body) {
   return { 'X-Meishi-Time': time, 'X-Meishi-Signature': Utilities.base64Encode(sig) };
 }
 
-function pushSalesDesk_() {
+// ids を渡すと、その名刺だけを待ち時間なしで送る。返り値の statuses は 名刺ID → 結果（ok / conflict:… / error:…）
+function pushSalesDesk_(ids) {
+  const only = ids && ids.length ? {} : null;
+  if (only) ids.forEach(function (id) { only[id] = true; });
+  const statuses = {};
   const props = PropertiesService.getScriptProperties();
   if (!sdAuthReady_()) return { skipped: 'Sales Desk への認証（SD_PRIVATE_KEY か SALES_DESK_TOKEN）が未設定です' };
   const base = (props.getProperty('SALES_DESK_URL') || SALES_DESK_URL_DEFAULT).replace(/\/+$/, '');
@@ -581,7 +589,8 @@ function pushSalesDesk_() {
     const status = String(r[ci.idx.sdStatus] || '');
     if (status === 'ok' || status.indexOf('conflict') === 0) return;
     if (!c.company || !c.name || c.name === '（読み取り中）') return;
-    if (now - (c.updatedAt || 0) < SD_SETTLE_MS) return; // Opus の読み取りが終わるのを待つ
+    if (only) { if (!only[c.id]) return; }
+    else if (now - (c.updatedAt || 0) < SD_SETTLE_MS) return; // 読み取りの途中かもしれないので少し待つ
     pending.push({ row: i + 2, card: c });
   });
   if (!pending.length) return { sent: 0 };
@@ -603,13 +612,17 @@ function pushSalesDesk_() {
       payload: Utilities.newBlob(body).getBytes(), muteHttpExceptions: true,
     });
   };
-  const mark = function (row, v) { sh.getRange(row, ci.idx.sdStatus + 1).setNumberFormat('@').setValue(String(v).slice(0, 300)); };
+  const mark = function (row, v, id) {
+    const text = String(v).slice(0, 300);
+    sh.getRange(row, ci.idx.sdStatus + 1).setNumberFormat('@').setValue(text);
+    if (id) statuses[id] = text;
+  };
   const apply = function (results) {
     const byId = {};
     (results || []).forEach(function (x) { byId[x.card_id] = x; });
     batch.forEach(function (p) {
       const x = byId[p.card.id];
-      if (x) mark(p.row, x.status === 'conflict' ? 'conflict:' + (x.candidates || []).join('、') : 'ok');
+      if (x) mark(p.row, x.status === 'conflict' ? 'conflict:' + (x.candidates || []).join('、') : 'ok', p.card.id);
     });
   };
   const res = send(items);
@@ -617,7 +630,7 @@ function pushSalesDesk_() {
   if (code === 200) {
     const out = JSON.parse(res.getContentText());
     apply(out.results);
-    return { sent: batch.length, message: out.message || '' };
+    return { sent: batch.length, message: out.message || '', statuses: statuses };
   }
   if (code === 400) {
     // 1枚の内容が原因で全体が断られたときは、1枚ずつ送り直して、だめな名刺だけ印を付ける（他を止めない）
@@ -625,10 +638,10 @@ function pushSalesDesk_() {
     items.forEach(function (it, i) {
       const r = send([it]);
       if (r.getResponseCode() === 200) results.push.apply(results, JSON.parse(r.getContentText()).results || []);
-      else if (r.getResponseCode() === 400) mark(batch[i].row, 'error:' + r.getContentText().slice(0, 200));
+      else if (r.getResponseCode() === 400) mark(batch[i].row, 'error:' + r.getContentText().slice(0, 200), batch[i].card.id);
     });
     apply(results);
-    return { sent: results.length, retried: true };
+    return { sent: results.length, retried: true, statuses: statuses };
   }
   // 鍵の違い・未設定・一時的な障害などは、名刺ごとの印は付けず次の機会にもう一度送る
   return { error: code, body: res.getContentText().slice(0, 200) };
