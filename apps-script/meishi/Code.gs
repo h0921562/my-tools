@@ -20,8 +20,10 @@ const IMAGE_FOLDER_NAME = '名刺管理_画像';
 
 // 列の並び（見出し行の名前で列を探すので、後から列を足しても壊れない）
 const COLS = ['id', 'name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address',
-  'website', 'industry', 'metAt', 'metPlace', 'folder', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt'];
+  'website', 'industry', 'metAt', 'metPlace', 'folder', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt', 'sdStatus'];
 const NUMBER_COLS = { createdAt: true, updatedAt: true };
+// sdStatus はサーバーだけが書く（アプリからの保存では上書きしない）
+const SERVER_ONLY_COLS = { sdStatus: true };
 
 /* ================= 合鍵の確認 ================= */
 
@@ -64,6 +66,7 @@ function api(payload) {
   try {
     payload = payload || {};
     checkToken_(payload.token);
+    if (payload.action !== 'ocrJob') maybePushSalesDesk_(); // 名刺が使われるたびに、未登録の名刺を Sales Desk へ（2分に1回まで）
     switch (payload.action) {
       case 'ping': sheet_(); folder_(); return { ok: true, sheetUrl: spreadsheet_().getUrl() };
       case 'list': return { ok: true, cards: listCards_() };
@@ -215,6 +218,7 @@ function upsertCard_(card, image) {
   COLS.forEach(function (k) {
     const i = ci.idx[k];
     if (i < 0) return;
+    if (SERVER_ONLY_COLS[k]) return;
     if (k === 'imageFileId') row[i] = imageFileId;
     else if (k === 'tags') row[i] = (card.tags || []).map(String).join(', ');
     else if (card[k] !== undefined) row[i] = card[k] == null ? '' : String(card[k]);
@@ -520,4 +524,96 @@ function opusStartFile_(fileId) {
   });
   if (res.getResponseCode() !== 204) { deleteJob_(id); return { ok: false, error: 'Actions を起動できませんでした（' + res.getResponseCode() + '）' }; }
   return { ok: true, id: id };
+}
+
+/* ================= Sales Desk の共通マスターへ自動登録 =================
+ * 会社名のある名刺を、Sales Desk に自動で送る（全件マスターへ、業態に合う事業へ。抹茶なら抹茶の営業リスト）。
+ * Opus の読み取りが終わるのを待つため、最後の更新から3分たった名刺だけ送る。
+ * アプリが使われるたび（名刺の保存・一覧の取得・読み取り結果の受け取り）に、2分に1回まで動く。
+ * 必要な設定（スクリプト プロパティ）: SALES_DESK_TOKEN（Sales Desk の MEISHI_INTAKE_TOKEN と同じ値）。
+ *   未設定なら何もしない。送った結果はシートの sdStatus 列に残す（ok / conflict:… / error:…）。
+ */
+const SALES_DESK_URL_DEFAULT = 'https://sales-desk.yamauchi-39d.workers.dev';
+const SD_SETTLE_MS = 3 * 60 * 1000;
+
+function maybePushSalesDesk_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    if (!props.getProperty('SALES_DESK_TOKEN')) return;
+    const cache = CacheService.getScriptCache();
+    if (cache.get('sdPushLock')) return;
+    cache.put('sdPushLock', '1', 120);
+    pushSalesDesk_();
+  } catch (e) { /* 名刺の操作は止めない */ }
+}
+
+// エディタから手動で実行してもよい（結果はログに出る）
+function pushSalesDesk() { Logger.log(JSON.stringify(pushSalesDesk_())); }
+
+function pushSalesDesk_() {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('SALES_DESK_TOKEN');
+  if (!token) return { skipped: 'SALES_DESK_TOKEN が未設定です' };
+  const base = (props.getProperty('SALES_DESK_URL') || SALES_DESK_URL_DEFAULT).replace(/\/+$/, '');
+  const sh = sheet_(), ci = colIndex_(sh);
+  const n = sh.getLastRow() - 1;
+  if (n <= 0) return { sent: 0 };
+  const rows = sh.getRange(2, 1, n, ci.width).getValues();
+  const now = Date.now();
+  const pending = [];
+  rows.forEach(function (r, i) {
+    const c = rowToCard_(r, ci.idx);
+    const status = String(r[ci.idx.sdStatus] || '');
+    if (status === 'ok' || status.indexOf('conflict') === 0) return;
+    if (!c.company || !c.name || c.name === '（読み取り中）') return;
+    if (now - (c.updatedAt || 0) < SD_SETTLE_MS) return; // Opus の読み取りが終わるのを待つ
+    pending.push({ row: i + 2, card: c });
+  });
+  if (!pending.length) return { sent: 0 };
+  const batch = pending.slice(0, 50);
+  const items = batch.map(function (p) {
+    const c = p.card;
+    return {
+      card_id: c.id, company: c.company, name: c.name === '（氏名を確認）' ? '' : c.name, title: c.title,
+      email: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.email) ? c.email : '', phone: c.phone, website: c.website,
+      address: String(c.address || '').slice(0, 300), met: [c.metAt, c.metPlace].filter(String).join(' ').slice(0, 300),
+      memo: String(c.memo || '').slice(0, 1500), card_url: c.imageFileId ? 'https://drive.google.com/file/d/' + c.imageFileId + '/view' : '',
+      industry: String(c.industry || '').slice(0, 80), project: c.folder || '',
+    };
+  });
+  const send = function (list) {
+    return UrlFetchApp.fetch(base + '/api/meishi-intake/auto', {
+      method: 'post', contentType: 'application/json', headers: { 'X-Meishi-Token': token },
+      payload: JSON.stringify({ items: list }), muteHttpExceptions: true,
+    });
+  };
+  const mark = function (row, v) { sh.getRange(row, ci.idx.sdStatus + 1).setNumberFormat('@').setValue(String(v).slice(0, 300)); };
+  const apply = function (results) {
+    const byId = {};
+    (results || []).forEach(function (x) { byId[x.card_id] = x; });
+    batch.forEach(function (p) {
+      const x = byId[p.card.id];
+      if (x) mark(p.row, x.status === 'conflict' ? 'conflict:' + (x.candidates || []).join('、') : 'ok');
+    });
+  };
+  const res = send(items);
+  const code = res.getResponseCode();
+  if (code === 200) {
+    const out = JSON.parse(res.getContentText());
+    apply(out.results);
+    return { sent: batch.length, message: out.message || '' };
+  }
+  if (code === 400) {
+    // 1枚の内容が原因で全体が断られたときは、1枚ずつ送り直して、だめな名刺だけ印を付ける（他を止めない）
+    const results = [];
+    items.forEach(function (it, i) {
+      const r = send([it]);
+      if (r.getResponseCode() === 200) results.push.apply(results, JSON.parse(r.getContentText()).results || []);
+      else if (r.getResponseCode() === 400) mark(batch[i].row, 'error:' + r.getContentText().slice(0, 200));
+    });
+    apply(results);
+    return { sent: results.length, retried: true };
+  }
+  // 鍵の違い・未設定・一時的な障害などは、名刺ごとの印は付けず次の機会にもう一度送る
+  return { error: code, body: res.getContentText().slice(0, 200) };
 }

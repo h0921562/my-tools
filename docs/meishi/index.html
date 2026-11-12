@@ -425,7 +425,7 @@
         <button data-act="batch">📷 まとめて登録（複数枚）</button>
         <button data-act="folders">📁 プロジェクトを整理</button>
         <button data-act="docs">📎 資料を追加（会社は自動で判定）</button>
-        <button data-act="salesdesk">📤 表示中を Sales Desk のマスターに追加</button>
+        <button data-act="salesdesk">📤 表示中を今すぐ Sales Desk に追加（通常は自動）</button>
         <hr>
         <button data-act="dups">🔍 重複をチェック・統合</button>
         <hr>
@@ -762,7 +762,7 @@ function lsGet(k, d) { try { const v = localStorage.getItem(k); return v == null
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 
 // 後から追加した項目（古いデータ・バックアップ・クラウドには無いことがある）
-const EXTRA_FIELDS = ["website", "metAt", "metPlace", "folder", "industry"];
+const EXTRA_FIELDS = ["website", "metAt", "metPlace", "folder", "industry", "sdStatus"];
 
 let toastTimer = null;
 function toast(msg) {
@@ -1313,6 +1313,7 @@ function openDetail(id) {
     ["メール", c.email ? `<span class="copyable" data-copy="${esc(c.email)}" title="タップでコピー">${esc(c.email)}</span>` : ""],
     ["住所", c.address ? `<span class="copyable" data-copy="${esc(c.address)}" title="タップでコピー">${esc(c.address)}</span>` : ""],
     ["業態", esc(c.industry)],
+    ["Sales Desk", !c.company ? "" : c.sdStatus === "ok" ? "✓ マスターに登録済み" : String(c.sdStatus || "").startsWith("conflict") ? "⚠ 要確認（同じ名前の会社が複数あるため、Sales Desk 側で選んでください）" : String(c.sdStatus || "").startsWith("error") ? "⚠ 登録できませんでした（内容を確認してください）" : "自動で登録待ち（読み取りが終わって数分後）"],
     ["Web", site ? `<a href="${esc(site)}" target="_blank" rel="noopener">${esc(c.website)}</a>` : esc(c.website)],
     ["プロジェクト", c.folder ? esc(c.folder.split("/").join(" › ")) : ""],
     ["会った日", c.metAt ? esc(fmtDate(c.metAt)) : ""],
