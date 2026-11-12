@@ -59,7 +59,9 @@
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     max-width: 1100px; margin: 0 auto;
   }
-  h1 { font-size: 18px; margin: 0; white-space: nowrap; }
+  h1 { font-size: 18px; margin: 0; white-space: nowrap; flex: 1; }
+  @media (min-width: 621px) { header.searching h1 { flex: none; } } /* PCでは検索欄を同じ行に広げる */
+  #searchBtn.on { border-color: var(--accent); color: var(--accent); }
   #searchBox {
     flex: 1; min-width: 180px;
     padding: 8px 12px;
@@ -229,7 +231,7 @@
   #cardGrid.list .card {
     display: flex; align-items: center; gap: 12px;
     border-radius: 0; box-shadow: none; border-width: 0 0 1px; background: transparent;
-    padding: 8px 4px;
+    padding: 7px 4px;
   }
   #cardGrid.list .card:hover { transform: none; background: var(--surface); }
   #cardGrid.list .card .thumb, #cardGrid.list .card .thumb-placeholder {
@@ -239,11 +241,15 @@
   /* リスト表示では名刺画像を出さない（文字だけで一覧性を優先。画像は詳細で見る） */
   #cardGrid.list .card .thumb, #cardGrid.list .card .thumb-placeholder { display: none; }
   #cardGrid.list .card .thumb-placeholder .avatar { width: 28px; height: 28px; font-size: 13px; }
-  #cardGrid.list .card .info { padding: 0; flex: 1; min-width: 0; }
-  #cardGrid.list .card .name, #cardGrid.list .card .company { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* 会った日とタグを1行にまとめて、1画面に多く並べる */
-  #cardGrid.list .card .met, #cardGrid.list .card .tags { display: inline-flex; vertical-align: middle; margin-top: 2px; }
-  #cardGrid.list .card .met { margin-right: 6px; }
+  /* 1人1行: 氏名の横に会社名、右端に会った日（縦幅を抑えて1画面に多く並べる） */
+  #cardGrid.list .card .info { padding: 0; flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+  #cardGrid.list .card .name, #cardGrid.list .card .company, #cardGrid.list .card .met { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #cardGrid.list .card .name { flex: 0 1 auto; max-width: 46%; }
+  #cardGrid.list .card .company { flex: 1 1 0; min-width: 0; margin-top: 0; }
+  #cardGrid.list .card .met { flex: 0 1 auto; max-width: 34%; margin-top: 0; }
+  #cardGrid.list .card .met .met-ic { display: none; }
+  #cardGrid.list .card .folder-chip { flex: 0 0 auto; margin-right: 0; white-space: nowrap; }
+  #cardGrid.list .card .tags { display: none; }
   #cardGrid.list .card .tags .tag-chip { font-size: 10px; padding: 0 6px; line-height: 1.6; }
   #cardGrid.list .card.unsynced::after { top: 50%; transform: translateY(-50%); right: 4px; }
   #cardGrid.list .group-head { margin-top: 14px; }
@@ -383,6 +389,7 @@
     h1 { font-size: 16px; flex: 1; }
     .header-row { gap: 8px; }
     #searchBox { min-width: 100%; order: 10; font-size: 16px; } /* 16px未満だとiOSが入力時にズームする */
+    #cardGrid.list .card .met .met-place { display: none; } /* スマホの一覧では会った日だけ */
     button { padding: 7px 11px; font-size: 13px; }
     #addBtn { display: none; }
     #fab {
@@ -416,12 +423,14 @@
 <header>
   <div class="header-row">
     <h1>📇 名刺管理</h1>
-    <input type="search" id="searchBox" placeholder="氏名・会社・メモなどで検索">
+    <input type="search" id="searchBox" placeholder="氏名・会社・メモなどで検索" hidden>
+    <button id="searchBtn" title="検索" aria-label="検索" aria-expanded="false">🔍</button>
     <button class="primary" id="addBtn">＋ 新規登録</button>
     <button id="cloudSyncBtn" title="クラウド（スプレッドシート／Drive）と同期" hidden>☁ 同期</button>
     <div class="menu-wrap">
       <button id="menuBtn" title="その他のメニュー" aria-haspopup="true" aria-expanded="false">☰</button>
       <div class="menu" id="menu" hidden>
+        <button data-act="sync" id="menuSync" hidden>☁ 今すぐ同期</button>
         <button data-act="batch">📷 まとめて登録（複数枚）</button>
         <button data-act="folders">📁 プロジェクトを整理</button>
         <button data-act="docs">📎 資料を追加（会社は自動で判定）</button>
@@ -481,7 +490,7 @@
       <label>名刺画像</label>
       <div class="img-drop" id="imgDrop">
         <img id="imgPreview" alt="" hidden>
-        <span id="imgHint">タップして名刺を撮影／画像を選択（選ぶと自動で読み取ります）</span>
+        <span id="imgHint">タップして名刺を撮影／画像を選択（何枚でも。複数の名刺が写った写真も自動で分けます）</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
         <button type="button" id="ocrBtn" style="font-size:12px;padding:4px 10px" hidden>📷 もう一度読み取る</button>
@@ -497,7 +506,7 @@
         <button type="button" id="ocrRawCopyBtn" style="font-size:12px;padding:4px 10px;margin-top:4px">全文をコピー</button>
         <span class="cfg-hint" id="ocrRawCopyDone"></span>
       </details>
-      <input type="file" id="imgInput" accept="image/*">
+      <input type="file" id="imgInput" accept="image/*" multiple>
       <div class="form-grid">
         <div>
           <label>氏名 *</label><input type="text" id="fName" required autocomplete="off">
@@ -629,7 +638,7 @@
 <dialog id="batchDialog">
   <div class="dialog-body">
     <h2>まとめて登録（複数枚）</h2>
-    <p class="cfg-hint">名刺の写真を何枚でもまとめて選べます。1枚ずつ名刺として登録し、文字を自動で読み取ります（クラウド接続時はOpusで精読）。プロジェクト・会った日・場所は全部の名刺に入ります。</p>
+    <p class="cfg-hint">名刺の写真を何枚でもまとめて選べます。1枚の写真に名刺が何枚か並んでいても自動で分けます。1枚ずつ名刺として登録し、文字を自動で読み取ります（クラウド接続時はOpusで精読）。プロジェクト・会った日・場所は全部の名刺に入ります。</p>
     <form id="batchForm">
       <div class="form-grid">
         <div><label>会った日</label><input type="date" id="bMetAt"></div>
@@ -843,17 +852,9 @@ async function compressImage(file, maxDim = 1400, quality = 0.82) {
 const AUTOCROP_KEY = "meishi.autocrop";
 const autoCropOn = () => lsGet(AUTOCROP_KEY, "1") === "1";
 
-async function autoCropCard(blob) {
-  const bmp = await createImageBitmap(blob);
-  const W = bmp.width, H = bmp.height;
-  const full = document.createElement("canvas");
-  full.width = W; full.height = H;
-  const fctx = full.getContext("2d", { willReadFrequently: true });
-  fctx.drawImage(bmp, 0, 0);
-  bmp.close();
-
-  // 1) 解析用に縮小して白黒に
-  const s = Math.min(1, 360 / Math.max(W, H));
+// 解析用に縮小 → 白黒 → ぼかし → 大津の方法で明暗に分け、名刺側を 1 にした図を返す
+function cardMask(full, W, H, maxSide) {
+  const s = Math.min(1, maxSide / Math.max(W, H));
   const w = Math.max(1, Math.round(W * s)), h = Math.max(1, Math.round(H * s));
   const small = document.createElement("canvas");
   small.width = w; small.height = h;
@@ -872,8 +873,6 @@ async function autoCropCard(blob) {
     }
     g[y * w + x] = sum / n;
   }
-
-  // 2) 大津の方法でしきい値を決め、明暗に分ける
   const hist = new Array(256).fill(0);
   for (const v of g) hist[Math.min(255, v | 0)]++;
   const total = w * h;
@@ -894,62 +893,61 @@ async function autoCropCard(blob) {
   for (let x = 0; x < w; x++) { edgeBright += mask[x] + mask[(h - 1) * w + x]; edgeN += 2; }
   for (let y = 0; y < h; y++) { edgeBright += mask[y * w] + mask[y * w + w - 1]; edgeN += 2; }
   if (edgeBright / edgeN > 0.5) for (let i = 0; i < total; i++) mask[i] ^= 1;
+  return { mask, w, h, s, total };
+}
 
-  // 3) 一番大きなまとまりを名刺とみなす
-  const label = new Int32Array(total).fill(-1);
-  let bestId = -1, bestArea = 0, id = 0;
-  const stack = new Int32Array(total);
+// つながったまとまりごとに、面積と四隅（左上=x+y最小, 右下=x+y最大, 右上=x-y最大, 左下=x-y最小）を出す
+function cardBlobs(mask, w, h, minArea) {
+  const total = w * h, seen = new Uint8Array(total), stack = new Int32Array(total), out = [];
   for (let i = 0; i < total; i++) {
-    if (!mask[i] || label[i] !== -1) continue;
-    let sp = 0, area = 0; stack[sp++] = i; label[i] = id;
+    if (!mask[i] || seen[i]) continue;
+    let sp = 0, area = 0, tl, tr, br, bl, mn1 = Infinity, mx1 = -Infinity, mn2 = Infinity, mx2 = -Infinity;
+    stack[sp++] = i; seen[i] = 1;
     while (sp) {
       const k = stack[--sp]; area++;
       const x = k % w, y = (k / w) | 0;
-      if (x > 0 && mask[k - 1] && label[k - 1] === -1) { label[k - 1] = id; stack[sp++] = k - 1; }
-      if (x < w - 1 && mask[k + 1] && label[k + 1] === -1) { label[k + 1] = id; stack[sp++] = k + 1; }
-      if (y > 0 && mask[k - w] && label[k - w] === -1) { label[k - w] = id; stack[sp++] = k - w; }
-      if (y < h - 1 && mask[k + w] && label[k + w] === -1) { label[k + w] = id; stack[sp++] = k + w; }
+      if (x + y < mn1) { mn1 = x + y; tl = [x, y]; }
+      if (x + y > mx1) { mx1 = x + y; br = [x, y]; }
+      if (x - y > mx2) { mx2 = x - y; tr = [x, y]; }
+      if (x - y < mn2) { mn2 = x - y; bl = [x, y]; }
+      if (x > 0 && mask[k - 1] && !seen[k - 1]) { seen[k - 1] = 1; stack[sp++] = k - 1; }
+      if (x < w - 1 && mask[k + 1] && !seen[k + 1]) { seen[k + 1] = 1; stack[sp++] = k + 1; }
+      if (y > 0 && mask[k - w] && !seen[k - w]) { seen[k - w] = 1; stack[sp++] = k - w; }
+      if (y < h - 1 && mask[k + w] && !seen[k + w]) { seen[k + w] = 1; stack[sp++] = k + w; }
     }
-    if (area > bestArea) { bestArea = area; bestId = id; }
-    id++;
+    if (area >= minArea) out.push({ area, quad: [tl, tr, br, bl] });
   }
-  if (bestId < 0 || bestArea < total * 0.12) return null; // 名刺が小さすぎる／見つからない
+  return out;
+}
 
-  // 4) 四隅（左上=x+y最小, 右下=x+y最大, 右上=x-y最大, 左下=x-y最小）
-  let tl, tr, br, bl, mn1 = Infinity, mx1 = -Infinity, mn2 = Infinity, mx2 = -Infinity;
-  for (let k = 0; k < total; k++) {
-    if (label[k] !== bestId) continue;
-    const x = k % w, y = (k / w) | 0;
-    if (x + y < mn1) { mn1 = x + y; tl = [x, y]; }
-    if (x + y > mx1) { mx1 = x + y; br = [x, y]; }
-    if (x - y > mx2) { mx2 = x - y; tr = [x, y]; }
-    if (x - y < mn2) { mn2 = x - y; bl = [x, y]; }
-  }
-  const quad = [tl, tr, br, bl];
-  const polyArea = Math.abs(quad.reduce((a, p, i) => { const q = quad[(i + 1) % 4]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
-  if (polyArea > total * 0.92) return null;            // もう名刺だけが写っている
-  if (bestArea / polyArea < 0.85) return null;          // 四角形でない（手などが混ざっている）
+// まとまりが名刺らしい四角形か（四角さ・縦横比）。名刺らしければ四角形の面積を返す
+function cardLikeArea(c) {
+  const q = c.quad, d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const polyArea = Math.abs(q.reduce((a, p, i) => { const n = q[(i + 1) % 4]; return a + p[0] * n[1] - n[0] * p[1]; }, 0)) / 2;
+  if (!polyArea || c.area / polyArea < 0.85) return 0;   // 四角形でない（手などが混ざっている）
+  const ws = Math.max(d(q[0], q[1]), d(q[3], q[2])), hs = Math.max(d(q[0], q[3]), d(q[1], q[2]));
+  if (!ws || !hs) return 0;
+  const ratio = ws > hs ? ws / hs : hs / ws;
+  if (ratio < 1.25 || ratio > 2.2) return 0;             // 名刺の縦横比（約1.65）から遠い
+  return polyArea;
+}
+
+// 四隅（解析用の座標）で囲まれた部分を、元の写真から長方形に切り出す
+async function warpCard(sd, W, H, quad, s) {
   const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-  const wTop = d(tl, tr), wBot = d(bl, br), hL = d(tl, bl), hR = d(tr, br);
-  const longS = Math.max(wTop, wBot, hL, hR), shortS = Math.min(Math.max(wTop, wBot), Math.max(hL, hR));
-  const ratio = Math.max(wTop, wBot) > Math.max(hL, hR) ? Math.max(wTop, wBot) / Math.max(hL, hR) : Math.max(hL, hR) / Math.max(wTop, wBot);
-  if (ratio < 1.25 || ratio > 2.2 || !shortS || !longS) return null; // 名刺の縦横比（約1.65）から遠い
-
   // 縁が欠けないよう少し外側に広げ、元の大きさの座標に戻す
   const cx = quad.reduce((a, p) => a + p[0], 0) / 4, cy = quad.reduce((a, p) => a + p[1], 0) / 4;
   const src = quad.map(([x, y]) => [
     Math.min(W - 1, Math.max(0, (cx + (x - cx) * 1.01) / s)),
     Math.min(H - 1, Math.max(0, (cy + (y - cy) * 1.01) / s)),
   ]);
-
-  // 5) 射影変換で長方形に
   let outW = Math.round(Math.max(d(src[0], src[1]), d(src[3], src[2])));
   let outH = Math.round(Math.max(d(src[0], src[3]), d(src[1], src[2])));
   const lim = 1400 / Math.max(outW, outH);
   if (lim < 1) { outW = Math.round(outW * lim); outH = Math.round(outH * lim); }
+  if (outW < 8 || outH < 8) return null;
   const Hm = homography([[0, 0], [outW, 0], [outW, outH], [0, outH]], src);
   if (!Hm) return null;
-  const sd = fctx.getImageData(0, 0, W, H).data;
   const out = document.createElement("canvas");
   out.width = outW; out.height = outH;
   const octx = out.getContext("2d");
@@ -958,7 +956,7 @@ async function autoCropCard(blob) {
     const z = Hm[6] * x + Hm[7] * y + 1;
     const sx = (Hm[0] * x + Hm[1] * y + Hm[2]) / z, sy = (Hm[3] * x + Hm[4] * y + Hm[5]) / z;
     const x0 = Math.floor(sx), y0 = Math.floor(sy), fx = sx - x0, fy = sy - y0;
-    const x1 = Math.min(W - 1, x0 + 1), y1 = Math.min(H - 1, y0 + 1);
+    const x1 = Math.min(W - 1, Math.max(0, x0 + 1)), y1 = Math.min(H - 1, Math.max(0, y0 + 1));
     const xa = Math.max(0, Math.min(W - 1, x0)), ya = Math.max(0, Math.min(H - 1, y0));
     const o = (y * outW + x) * 4;
     for (let c = 0; c < 3; c++) {
@@ -970,6 +968,63 @@ async function autoCropCard(blob) {
   }
   octx.putImageData(od, 0, 0);
   return await new Promise((res) => out.toBlob(res, "image/jpeg", 0.85));
+}
+
+async function autoCropCard(blob) {
+  const bmp = await createImageBitmap(blob);
+  const W = bmp.width, H = bmp.height;
+  const full = document.createElement("canvas");
+  full.width = W; full.height = H;
+  const fctx = full.getContext("2d", { willReadFrequently: true });
+  fctx.drawImage(bmp, 0, 0);
+  bmp.close();
+  const { mask, w, h, s, total } = cardMask(full, W, H, 360);
+  // 一番大きなまとまりを名刺とみなす
+  const best = cardBlobs(mask, w, h, total * 0.12).sort((a, b) => b.area - a.area)[0];
+  if (!best) return null;                               // 名刺が小さすぎる／見つからない
+  const polyArea = cardLikeArea(best);
+  if (!polyArea || polyArea > total * 0.92) return null; // 四角でない／もう名刺だけが写っている
+  return await warpCard(fctx.getImageData(0, 0, W, H).data, W, H, best.quad, s);
+}
+
+/* 1枚の写真に名刺が何枚か並んでいるとき、1枚ずつに切り分ける。
+ * 名刺らしい四角形（大きさがそろったもの）が2枚以上見つかったときだけ、切り分けた画像を返す。
+ * 小さく写った名刺でも文字が読めるよう、元の写真は大きめ（長辺2800px）のまま切り出す。 */
+async function splitCards(file) {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() => createImageBitmap(file));
+  const sc = Math.min(1, 2800 / Math.max(bmp.width, bmp.height));
+  const W = Math.max(1, Math.round(bmp.width * sc)), H = Math.max(1, Math.round(bmp.height * sc));
+  const full = document.createElement("canvas");
+  full.width = W; full.height = H;
+  const fctx = full.getContext("2d", { willReadFrequently: true });
+  fctx.drawImage(bmp, 0, 0, W, H);
+  bmp.close();
+  const { mask, w, h, s, total } = cardMask(full, W, H, 480);
+  const blobs = cardBlobs(mask, w, h, total * 0.02).map((c) => ({ ...c, poly: cardLikeArea(c) }));
+  let found = blobs.filter((c) => c.poly);
+  // 同じくらいの大きさのものが2つ以上写っているのに、きれいに分けられない（重なっている・手が写っている など）ときは
+  // "crowded" を返す。一部だけ切り出すと残りの名刺を取りこぼすので、呼び出し側は写真をそのまま1枚として扱う。
+  const bigArea = Math.max(0, ...blobs.map((c) => c.area));
+  const crowded = blobs.filter((c) => c.area >= bigArea * 0.4).length > 1 ? "crowded" : null;
+  if (found.length < 2) return crowded;
+  const biggest = Math.max(...found.map((c) => c.poly));
+  if (blobs.some((c) => !c.poly && c.area >= biggest * 0.4)) return "crowded";
+  found = found.filter((c) => c.poly >= biggest * 0.4);  // 名刺どうしは同じくらいの大きさ。小さな紙片などは外す
+  if (found.length < 2 || found.length > 30) return crowded;
+  // 読む順（上の段から、左→右）に並べる
+  const ctr = (c) => [c.quad.reduce((a, p) => a + p[0], 0) / 4, c.quad.reduce((a, p) => a + p[1], 0) / 4];
+  const side = Math.sqrt(biggest / 1.65);                // 名刺の短い辺のおよその長さ
+  found.sort((a, b) => ctr(a)[1] - ctr(b)[1]);
+  const rows = [];
+  for (const c of found) {
+    const row = rows[rows.length - 1];
+    if (row && ctr(c)[1] - row.y < side * 0.6) row.items.push(c); else rows.push({ y: ctr(c)[1], items: [c] });
+  }
+  const ordered = rows.flatMap((r) => r.items.sort((a, b) => ctr(a)[0] - ctr(b)[0]));
+  const sd = fctx.getImageData(0, 0, W, H).data;
+  const out = [];
+  for (const c of ordered) { const b = await warpCard(sd, W, H, c.quad, s); if (b) out.push(b); }
+  return out.length > 1 ? out : "crowded";
 }
 
 // 4点の対応から射影変換の係数を求める（from の座標 → to の座標）
@@ -1006,6 +1061,17 @@ async function prepareCardImage(file) {
     if (cropped) return { blob: cropped, original: blob };
   } catch (e) { /* 失敗しても元の写真で続ける */ }
   return { blob, original: null };
+}
+
+// 写真1枚から名刺の画像を取り出す。名刺が何枚か写っていれば1枚ずつに分けて返す
+async function prepareCardImages(file) {
+  try {
+    const parts = await splitCards(file);
+    if (Array.isArray(parts)) return parts.map((blob) => ({ blob, original: null }));
+    // 名刺が何枚か写っていそうだが分けられなかった: 1枚だけ切り抜くと他が消えるので、写真全体を残す
+    if (parts === "crowded") return [{ blob: await compressImage(file, 2000), original: null, crowded: true }];
+  } catch (e) { /* 分けられなければ1枚として扱う */ }
+  return [await prepareCardImage(file)];
 }
 
 /* ---------- 表示 ---------- */
@@ -1245,13 +1311,14 @@ function render() {
       : `<div class="thumb-placeholder">${avatarHtml(c)}</div>`;
     // 会社ごと表示では見出しに会社名があるので役職だけ出す
     const sub = grouped ? c.title : [c.company, c.title].filter(Boolean).join(" / ");
-    const met = [fmtDate(c.metAt), c.metPlace].filter(Boolean).join("・");
+    const metDate = fmtDate(c.metAt), met = metDate || c.metPlace;
+    const metHtml = `<span class="met-ic">🤝 </span>${esc(metDate)}${c.metPlace ? `<span class="met-place">${metDate ? "・" : ""}${esc(c.metPlace)}</span>` : ""}`;
     el.innerHTML = `
       ${thumb}
       <div class="info">
         <div class="name">${esc(c.name)}</div>
         <div class="company">${esc(sub)}</div>
-        ${met ? `<div class="met">🤝 ${esc(met)}</div>` : ""}${c.folder && c.folder !== activeFolder ? `<span class="folder-chip">📁 ${esc(c.folder.split("/").pop())}</span>` : ""}
+        ${met ? `<div class="met">${metHtml}</div>` : ""}${c.folder && c.folder !== activeFolder ? `<span class="folder-chip">📁 ${esc(c.folder.split("/").pop())}</span>` : ""}
       </div>`;
     el.addEventListener("click", () => openDetail(c.id));
     frag.appendChild(el);
@@ -1551,7 +1618,7 @@ function openEdit(card, carry) {
   $("continuousChk").checked = !card && !!carry;
   const prev = $("imgPreview");
   if (card?.image) { prev.src = makeUrl(card.image); prev.hidden = false; $("imgHint").textContent = "クリックで画像を変更"; $("imgClearBtn").hidden = false; }
-  else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "タップして名刺を撮影／画像を選択（選ぶと自動で読み取ります）"; $("imgClearBtn").hidden = true; }
+  else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "タップして名刺を撮影／画像を選択（何枚でも。複数の名刺が写った写真も自動で分けます）"; $("imgClearBtn").hidden = true; }
   setOcrStatus("");
   setOpusStatus("");
   cropOriginal = null;
@@ -1966,13 +2033,14 @@ async function loadImages(jobs) {
 
 function updateSyncUI() {
   const bar = $("syncBar");
-  $("cloudSyncBtn").hidden = !cloudConfigured();
+  // 同期できているときは何も出さない（問題があるときだけ知らせる）。手動の同期は ☰ メニューから。
+  $("cloudSyncBtn").hidden = true;
+  $("menuSync").hidden = !cloudConfigured();
   bar.hidden = false;
   if (GAS) {
     const unsyncedG = cards.filter((c) => c.synced !== true).length + getPendingDeletes().length;
-    bar.innerHTML = unsyncedG
-      ? `<span class="pill warn">未同期 ${unsyncedG} 件</span><button id="retryBtn">再同期</button>`
-      : '<span class="pill ok">☁ Googleドライブに保存中</span><span class="long">（このアカウントの本人だけが見られます）</span>';
+    if (!unsyncedG) { bar.innerHTML = ""; bar.hidden = true; return; }
+    bar.innerHTML = `<span class="pill warn">未同期 ${unsyncedG} 件</span><button id="retryBtn">再同期</button>`;
     const rb = $("retryBtn");
     if (rb) rb.addEventListener("click", retrySync);
     return;
@@ -1989,7 +2057,7 @@ function updateSyncUI() {
   const unsynced = cards.filter((c) => c.synced !== true).length;
   const pend = getPendingDeletes().length;
   if (unsynced === 0 && pend === 0) {
-    bar.innerHTML = '<span class="pill ok">☁ 同期済み</span>';
+    bar.innerHTML = ""; bar.hidden = true;
   } else {
     bar.innerHTML = `<span class="pill warn">未同期 ${unsynced} 件${pend ? " ／ 削除保留 " + pend + " 件" : ""}</span>` +
       '<button id="retryBtn">再同期</button>';
@@ -2677,9 +2745,10 @@ function fillCardFields(card, fields, overwrite) {
   return changed;
 }
 
-async function startBatch(files) {
-  $("batchDialog").close();
-  const common = {
+// files: 写真（File）か、切り分け済みの名刺画像（{ ready: Blob }）。common を渡さなければ「まとめて登録」の入力欄を使う
+async function startBatch(files, common) {
+  if ($("batchDialog").open) $("batchDialog").close();
+  common = common || {
     metAt: $("bMetAt").value || "",
     metPlace: $("bMetPlace").value.trim(),
     folder: $("bFolder").value === NEW_PROJECT ? "" : normFolder($("bFolder").value),
@@ -2693,9 +2762,16 @@ async function startBatch(files) {
 
   // 1) まず全部を「読み取り中」の名刺として保存（画像を確実に残す）
   const created = [];
+  let splitPhotos = 0, splitCardsN = 0, crowdedN = 0;
   for (const file of files) {
-    let blob;
-    try { blob = (await prepareCardImage(file)).blob; } catch { batch.read++; updateBatchBar(); continue; }
+    let blobs;
+    try {
+      const sets = file.ready ? [{ blob: file.ready }] : await prepareCardImages(file);
+      if (sets[0].crowded) crowdedN++;
+      blobs = sets.map((x) => x.blob);
+    } catch { batch.read++; updateBatchBar(); continue; }
+    if (blobs.length > 1) { splitPhotos++; splitCardsN += blobs.length; batch.total += blobs.length - 1; updateBatchBar(); }
+   for (const blob of blobs) {
     const now = Date.now();
     const card = {
       id: uuid(), name: NAME_PENDING, kana: "", company: "", companyKana: "", title: "",
@@ -2707,7 +2783,10 @@ async function startBatch(files) {
     await putCard(card);
     cards.push(card);
     created.push(card);
+   }
   }
+  if (crowdedN) toast(`写真${crowdedN}枚は名刺を分けられませんでした（重なっていると分けられません）。写真のまま登録しています`);
+  else if (splitPhotos) toast(`写真${splitPhotos}枚から名刺を${splitCardsN}枚見つけて、1枚ずつに分けました`);
   render();
 
   // 2) 画像をクラウドへ（並行2件）
@@ -3309,6 +3388,20 @@ async function init() {
   $("addBtn").addEventListener("click", () => openEdit(null));
   $("fab").addEventListener("click", () => openEdit(null));
   $("searchBox").addEventListener("input", render);
+  // 検索は 🔍 ボタンで開く（使わないときは場所を取らない）。閉じると絞り込みも解除する。
+  const setSearchOpen = (open) => {
+    const box = $("searchBox");
+    box.hidden = !open;
+    $("searchBtn").setAttribute("aria-expanded", String(open));
+    $("searchBtn").classList.toggle("on", open);
+    document.querySelector("header").classList.toggle("searching", open);
+    if (open) box.focus();
+    else if (box.value) { box.value = ""; render(); }
+  };
+  $("searchBtn").addEventListener("pointerdown", (e) => e.preventDefault()); // 入力欄のフォーカスを奪わない
+  $("searchBtn").addEventListener("click", () => setSearchOpen($("searchBox").hidden));
+  $("searchBox").addEventListener("keydown", (e) => { if (e.key === "Escape") setSearchOpen(false); });
+  $("searchBox").addEventListener("blur", () => { if (!$("searchBox").value.trim()) setSearchOpen(false); });
   $("sortSelect").addEventListener("change", () => { lsSet(SORT_KEY, $("sortSelect").value); render(); });
   $("viewGrid").addEventListener("click", () => { lsSet(VIEW_KEY, "grid"); render(); });
   $("viewList").addEventListener("click", () => { lsSet(VIEW_KEY, "list"); render(); });
@@ -3375,6 +3468,7 @@ async function init() {
       case "docs": pickDocs({ auto: true }); break;
       case "salesdesk": sendToSalesDesk(list); break;
       case "batch": openBatchDialog(); break;
+      case "sync": syncFromCloud(); break;
       case "tags": openTagDialog(); break;
       case "vcf": saveVcf(list, vcfFileName(list)); break;
       case "csv": exportCsv(list); break;
@@ -3442,11 +3536,29 @@ async function init() {
 
   $("imgDrop").addEventListener("click", () => $("imgInput").click());
   $("imgInput").addEventListener("change", async (e) => {
-    const file = e.target.files[0];
+    const files = [...e.target.files];
+    const file = files[0];
     e.target.value = "";
     if (!file) return;
+    // 新規登録で、写真を何枚も選んだ／1枚に名刺が何枚か写っているときは、自動でまとめて登録に切り替える
+    const fresh = !editingId;
+    const formCommon = () => ({
+      metAt: $("fMetAt").value || "", metPlace: $("fMetPlace").value.trim(),
+      folder: $("fFolder").value === NEW_PROJECT ? "" : normFolder($("fFolder").value), tags: [],
+    });
+    if (fresh && files.length > 1) { const common = formCommon(); $("editDialog").close(); startBatch(files, common); return; }
     try {
-      const { blob, original } = await prepareCardImage(file);
+      if (fresh) setOcrStatus("写真を確認しています…");
+      const sets = fresh ? await prepareCardImages(file) : [await prepareCardImage(file)];
+      if (sets.length > 1) {
+        const common = formCommon();
+        $("editDialog").close();
+        startBatch(sets.map((x) => ({ ready: x.blob })), common);
+        toast(`名刺を${sets.length}枚見つけました。1枚ずつ登録します`);
+        return;
+      }
+      const { blob, original } = sets[0];
+      if (sets[0].crowded) toast("名刺が何枚か写っているようですが、分けられませんでした（重ならないように並べると分けられます）");
       pendingImage = blob;
       cropOriginal = original;
       showCropNote(!!original);
@@ -3470,7 +3582,7 @@ async function init() {
     const prev = $("imgPreview");
     prev.hidden = true;
     prev.removeAttribute("src");
-    $("imgHint").textContent = "タップして名刺を撮影／画像を選択（選ぶと自動で読み取ります）";
+    $("imgHint").textContent = "タップして名刺を撮影／画像を選択（何枚でも。複数の名刺が写った写真も自動で分けます）";
     $("imgClearBtn").hidden = true;
     updateOcrBtn();
     setOcrStatus("");
