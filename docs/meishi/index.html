@@ -405,6 +405,7 @@
         <button data-act="export">💾 バックアップを書き出し(JSON)</button>
         <button data-act="import">📂 バックアップから読み込み</button>
         <hr>
+        <button data-act="crop" id="cropToggle">✂ 自動トリミング：オン</button>
         <button data-act="cfg">⚙ クラウド保存の設定</button>
       </div>
     </div>
@@ -457,6 +458,7 @@
       </div>
       <p class="cfg-hint" id="ocrStatus" style="margin-top:6px" hidden></p>
       <div class="cfg-hint" id="opusStatus" hidden></div>
+      <div class="cfg-hint" id="cropNote" hidden>✂ 名刺の部分を自動で切り抜きました <button type="button" id="cropUndo" style="font-size:11px;padding:1px 8px;margin-left:4px">元の写真に戻す</button></div>
       <!-- OCR生テキスト: 振り分けがおかしいときに全文を確認・コピーして報告できるようにする（端末内のみ・外部送信なし） -->
       <details id="ocrRawWrap" style="margin-top:6px" hidden>
         <summary class="cfg-hint" style="cursor:pointer;display:list-item">📄 読み取った全文を表示（振り分けがおかしいときは、これをコピーして報告してください）</summary>
@@ -485,7 +487,9 @@
       <div class="form-sec">
         <div class="form-grid">
           <div><label>会った日</label><input type="date" id="fMetAt"></div>
-          <div><label>会った場所・きっかけ</label><input type="text" id="fMetPlace" autocomplete="off" placeholder="例: 〇〇展示会、△△さんの紹介"></div>
+          <div><label>会った場所・きっかけ</label>
+            <div style="display:flex;gap:6px"><input type="text" id="fMetPlace" autocomplete="off" placeholder="選ぶ（▾）か自由に入力" style="flex:1;min-width:0">
+            <select id="fMetPlaceSel" class="place-pick" title="これまでの場所から選ぶ" style="flex:0 0 auto;width:44px;padding:7px 4px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px"></select></div></div>
         </div>
       </div>
       <div class="field-note" id="stickyNote" hidden></div>
@@ -556,7 +560,9 @@
     <form id="batchForm">
       <div class="form-grid">
         <div><label>会った日</label><input type="date" id="bMetAt"></div>
-        <div><label>会った場所・きっかけ</label><input type="text" id="bMetPlace" autocomplete="off"></div>
+        <div><label>会った場所・きっかけ</label>
+          <div style="display:flex;gap:6px"><input type="text" id="bMetPlace" autocomplete="off" placeholder="選ぶ（▾）か自由に入力" style="flex:1;min-width:0;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px">
+          <select id="bMetPlaceSel" class="place-pick" title="これまでの場所から選ぶ" style="flex:0 0 auto;width:44px;padding:7px 4px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px"></select></div></div>
       </div>
       <label>プロジェクト</label><select id="bFolder" class="project-pick" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px"></select>
       <input type="file" id="batchFiles" accept="image/*" multiple hidden>
@@ -671,6 +677,7 @@ let cards = [];            // メモリ上の全カード
 let activeTag = null;      // タグ絞り込み
 let editingId = null;      // 編集中カードID（nullなら新規）
 let detailId = null;       // 詳細表示中カードID
+let cropOriginal = null;   // 自動トリミング前の写真（「元に戻す」用）
 let pendingImage = null;   // 編集フォームで選択された画像Blob（undefined=変更なし, null=削除, Blob=新規）
 let objectUrls = [];       // 表示のたびに作るURLを解放するための控え
 
@@ -752,6 +759,180 @@ async function compressImage(file, maxDim = 1400, quality = 0.82) {
   const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
   if (!blob) throw new Error("画像の変換に失敗しました");
   return blob;
+}
+
+/* ---------- 名刺の自動トリミング ----------
+ * 写真から名刺の四隅を見つけて、背景を切り落とし、斜めに写った名刺をまっすぐに直す（端末内で処理）。
+ * やり方: 縮小した白黒画像を「明るい所／暗い所」に分け（大津の方法）、一番大きなまとまりを名刺とみなして
+ * 四隅を求め、射影変換で長方形に引き伸ばす。名刺らしい形でなければ何もしない（元の写真のまま）。
+ * 苦手: 背景と名刺の色が近い（白い机に白い名刺など）。
+ */
+const AUTOCROP_KEY = "meishi.autocrop";
+const autoCropOn = () => lsGet(AUTOCROP_KEY, "1") === "1";
+
+async function autoCropCard(blob) {
+  const bmp = await createImageBitmap(blob);
+  const W = bmp.width, H = bmp.height;
+  const full = document.createElement("canvas");
+  full.width = W; full.height = H;
+  const fctx = full.getContext("2d", { willReadFrequently: true });
+  fctx.drawImage(bmp, 0, 0);
+  bmp.close();
+
+  // 1) 解析用に縮小して白黒に
+  const s = Math.min(1, 360 / Math.max(W, H));
+  const w = Math.max(1, Math.round(W * s)), h = Math.max(1, Math.round(H * s));
+  const small = document.createElement("canvas");
+  small.width = w; small.height = h;
+  const sctx = small.getContext("2d", { willReadFrequently: true });
+  sctx.drawImage(full, 0, 0, w, h);
+  const px = sctx.getImageData(0, 0, w, h).data;
+  const gray = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) gray[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+  // ぼかし（3x3）で文字の細かい模様をならす
+  const g = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let sum = 0, n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && yy >= 0 && xx < w && yy < h) { sum += gray[yy * w + xx]; n++; }
+    }
+    g[y * w + x] = sum / n;
+  }
+
+  // 2) 大津の方法でしきい値を決め、明暗に分ける
+  const hist = new Array(256).fill(0);
+  for (const v of g) hist[Math.min(255, v | 0)]++;
+  const total = w * h;
+  let sumAll = 0; for (let i = 0; i < 256; i++) sumAll += i * hist[i];
+  let sumB = 0, wB = 0, best = 0, thr = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]; if (!wB) continue;
+    const wF = total - wB; if (!wF) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sumAll - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > best) { best = between; thr = t; }
+  }
+  const mask = new Uint8Array(total);
+  for (let i = 0; i < total; i++) mask[i] = g[i] > thr ? 1 : 0;
+  // 写真の縁がほとんど明るいなら、名刺の方が暗い（暗い名刺×明るい机）とみなして反転
+  let edgeBright = 0, edgeN = 0;
+  for (let x = 0; x < w; x++) { edgeBright += mask[x] + mask[(h - 1) * w + x]; edgeN += 2; }
+  for (let y = 0; y < h; y++) { edgeBright += mask[y * w] + mask[y * w + w - 1]; edgeN += 2; }
+  if (edgeBright / edgeN > 0.5) for (let i = 0; i < total; i++) mask[i] ^= 1;
+
+  // 3) 一番大きなまとまりを名刺とみなす
+  const label = new Int32Array(total).fill(-1);
+  let bestId = -1, bestArea = 0, id = 0;
+  const stack = new Int32Array(total);
+  for (let i = 0; i < total; i++) {
+    if (!mask[i] || label[i] !== -1) continue;
+    let sp = 0, area = 0; stack[sp++] = i; label[i] = id;
+    while (sp) {
+      const k = stack[--sp]; area++;
+      const x = k % w, y = (k / w) | 0;
+      if (x > 0 && mask[k - 1] && label[k - 1] === -1) { label[k - 1] = id; stack[sp++] = k - 1; }
+      if (x < w - 1 && mask[k + 1] && label[k + 1] === -1) { label[k + 1] = id; stack[sp++] = k + 1; }
+      if (y > 0 && mask[k - w] && label[k - w] === -1) { label[k - w] = id; stack[sp++] = k - w; }
+      if (y < h - 1 && mask[k + w] && label[k + w] === -1) { label[k + w] = id; stack[sp++] = k + w; }
+    }
+    if (area > bestArea) { bestArea = area; bestId = id; }
+    id++;
+  }
+  if (bestId < 0 || bestArea < total * 0.12) return null; // 名刺が小さすぎる／見つからない
+
+  // 4) 四隅（左上=x+y最小, 右下=x+y最大, 右上=x-y最大, 左下=x-y最小）
+  let tl, tr, br, bl, mn1 = Infinity, mx1 = -Infinity, mn2 = Infinity, mx2 = -Infinity;
+  for (let k = 0; k < total; k++) {
+    if (label[k] !== bestId) continue;
+    const x = k % w, y = (k / w) | 0;
+    if (x + y < mn1) { mn1 = x + y; tl = [x, y]; }
+    if (x + y > mx1) { mx1 = x + y; br = [x, y]; }
+    if (x - y > mx2) { mx2 = x - y; tr = [x, y]; }
+    if (x - y < mn2) { mn2 = x - y; bl = [x, y]; }
+  }
+  const quad = [tl, tr, br, bl];
+  const polyArea = Math.abs(quad.reduce((a, p, i) => { const q = quad[(i + 1) % 4]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+  if (polyArea > total * 0.92) return null;            // もう名刺だけが写っている
+  if (bestArea / polyArea < 0.85) return null;          // 四角形でない（手などが混ざっている）
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const wTop = d(tl, tr), wBot = d(bl, br), hL = d(tl, bl), hR = d(tr, br);
+  const longS = Math.max(wTop, wBot, hL, hR), shortS = Math.min(Math.max(wTop, wBot), Math.max(hL, hR));
+  const ratio = Math.max(wTop, wBot) > Math.max(hL, hR) ? Math.max(wTop, wBot) / Math.max(hL, hR) : Math.max(hL, hR) / Math.max(wTop, wBot);
+  if (ratio < 1.25 || ratio > 2.2 || !shortS || !longS) return null; // 名刺の縦横比（約1.65）から遠い
+
+  // 縁が欠けないよう少し外側に広げ、元の大きさの座標に戻す
+  const cx = quad.reduce((a, p) => a + p[0], 0) / 4, cy = quad.reduce((a, p) => a + p[1], 0) / 4;
+  const src = quad.map(([x, y]) => [
+    Math.min(W - 1, Math.max(0, (cx + (x - cx) * 1.01) / s)),
+    Math.min(H - 1, Math.max(0, (cy + (y - cy) * 1.01) / s)),
+  ]);
+
+  // 5) 射影変換で長方形に
+  let outW = Math.round(Math.max(d(src[0], src[1]), d(src[3], src[2])));
+  let outH = Math.round(Math.max(d(src[0], src[3]), d(src[1], src[2])));
+  const lim = 1400 / Math.max(outW, outH);
+  if (lim < 1) { outW = Math.round(outW * lim); outH = Math.round(outH * lim); }
+  const Hm = homography([[0, 0], [outW, 0], [outW, outH], [0, outH]], src);
+  if (!Hm) return null;
+  const sd = fctx.getImageData(0, 0, W, H).data;
+  const out = document.createElement("canvas");
+  out.width = outW; out.height = outH;
+  const octx = out.getContext("2d");
+  const od = octx.createImageData(outW, outH);
+  for (let y = 0; y < outH; y++) for (let x = 0; x < outW; x++) {
+    const z = Hm[6] * x + Hm[7] * y + 1;
+    const sx = (Hm[0] * x + Hm[1] * y + Hm[2]) / z, sy = (Hm[3] * x + Hm[4] * y + Hm[5]) / z;
+    const x0 = Math.floor(sx), y0 = Math.floor(sy), fx = sx - x0, fy = sy - y0;
+    const x1 = Math.min(W - 1, x0 + 1), y1 = Math.min(H - 1, y0 + 1);
+    const xa = Math.max(0, Math.min(W - 1, x0)), ya = Math.max(0, Math.min(H - 1, y0));
+    const o = (y * outW + x) * 4;
+    for (let c = 0; c < 3; c++) {
+      const v = sd[(ya * W + xa) * 4 + c] * (1 - fx) * (1 - fy) + sd[(ya * W + x1) * 4 + c] * fx * (1 - fy)
+        + sd[(y1 * W + xa) * 4 + c] * (1 - fx) * fy + sd[(y1 * W + x1) * 4 + c] * fx * fy;
+      od.data[o + c] = v;
+    }
+    od.data[o + 3] = 255;
+  }
+  octx.putImageData(od, 0, 0);
+  return await new Promise((res) => out.toBlob(res, "image/jpeg", 0.85));
+}
+
+// 4点の対応から射影変換の係数を求める（from の座標 → to の座標）
+function homography(from, to) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = from[i], [u, v] = to[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  // ガウスの消去法
+  const n = 8;
+  for (let c = 0; c < n; c++) {
+    let piv = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+    if (Math.abs(A[piv][c]) < 1e-9) return null;
+    [A[c], A[piv]] = [A[piv], A[c]]; [b[c], b[piv]] = [b[piv], b[c]];
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = A[r][c] / A[c][c];
+      for (let k = c; k < n; k++) A[r][k] -= f * A[c][k];
+      b[r] -= f * b[c];
+    }
+  }
+  return b.map((v, i) => v / A[i][i]);
+}
+
+// 画像を取り込む共通処理: 縮小 → （オンなら）自動トリミング
+async function prepareCardImage(file) {
+  const blob = await compressImage(file);
+  if (!autoCropOn()) return { blob, original: null };
+  try {
+    const cropped = await autoCropCard(blob);
+    if (cropped) return { blob: cropped, original: blob };
+  } catch (e) { /* 失敗しても元の写真で続ける */ }
+  return { blob, original: null };
 }
 
 /* ---------- 表示 ---------- */
@@ -1209,6 +1390,22 @@ function showStickyNote(st) {
   });
 }
 
+// 「会った場所」のプルダウン: これまでに入れた場所を新しい順に並べる（選ぶと入力欄に入る。自由入力もできる）
+function fillPlaceSelect(sel) {
+  const seen = new Map();
+  for (const c of cards) {
+    const p = (c.metPlace || "").trim();
+    if (!p) continue;
+    const t = (c.metAt || "") + "|" + String(c.createdAt || 0).padStart(15, "0");
+    if (!seen.has(p) || seen.get(p) < t) seen.set(p, t);
+  }
+  const list = [...seen.entries()].sort((a, b) => b[1].localeCompare(a[1])).slice(0, 40).map(([p]) => p);
+  sel.innerHTML = `<option value="">▾</option>` + (list.length
+    ? list.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("")
+    : `<option value="" disabled>（まだありません。左に自由に入力）</option>`);
+  sel.value = "";
+}
+
 // carry: 新規登録のときに前回から引き継ぐ値 { metAt, metPlace, folder }
 function openEdit(card, carry) {
   editingId = card ? card.id : null;
@@ -1241,14 +1438,18 @@ function openEdit(card, carry) {
   else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "タップして名刺を撮影／画像を選択（選ぶと自動で読み取ります）"; $("imgClearBtn").hidden = true; }
   setOcrStatus("");
   setOpusStatus("");
+  cropOriginal = null;
+  showCropNote(false);
   clearOcrMarks();
   updateOcrBtn();
   checkDuplicates();
+  fillPlaceSelect($("fMetPlaceSel"));
   $("editDialog").showModal();
   $("editDialog").querySelector(".dialog-body").scrollTop = 0;
 }
 
 // OCRで自動入力した欄の目印（ユーザーが触ったら消す）
+function showCropNote(on) { $("cropNote").hidden = !on; }
 function clearOcrMarks() {
   document.querySelectorAll("#editForm .ocr-filled").forEach((el) => el.classList.remove("ocr-filled"));
 }
@@ -2312,6 +2513,7 @@ function openBatchDialog() {
   const st = getSticky();
   $("bMetPlace").value = st?.metPlace || "";
   fillProjectSelect($("bFolder"), activeFolder !== ALL ? activeFolder : (st?.folder || ""), { add: true });
+  fillPlaceSelect($("bMetPlaceSel"));
   $("batchDialog").showModal();
 }
 
@@ -2375,7 +2577,7 @@ async function startBatch(files) {
   const created = [];
   for (const file of files) {
     let blob;
-    try { blob = await compressImage(file); } catch { batch.read++; updateBatchBar(); continue; }
+    try { blob = (await prepareCardImage(file)).blob; } catch { batch.read++; updateBatchBar(); continue; }
     const now = Date.now();
     const card = {
       id: uuid(), name: NAME_PENDING, kana: "", company: "", companyKana: "", title: "",
@@ -2694,10 +2896,27 @@ async function init() {
       case "export": exportJSON(); break;
       case "import": $("importFile").click(); break;
       case "cfg": openCfg(); break;
+      case "crop":
+        lsSet(AUTOCROP_KEY, autoCropOn() ? "0" : "1");
+        $("cropToggle").textContent = "✂ 自動トリミング：" + (autoCropOn() ? "オン" : "オフ");
+        toast("自動トリミングを" + (autoCropOn() ? "オン" : "オフ") + "にしました");
+        break;
     }
   });
   $("dupCloseBtn").addEventListener("click", () => $("dupDialog").close());
   $("folderBtn").addEventListener("click", openFolderDialog);
+  for (const [sel, input] of [["fMetPlaceSel", "fMetPlace"], ["bMetPlaceSel", "bMetPlace"]]) {
+    $(sel).addEventListener("change", (e) => { if (e.target.value) { $(input).value = e.target.value; e.target.value = ""; } });
+  }
+  $("cropToggle").textContent = "✂ 自動トリミング：" + (autoCropOn() ? "オン" : "オフ");
+  $("cropUndo").addEventListener("click", () => {
+    if (!cropOriginal) return;
+    pendingImage = cropOriginal;
+    cropOriginal = null;
+    $("imgPreview").src = makeUrl(pendingImage);
+    showCropNote(false);
+    toast("元の写真に戻しました");
+  });
   $("projectSelect").addEventListener("change", (e) => {
     const sel = e.target;
     if (sel.value === NEW_PROJECT) { if (handleNewProject(sel, { all: true, add: true })) setActiveFolder(sel.value); return; }
@@ -2731,8 +2950,10 @@ async function init() {
     e.target.value = "";
     if (!file) return;
     try {
-      const blob = await compressImage(file);
+      const { blob, original } = await prepareCardImage(file);
       pendingImage = blob;
+      cropOriginal = original;
+      showCropNote(!!original);
       const prev = $("imgPreview");
       prev.src = makeUrl(blob);
       prev.hidden = false;
