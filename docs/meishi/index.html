@@ -523,7 +523,7 @@
       未設定なら、これまで通りこのブラウザ内（IndexedDB）だけで動作します。
     </p>
     <form id="cfgForm">
-      <label>ウェブアプリ URL（…/exec）</label>
+      <label>ウェブアプリ URL（…/exec）または 合鍵入りリンクをそのまま貼り付け</label>
       <input type="text" id="cfgUrl" autocomplete="off" placeholder="https://script.google.com/macros/s/XXXX/exec">
       <label>トークン（任意・Apps Script 側で TOKEN を設定した場合のみ）</label>
       <input type="text" id="cfgToken" autocomplete="off" placeholder="（未設定なら空欄）">
@@ -1427,8 +1427,15 @@ function openCfg() {
 }
 function saveCfg(e) {
   e.preventDefault();
-  const url = $("cfgUrl").value.trim();
-  const token = $("cfgToken").value.trim();
+  let url = $("cfgUrl").value.trim();
+  let token = $("cfgToken").value.trim();
+  // 合鍵入りリンク（…/meishi/#cfg=…&tok=…）が貼られたら、URLと合鍵に分けて取り込む
+  // （iPhoneのホーム画面アプリはSafariと保存領域が別なので、リンクを貼るだけで設定できるように）
+  const cm = url.match(/[#&]cfg=([^&\s]+)/);
+  if (cm) {
+    const tm = url.match(/[#&]tok=([^&\s]+)/);
+    try { url = decodeURIComponent(cm[1]).trim(); if (tm) token = decodeURIComponent(tm[1]).trim(); } catch {}
+  }
   if (url && !validCloudUrl(url)) {
     $("cfgResult").textContent = "有効な URL（https://… 形式）を入力してください。";
     return;
