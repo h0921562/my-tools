@@ -1,19 +1,20 @@
-# 名刺管理 — Apps Script 版（本人だけが使えるウェブアプリ）
+# 名刺管理 — Apps Script 版（許可したGoogleアカウントだけが使えるウェブアプリ）
 
-Google にログインした本人だけが開ける URL で名刺管理を使うための設定です。
+許可したGoogleアカウント（個人用・仕事用など複数可）だけが開けるURLで名刺管理を使うための設定です。
 どの端末で開いても同じ名刺一覧が表示されます（開いたとき・画面に戻ったときに自動で取り込みます）。
 
 - 画面: GitHub Pages の `docs/meishi/index.html` をそのまま配信します。アプリを更新すると Apps Script 版にも反映されます（最大10分）。
-- データ: あなたの Google ドライブに保存します。
+- データ: 1つのスプレッドシートと画像フォルダにまとめ、許可したアカウント全員に共有します。どのアカウントで開いても同じ一覧です。
   - スプレッドシート「名刺管理データ」に、名刺1枚を1行で保存します。
   - フォルダ「名刺管理_画像」に、名刺画像を保存します。
-- 他人がURLを知っても、Google のログイン画面で止まり開けません。
+- 開いた人のアカウントで動きます。許可していないアカウントでは「使えません」と表示され、データにも触れません。
+- 許可するアカウントは `Config.gs` に書きます（メールアドレスを公開しないため Git には入れず、Apps Script 側にだけ置きます。書式は `Config.example.gs`）。アカウントを足したら、エディタで `setup` を実行すると共有がやり直されます。
 
 ## 設置済みの環境
 
 - ウェブアプリ: https://script.google.com/macros/s/AKfycbyh9pvOsy-jnVvV2U37hXNgWq55Ye7AJtZqkO8x8oHqcleuLXLzHLEjOTb58SjmjsagJw/exec
-- スクリプト: https://script.google.com/d/17OJOIqo3sSbZpJ5NkGJSWt4b39qFWZ7tB4Nfcdrp1NELT5-RXbdEb6bH/edit （アカウント h0921562@gmail.com）
-- `Code.gs` を変えたときは、このフォルダで次を実行すると同じURLのまま更新されます（要 `clasp login`）。
+- スクリプト: https://script.google.com/d/17OJOIqo3sSbZpJ5NkGJSWt4b39qFWZ7tB4Nfcdrp1NELT5-RXbdEb6bH/edit
+- `Code.gs` を変えたときは、このフォルダに `Config.gs` を置いて次を実行すると、同じURLのまま更新されます（要 `clasp login`）。
 
 ```
 clasp push -f
@@ -32,10 +33,11 @@ clasp update-deployment AKfycbyh9pvOsy-jnVvV2U37hXNgWq55Ye7AJtZqkO8x8oHqcleuLXLz
 5. 関数のプルダウンで `setup` を選んで「実行」します。
    権限の許可画面が出るので、自分のアカウントで許可します。
    「このアプリは Google で確認されていません」と出たら、「詳細」→「名刺管理（安全ではないページ）に移動」を押します。自分で作ったスクリプトなので問題ありません。
-6. 右上の「デプロイ」→「新しいデプロイ」→ 種類「ウェブアプリ」を選び、次のとおり設定します。
-   - 次のユーザーとして実行: **自分**
-   - アクセスできるユーザー: **自分のみ**
-7. 「デプロイ」を押すと、`https://script.google.com/macros/s/…/exec` のURLが出ます。これがあなた専用の名刺管理です。
+6. 「＋」→「スクリプト」で `Config` を作り、`Config.example.gs` を参考に使うアカウントを書きます。
+7. 右上の「デプロイ」→「新しいデプロイ」→ 種類「ウェブアプリ」を選び、次のとおり設定します。
+   - 次のユーザーとして実行: **ウェブアプリにアクセスしているユーザー**
+   - アクセスできるユーザー: **Google アカウントを持つ全員**（実際に使えるのは Config.gs の人だけ）
+8. 「デプロイ」を押すと、`https://script.google.com/macros/s/…/exec` のURLが出ます。これが名刺管理のURLです。各アカウントで最初に開いたときに、権限の許可画面が出ます。
    スマホでは、Safari や Chrome で開いて「ホーム画面に追加」しておくと便利です。
 
 ## 今までのデータを移す

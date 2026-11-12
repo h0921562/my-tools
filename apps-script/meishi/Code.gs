@@ -5,7 +5,10 @@
  * ・データはこのスクリプトの持ち主の Google ドライブに保存する:
  *     スプレッドシート「名刺管理データ」… 名刺1枚＝1行
  *     フォルダ「名刺管理_画像」          … 名刺画像
- * ・デプロイ時に「アクセスできるユーザー: 自分のみ」にすると、URLを知られても他人は開けない。
+ * ・開いた人のアカウントで動く（「次のユーザーとして実行: アクセスしているユーザー」）。
+ *   使えるのは Config.gs の ALLOWED_EMAILS に書いたアカウントだけ。データは1つのスプレッドシート／
+ *   画像フォルダに集め、許可したアカウント全員に共有するので、どのアカウントで開いても同じ一覧になる。
+ *   Config.gs はメールアドレスを公開しないため Git に入れず、Apps Script 側にだけ置く。
  *
  * 設置手順は同じフォルダの README.md を参照。
  */
@@ -25,7 +28,36 @@ const NUMBER_COLS = { createdAt: true, updatedAt: true };
 
 /* ================= 画面の配信 ================= */
 
+/* ================= 使える人の確認 ================= */
+
+// Config.gs で定義（例: const ALLOWED_EMAILS = ['a@example.com', 'b@example.com'];）
+function allowedEmails_() {
+  const list = typeof ALLOWED_EMAILS !== 'undefined' ? ALLOWED_EMAILS : [];
+  return list.map(function (e) { return String(e).trim().toLowerCase(); }).filter(String);
+}
+function currentEmail_() {
+  return String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+}
+function assertAllowed_() {
+  const me = currentEmail_();
+  if (!me || allowedEmails_().indexOf(me) < 0) {
+    throw new Error('このアカウント（' + (me || '不明') + '）は使えません。許可されたアカウントでログインしてください。');
+  }
+  return me;
+}
+
 function doGet() {
+  try {
+    assertAllowed_();
+  } catch (e) {
+    return HtmlService.createHtmlOutput(
+      '<div style="font-family:sans-serif;padding:40px 20px;text-align:center;line-height:1.8">' +
+      '<h2>名刺管理</h2><p>' + String(e.message).replace(/[<>&]/g, '') + '</p>' +
+      '<p style="color:#666;font-size:14px">スマホで複数のGoogleアカウントにログインしている場合は、' +
+      '許可されたアカウントに切り替えてから開き直してください。</p></div>')
+      .setTitle('名刺管理')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+  }
   const html = HtmlService.createHtmlOutput(getPageHtml_())
     .setTitle('名刺管理')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, viewport-fit=cover');
@@ -80,6 +112,7 @@ function clearPageCache() {
 function api(payload) {
   try {
     payload = payload || {};
+    assertAllowed_();
     switch (payload.action) {
       case 'ping': sheet_(); folder_(); return { ok: true, sheetUrl: spreadsheet_().getUrl() };
       case 'list': return { ok: true, cards: listCards_() };
@@ -106,11 +139,23 @@ function spreadsheet_() {
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty('SHEET_ID');
   if (id) {
-    try { return SpreadsheetApp.openById(id); } catch (e) { /* 消された等 → 作り直す */ }
+    // ⚠ 開けなくても作り直さない（共有前のアカウントが別のシートを作ると、一覧が2つに割れるため）
+    try { return SpreadsheetApp.openById(id); }
+    catch (e) { throw new Error('名刺データのスプレッドシートを開けません。共有されているか確認してください（' + currentEmail_() + '）'); }
   }
   const ss = SpreadsheetApp.create(SHEET_FILE_NAME);
   props.setProperty('SHEET_ID', ss.getId());
+  shareWithAllowed_(DriveApp.getFileById(ss.getId()));
   return ss;
+}
+
+// 許可したアカウント全員に編集権限を付ける（作った人以外も同じデータを読み書きできるように）
+function shareWithAllowed_(item) {
+  const me = currentEmail_();
+  allowedEmails_().forEach(function (e) {
+    if (e === me) return;
+    try { item.addEditor(e); } catch (err) { /* 既に共有済みなど */ }
+  });
 }
 
 function sheet_() {
@@ -146,13 +191,12 @@ function folder_() {
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty('FOLDER_ID');
   if (id) {
-    try {
-      const f = DriveApp.getFolderById(id);
-      if (!f.isTrashed()) return f;
-    } catch (e) { /* 作り直す */ }
+    try { return DriveApp.getFolderById(id); }
+    catch (e) { throw new Error('名刺画像のフォルダを開けません。共有されているか確認してください（' + currentEmail_() + '）'); }
   }
   const f = DriveApp.createFolder(IMAGE_FOLDER_NAME);
   props.setProperty('FOLDER_ID', f.getId());
+  shareWithAllowed_(f);
   return f;
 }
 
@@ -290,5 +334,8 @@ function ocr_(dataUrl) {
 function setup() {
   const r = api({ action: 'ping' });
   if (!r.ok) throw new Error(r.error);
+  // 許可するアカウントを後から足したときのために、共有をやり直す
+  shareWithAllowed_(DriveApp.getFileById(spreadsheet_().getId()));
+  shareWithAllowed_(folder_());
   Logger.log('準備できました。データの保存先: ' + r.sheetUrl);
 }
