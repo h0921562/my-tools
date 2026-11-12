@@ -9,7 +9,20 @@ Google にログインした本人だけが開ける URL で名刺管理を使�
   - フォルダ「名刺管理_画像」に、名刺画像を保存します。
 - 他人がURLを知っても、Google のログイン画面で止まり開けません。
 
-## 設置（PCで約5分、最初の1回だけ）
+## 設置済みの環境
+
+- ウェブアプリ: https://script.google.com/macros/s/AKfycbyh9pvOsy-jnVvV2U37hXNgWq55Ye7AJtZqkO8x8oHqcleuLXLzHLEjOTb58SjmjsagJw/exec
+- スクリプト: https://script.google.com/d/17OJOIqo3sSbZpJ5NkGJSWt4b39qFWZ7tB4Nfcdrp1NELT5-RXbdEb6bH/edit （アカウント h0921562@gmail.com）
+- `Code.gs` を変えたときは、このフォルダで次を実行すると同じURLのまま更新されます（要 `clasp login`）。
+
+```
+clasp push -f
+clasp update-deployment AKfycbyh9pvOsy-jnVvV2U37hXNgWq55Ye7AJtZqkO8x8oHqcleuLXLzHLEjOTb58SjmjsagJw -d "更新内容"
+```
+
+画面（`docs/meishi/index.html`）だけの変更なら、GitHub Pages に反映されれば自動で届くので、再デプロイは要りません。
+
+## 手で設置する場合（PCで約5分）
 
 1. https://script.google.com を開き、「新しいプロジェクト」を作ります。名前は「名刺管理」などにします。
 2. 左の「サービス ＋」から **Drive API** を追加します。OCR（画像から読み取り）に使います。
