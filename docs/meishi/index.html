@@ -230,6 +230,8 @@
     width: 48px; aspect-ratio: 91 / 55; border-radius: 4px; flex-shrink: 0;
   }
   #cardGrid.list .card .thumb-placeholder { background: transparent; }
+  /* リスト表示では名刺画像を出さない（文字だけで一覧性を優先。画像は詳細で見る） */
+  #cardGrid.list .card .thumb, #cardGrid.list .card .thumb-placeholder { display: none; }
   #cardGrid.list .card .thumb-placeholder .avatar { width: 28px; height: 28px; font-size: 13px; }
   #cardGrid.list .card .info { padding: 0; flex: 1; min-width: 0; }
   #cardGrid.list .card .name, #cardGrid.list .card .company { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
