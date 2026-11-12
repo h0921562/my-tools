@@ -4,7 +4,7 @@
 
 - 公開URL: https://h0921562.github.io/my-tools/
 - 収録ツール:
-  - **名刺管理**（`docs/meishi/`）— 名刺の登録・画像添付・検索・タグ・書き出し/読み込み。画像からのOCR自動入力（画像を選ぶと自動で読み取り／ブラウザ内OCR＝Google設定不要／Google連携時は高精度OCR）に対応。「続けて登録」で会った日・場所・タグを引き継いで連続登録。詳細画面から電話・メール・地図・連絡先(vCard)保存・共有をワンタップ。会った日・場所・Webサイト欄、重複の検出と統合、タグの名前変更・一括追加、会社ごと表示・リスト表示、CSV/vCard書き出し。Googleにログインした本人だけが開け、どの端末でも同じ一覧になる Apps Script 版あり（設置手順は `apps-script/meishi/README.md`）。データは各端末のブラウザ内(IndexedDB)、任意で自分のGoogle(スプレッドシート/Drive)に同期。
+  - **名刺管理**（`docs/meishi/`）— 名刺の登録・画像添付・検索・プロジェクト分け・書き出し/読み込み。画像からのOCR自動入力（画像を選ぶと自動で読み取り／ブラウザ内OCR＝Google設定不要／Google連携時は高精度OCR）に対応。「続けて登録」で会った日・場所・プロジェクトを引き継いで連続登録。写真を何枚でもまとめて登録（Opusで精読）。詳細画面から電話・メール・地図・連絡先(vCard)保存・共有をワンタップ。会った日・場所・Webサイト欄、重複の検出と統合、プロジェクト（プルダウンで選択・階層可）、会社ごと表示・リスト表示、CSV/vCard書き出し。Googleにログインした本人だけが開け、どの端末でも同じ一覧になる Apps Script 版あり（設置手順は `apps-script/meishi/README.md`）。データは各端末のブラウザ内(IndexedDB)、任意で自分のGoogle(スプレッドシート/Drive)に同期。
   - **請求書作成**（`docs/seikyusho/`）— 請求書を発行するランチャー。本体はGoogle Apps Scriptのウェブアプリ側にあり、ここに置くのは接続先URLを端末に覚えさせて開くだけの入口。品目名から税率(8%/10%)を自動判定、PDFはDriveへ、履歴は台帳シートへ。
   - **AIタスク**（`docs/tasks/`）— Claude（Claude Code）とCodexに頼むタスクを一か所で管理。「GitHubで実行」でタスクをIssue化して `@claude` / `@codex` に依頼し、画面内のやりとり欄から追加の指示を送ったり、進み具合・結果コメント・PRを確認してマージまでできる。担当・状態（やること/実行中/確認待ち/完了）・リポジトリ・タグで整理。データは端末のブラウザ内(localStorage)、JSONで書き出し/読み込み。 PCでは左に操作パネル、中央に状態ごとのボード（一覧表示にも切替）、広い画面ではやりとりを右側パネルで表示。キーボード操作: N=新規、/=検索、Esc=閉じる、⌘/Ctrl+Enter=送信。
     - 仕組み: 対象リポジトリの GitHub Actions（`.github/workflows/claude.yml` = anthropics/claude-code-action、`codex.yml` = openai/codex-action）がIssueコメントの `@claude` / `/codex` に反応して作業する。ワークフローは画面の「GitHub設定」から対象リポジトリへ入れられる（原本は `docs/tasks/workflows/`）。

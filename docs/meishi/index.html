@@ -395,10 +395,9 @@
       <button id="menuBtn" title="その他のメニュー" aria-haspopup="true" aria-expanded="false">☰</button>
       <div class="menu" id="menu" hidden>
         <button data-act="batch">📷 まとめて登録（複数枚）</button>
-        <button data-act="folders">📁 フォルダを整理</button>
+        <button data-act="folders">📁 プロジェクトを整理</button>
         <hr>
         <button data-act="dups">🔍 重複をチェック・統合</button>
-        <button data-act="tags">🏷 タグを整理</button>
         <hr>
         <button data-act="vcf">📇 表示中を連絡先ファイル(vCard)に</button>
         <button data-act="csv">📊 表示中をCSVに書き出し</button>
@@ -411,16 +410,15 @@
     </div>
     <input type="file" id="importFile" accept="application/json,.json">
   </div>
-  <div class="tag-bar" id="tagBar"></div>
   <div class="sync-bar" id="syncBar" hidden></div>
 </header>
 
 <main>
   <div id="batchBar" hidden></div>
   <div class="folder-row">
-    <button id="folderBtn" class="folder-btn" title="フォルダを選ぶ・整理する">📁 <span class="path" id="folderLabel">すべて</span> ▾</button>
+    <select id="projectSelect" class="folder-btn" title="プロジェクトで絞り込む" style="max-width:60%"></select>
+    <button id="folderBtn" title="プロジェクトを作る・名前変更・削除">⚙</button>
     <button id="batchBtn" title="名刺の写真を何枚でもまとめて登録" style="margin-left:auto">📷 まとめて登録</button>
-    <div class="folder-sub" id="folderSub" style="flex-basis:100%"></div>
   </div>
   <div class="toolbar">
     <div id="stats"></div>
@@ -490,11 +488,8 @@
           <div><label>会った場所・きっかけ</label><input type="text" id="fMetPlace" autocomplete="off" placeholder="例: 〇〇展示会、△△さんの紹介"></div>
         </div>
       </div>
-      <label>フォルダ（プロジェクト）<span style="font-weight:400;color:var(--text-sub)">　「/」で区切ると階層になります（例: 2026展示会/東京）</span></label>
-      <input type="text" id="fFolder" list="folderList" autocomplete="off" placeholder="未分類">
-      <datalist id="folderList"></datalist>
-      <label>タグ（カンマ区切り 例: 展示会,取引先）</label><input type="text" id="fTags" autocomplete="off">
-      <div class="tag-suggest" id="tagSuggest"></div>
+      <label>プロジェクト</label>
+      <select id="fFolder" class="project-pick" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px"></select>
       <label>メモ</label><textarea id="fMemo"></textarea>
       <div class="sticky-actions">
         <label class="continuous" id="continuousWrap" title="保存後すぐ次の名刺の登録画面を開きます。会った日・場所・タグは引き継ぎます。">
@@ -532,17 +527,17 @@
 <!-- フォルダダイアログ -->
 <dialog id="folderDialog">
   <div class="dialog-body">
-    <h2>フォルダ</h2>
-    <p class="cfg-hint">タップで開きます。プロジェクトごとに名刺を分けられます。名刺のフォルダは、名刺の「編集」か、下の「まとめて移動」で変えられます。</p>
+    <h2>プロジェクト</h2>
+    <p class="cfg-hint">タップでそのプロジェクトの名刺を表示します。名刺のプロジェクトは、名刺の「編集」か、下の「まとめて移動」で変えられます。「親/子」のように「/」で区切ると、プロジェクトの中を細かく分けられます。</p>
     <div id="folderTree" style="margin-top:10px"></div>
     <div class="form-sec">
       <div style="display:flex;gap:8px;margin-top:8px">
-        <input type="text" id="newFolder" autocomplete="off" placeholder="新しいフォルダ名（例: 2026展示会/東京）" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px">
+        <input type="text" id="newFolder" autocomplete="off" placeholder="新しいプロジェクト名（例: 2026展示会）" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px">
         <button id="newFolderBtn">作成</button>
       </div>
       <p class="cfg-hint" style="margin-top:10px">いま表示中の名刺（<span id="moveCount">0</span>件）をまとめて移動:</p>
       <div style="display:flex;gap:8px">
-        <input type="text" id="moveFolder" list="folderList" autocomplete="off" placeholder="移動先フォルダ（空欄＝未分類）" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px">
+        <select id="moveFolder" class="project-pick" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px"></select>
         <button id="moveBtn">移動</button>
       </div>
     </div>
@@ -556,14 +551,13 @@
 <dialog id="batchDialog">
   <div class="dialog-body">
     <h2>まとめて登録（複数枚）</h2>
-    <p class="cfg-hint">名刺の写真を何枚でもまとめて選べます。1枚ずつ名刺として登録し、文字を自動で読み取ります（クラウド接続時はOpusで精読）。下の内容は全部の名刺に入ります。</p>
+    <p class="cfg-hint">名刺の写真を何枚でもまとめて選べます。1枚ずつ名刺として登録し、文字を自動で読み取ります（クラウド接続時はOpusで精読）。プロジェクト・会った日・場所は全部の名刺に入ります。</p>
     <form id="batchForm">
       <div class="form-grid">
         <div><label>会った日</label><input type="date" id="bMetAt"></div>
         <div><label>会った場所・きっかけ</label><input type="text" id="bMetPlace" autocomplete="off"></div>
       </div>
-      <label>フォルダ（プロジェクト）</label><input type="text" id="bFolder" list="folderList" autocomplete="off" placeholder="未分類">
-      <label>タグ（カンマ区切り）</label><input type="text" id="bTags" autocomplete="off">
+      <label>プロジェクト</label><select id="bFolder" class="project-pick" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px"></select>
       <input type="file" id="batchFiles" accept="image/*" multiple hidden>
       <div class="sticky-actions">
         <button type="button" id="batchCancelBtn">キャンセル</button>
@@ -782,8 +776,9 @@ function normalize(s) {
  */
 const FOLDER_KEY = "meishi.folder";        // 開いているフォルダ（ALL=すべて, ""=未分類）
 const EMPTY_FOLDERS_KEY = "meishi.emptyFolders";
-const ALL = "\u0000all";
+const ALL = "__all__";          // プルダウンの値に使うので、ブラウザが書き換えない普通の文字にする
 let activeFolder = lsGet(FOLDER_KEY, ALL);
+if (/^\u0000|^\ufffd/.test(activeFolder)) activeFolder = ALL; // 以前の版で保存した値
 const normFolder = (f) => String(f || "").split("/").map((x) => x.trim()).filter(Boolean).join("/");
 const inFolder = (c, f) => f === ALL ? true : f === "" ? !c.folder : (c.folder === f || (c.folder || "").startsWith(f + "/"));
 function getEmptyFolders() { try { return JSON.parse(lsGet(EMPTY_FOLDERS_KEY, "[]")); } catch { return []; } }
@@ -801,33 +796,37 @@ function setActiveFolder(f) {
   lsSet(FOLDER_KEY, f);
   render();
 }
+const NEW_PROJECT = "__new__";
+// プルダウンの中身を作る。opts.all=「すべて」を出す, opts.add=「＋新しいプロジェクト」を出す
+function fillProjectSelect(sel, value, opts = {}) {
+  const o = [];
+  if (opts.all) o.push([ALL, `すべて（${cards.length}）`]);
+  o.push(["", opts.all ? `未分類（${cards.filter((c) => !c.folder).length}）` : "未分類"]);
+  for (const f of allFolders()) {
+    const depth = f.split("/").length - 1;
+    const label = "　".repeat(depth) + f.split("/").pop() + (opts.all ? `（${cards.filter((c) => inFolder(c, f)).length}）` : "");
+    o.push([f, label]);
+  }
+  if (opts.add) o.push([NEW_PROJECT, "＋ 新しいプロジェクト…"]);
+  sel.innerHTML = o.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("");
+  sel.value = o.some(([v]) => v === value) ? value : (opts.all ? ALL : "");
+  sel.dataset.prev = sel.value;
+}
+// 「＋ 新しいプロジェクト…」が選ばれたら名前を聞いて作る
+function handleNewProject(sel, opts) {
+  if (sel.value !== NEW_PROJECT) { sel.dataset.prev = sel.value; return false; }
+  const f = normFolder(prompt("新しいプロジェクト名（「/」で区切ると中を分けられます）", "") || "");
+  if (!f) { sel.value = sel.dataset.prev || ""; return false; }
+  setEmptyFolders([...getEmptyFolders(), f]);
+  fillProjectSelect(sel, f, opts);
+  return true;
+}
 function renderFolderUI() {
-  const label = activeFolder === ALL ? "すべて" : activeFolder === "" ? "未分類" : activeFolder.split("/").join(" › ");
-  $("folderLabel").textContent = label;
-  // 開いているフォルダの直下の子フォルダをチップで出す（ワンタップで潜れる）
-  const box = $("folderSub");
-  box.innerHTML = "";
-  const base = activeFolder === ALL || activeFolder === "" ? "" : activeFolder + "/";
-  const kids = activeFolder === "" ? [] : allFolders().filter((f) => f.startsWith(base) && !f.slice(base.length).includes("/"));
-  if (activeFolder !== ALL) {
-    const up = document.createElement("span");
-    up.className = "tag-chip"; up.style.opacity = ".8";
-    up.textContent = "← " + (activeFolder.includes("/") ? activeFolder.split("/").slice(0, -1).join(" › ") : "すべて");
-    up.addEventListener("click", () => setActiveFolder(activeFolder.includes("/") ? activeFolder.split("/").slice(0, -1).join("/") : ALL));
-    box.appendChild(up);
-  }
-  for (const f of kids) {
-    const n = cards.filter((c) => inFolder(c, f)).length;
-    const chip = document.createElement("span");
-    chip.className = "tag-chip";
-    chip.textContent = `${f.slice(base.length)}（${n}）`;
-    chip.addEventListener("click", () => setActiveFolder(f));
-    box.appendChild(chip);
-  }
-  $("folderList").innerHTML = allFolders().map((f) => `<option value="${esc(f)}"></option>`).join("");
+  fillProjectSelect($("projectSelect"), activeFolder, { all: true, add: true });
 }
 function openFolderDialog() {
   renderFolderTree();
+  fillProjectSelect($("moveFolder"), "", {});
   $("moveCount").textContent = filteredCards().length;
   $("folderDialog").showModal();
 }
@@ -848,7 +847,7 @@ function renderFolderTree() {
     e.stopPropagation();
     const targets = cards.filter((c) => inFolder(c, f));
     if (act === "rename") {
-      const nv = normFolder(prompt(`「${f}」の新しい名前（「/」で階層。既にあるフォルダ名にするとまとまります）`, f) || "");
+      const nv = normFolder(prompt(`「${f}」の新しい名前（既にあるプロジェクト名にするとまとまります）`, f) || "");
       if (!nv || nv === f) return;
       for (const c of targets) c.folder = nv + c.folder.slice(f.length);
       setEmptyFolders(getEmptyFolders().map((x) => x === f || x.startsWith(f + "/") ? nv + x.slice(f.length) : x));
@@ -857,7 +856,7 @@ function renderFolderTree() {
       toast(`${targets.length}件を移しました`);
     } else {
       const parent = f.includes("/") ? f.split("/").slice(0, -1).join("/") : "";
-      if (!confirm(`フォルダ「${f}」を削除しますか？\n中の名刺${targets.length}件は消えずに「${parent || "未分類"}」へ移ります。`)) return;
+      if (!confirm(`プロジェクト「${f}」を削除しますか？\n中の名刺${targets.length}件は消えずに「${parent || "未分類"}」へ移ります。`)) return;
       for (const c of targets) c.folder = parent;
       setEmptyFolders(getEmptyFolders().filter((x) => !(x === f || x.startsWith(f + "/"))));
       if (activeFolder !== ALL && inFolder({ folder: activeFolder }, f)) activeFolder = parent || ALL;
@@ -875,7 +874,7 @@ function createFolder() {
   $("newFolder").value = "";
   renderFolderTree();
   render();
-  toast(`フォルダ「${f}」を作りました`);
+  toast(`プロジェクト「${f}」を作りました`);
 }
 async function moveShownCards() {
   const f = normFolder($("moveFolder").value);
@@ -889,6 +888,26 @@ async function moveShownCards() {
   renderFolderTree();
   $("moveCount").textContent = filteredCards().length;
   toast(`${targets.length}件を移動しました`);
+}
+
+// タグ → プロジェクトへの移し替え（タグ機能はプロジェクトに置き換えた）。
+// プロジェクト未設定なら1つ目のタグをプロジェクトに、残りのタグはメモの末尾に残す。何度実行しても同じ結果になる。
+let migrating = false;
+async function migrateTagsToProjects() {
+  if (migrating) return;
+  const changed = [];
+  for (const c of cards) {
+    const tags = (c.tags || []).map((t) => String(t).trim()).filter((t) => t && t !== "要確認");
+    if (!(c.tags || []).length) continue;
+    if (!c.folder && tags.length) c.folder = normFolder(tags.shift().replace(/\//g, "／"));
+    if (tags.length) c.memo = [c.memo, `（旧タグ: ${tags.join(", ")}）`].filter(Boolean).join("\n");
+    c.tags = [];
+    changed.push(c);
+  }
+  if (!changed.length) return;
+  migrating = true;
+  try { await persistCards(changed); toast(`タグを${changed.length}件分プロジェクトに移しました`); }
+  finally { migrating = false; }
 }
 
 function filteredCards() {
@@ -976,7 +995,6 @@ function render() {
         <div class="name">${esc(c.name)}</div>
         <div class="company">${esc(sub)}</div>
         ${met ? `<div class="met">🤝 ${esc(met)}</div>` : ""}${c.folder && c.folder !== activeFolder ? `<span class="folder-chip">📁 ${esc(c.folder.split("/").pop())}</span>` : ""}
-        <div class="tags">${(c.tags || []).map((t) => `<span class="tag-chip">${esc(t)}</span>`).join("")}</div>
       </div>`;
     el.addEventListener("click", () => openDetail(c.id));
     frag.appendChild(el);
@@ -986,22 +1004,7 @@ function render() {
   renderFolderUI();
 }
 
-function renderTagBar() {
-  const bar = $("tagBar");
-  const tags = [...new Set(cards.flatMap((c) => c.tags || []))].sort((a, b) => a.localeCompare(b, "ja"));
-  bar.innerHTML = "";
-  if (activeTag && !tags.includes(activeTag)) activeTag = null;
-  for (const t of tags) {
-    const chip = document.createElement("span");
-    chip.className = "tag-chip" + (t === activeTag ? " active" : "");
-    chip.textContent = t;
-    chip.addEventListener("click", () => {
-      activeTag = activeTag === t ? null : t;
-      render();
-    });
-    bar.appendChild(chip);
-  }
-}
+function renderTagBar() { activeTag = null; } // タグはプロジェクトに置き換えた
 
 /* ---------- 詳細 ---------- */
 function openDetail(id) {
@@ -1051,10 +1054,9 @@ function openDetail(id) {
     ["メール", c.email ? `<span class="copyable" data-copy="${esc(c.email)}" title="タップでコピー">${esc(c.email)}</span>` : ""],
     ["住所", c.address ? `<span class="copyable" data-copy="${esc(c.address)}" title="タップでコピー">${esc(c.address)}</span>` : ""],
     ["Web", site ? `<a href="${esc(site)}" target="_blank" rel="noopener">${esc(c.website)}</a>` : esc(c.website)],
-    ["フォルダ", c.folder ? esc(c.folder.split("/").join(" › ")) : ""],
+    ["プロジェクト", c.folder ? esc(c.folder.split("/").join(" › ")) : ""],
     ["会った日", c.metAt ? esc(fmtDate(c.metAt)) : ""],
     ["会った場所", esc(c.metPlace)],
-    ["タグ", esc((c.tags || []).join(", "))],
     ["メモ", esc(c.memo)],
     ["登録日", c.createdAt ? new Date(c.createdAt).toLocaleDateString("ja-JP") : ""],
   ].filter(([, v]) => v);
@@ -1118,7 +1120,7 @@ async function cardToVcard(c, withPhoto) {
   if (site) L.push(`URL:${vcfEsc(site)}`);
   const note = [
     c.metAt || c.metPlace ? `会った: ${[fmtDate(c.metAt), c.metPlace].filter(Boolean).join(" ")}` : "",
-    (c.tags || []).length ? `タグ: ${c.tags.join(", ")}` : "",
+    c.folder ? `プロジェクト: ${c.folder}` : "",
     c.memo || "",
   ].filter(Boolean).join("\n");
   if (note) L.push(`NOTE:${vcfEsc(note)}`);
@@ -1158,7 +1160,7 @@ function exportCsv(list) {
   if (!list.length) { toast("対象の名刺がありません"); return; }
   const cols = [["name", "氏名"], ["kana", "ふりがな"], ["company", "会社名"], ["companyKana", "会社名ふりがな"],
     ["title", "部署・役職"], ["phone", "電話"], ["email", "メール"], ["address", "住所"], ["website", "Webサイト"],
-    ["metAt", "会った日"], ["metPlace", "会った場所"], ["folder", "フォルダ"], ["tags", "タグ"], ["memo", "メモ"]];
+    ["metAt", "会った日"], ["metPlace", "会った場所"], ["folder", "プロジェクト"], ["memo", "メモ"]];
   const cell = (v) => {
     let s = Array.isArray(v) ? v.join(", ") : String(v || "");
     if (/^[=+\-@]/.test(s)) s = "'" + s; // 表計算ソフトで数式として実行されないように
@@ -1195,9 +1197,8 @@ function openEdit(card, carry) {
   // 新規は「会った日＝今日」を初期値にする（名刺はたいてい受け取った当日に登録するため）
   $("fMetAt").value = card ? String(card.metAt || "").slice(0, 10) : (carry?.metAt || todayYmd());
   $("fMetPlace").value = card ? (card.metPlace || "") : (carry?.metPlace || "");
-  $("fTags").value = (card ? (card.tags || []) : (carry?.tags || [])).join(", ");
   // 新規は、開いているフォルダに入れる
-  $("fFolder").value = card ? (card.folder || "") : (carry ? (carry.folder || "") : (activeFolder === ALL ? "" : activeFolder));
+  fillProjectSelect($("fFolder"), card ? (card.folder || "") : (carry ? (carry.folder || "") : (activeFolder === ALL ? "" : activeFolder)), { add: true });
   $("fMemo").value = card?.memo || "";
   $("continuousWrap").hidden = !!card;
   $("continuousChk").checked = !card && !!carry;
@@ -1208,7 +1209,6 @@ function openEdit(card, carry) {
   setOpusStatus("");
   clearOcrMarks();
   updateOcrBtn();
-  renderTagSuggest();
   checkDuplicates();
   $("editDialog").showModal();
   $("editDialog").querySelector(".dialog-body").scrollTop = 0;
@@ -1217,28 +1217,6 @@ function openEdit(card, carry) {
 // OCRで自動入力した欄の目印（ユーザーが触ったら消す）
 function clearOcrMarks() {
   document.querySelectorAll("#editForm .ocr-filled").forEach((el) => el.classList.remove("ocr-filled"));
-}
-
-// よく使うタグ（使用回数順）をワンタップで追加できるように
-function renderTagSuggest() {
-  const box = $("tagSuggest");
-  const cur = new Set($("fTags").value.split(/[,、，]/).map((t) => t.trim()).filter(Boolean));
-  const freq = new Map();
-  for (const c of cards) for (const t of c.tags || []) freq.set(t, (freq.get(t) || 0) + 1);
-  const top = [...freq.entries()].filter(([t]) => !cur.has(t))
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja")).slice(0, 10);
-  box.innerHTML = "";
-  for (const [t] of top) {
-    const b = document.createElement("span");
-    b.className = "tag-chip";
-    b.textContent = "＋" + t;
-    b.addEventListener("click", () => {
-      const v = $("fTags").value.trim();
-      $("fTags").value = v ? v.replace(/[,、，\s]*$/, "") + ", " + t : t;
-      renderTagSuggest();
-    });
-    box.appendChild(b);
-  }
 }
 
 /* ---------- 重複の判定 ---------- */
@@ -1298,9 +1276,9 @@ async function saveCard(e) {
       website: $("fWebsite").value.trim(),
       metAt: $("fMetAt").value || "",
       metPlace: $("fMetPlace").value.trim(),
-      folder: normFolder($("fFolder").value),
+      folder: $("fFolder").value === NEW_PROJECT ? "" : normFolder($("fFolder").value),
       _auto: [], // 手で保存した名刺は、後から届く読み取り結果で上書きしない
-      tags: [...new Set($("fTags").value.split(/[,、，]/).map((t) => t.trim()).filter(Boolean))],
+      tags: [],
       memo: $("fMemo").value.trim(),
       image: pendingImage === undefined ? (existing?.image || null) : pendingImage,
       createdAt: existing?.createdAt || now,
@@ -1319,7 +1297,7 @@ async function saveCard(e) {
     render();
     if (continuous) {
       // 展示会などで何枚も続けて登録するとき: 会った日・場所・タグを引き継いで次の登録画面へ
-      const carry = { metAt: card.metAt, metPlace: card.metPlace, tags: card.tags, folder: card.folder };
+      const carry = { metAt: card.metAt, metPlace: card.metPlace, folder: card.folder };
       toast(`「${card.name}」を保存しました。次の名刺をどうぞ`);
       openEdit(null, carry);
     } else {
@@ -1598,6 +1576,7 @@ async function syncFromCloud(opts = {}) {
 
     render();
     updateSyncUI();
+    migrateTagsToProjects(); // 他の端末から古い形式（タグ）の名刺が来たとき
     if (!opts.quiet) alert(`クラウドと同期しました（取り込み ${pulled} 件 / 削除反映 ${removed} 件 / クラウド全 ${remote.length} 件）`);
     else if (pulled || removed) toast(`クラウドから ${pulled} 件取り込み${removed ? `・${removed} 件削除` : ""}`);
     loadImages(imageJobs); // 待たない（一覧はもう見られる）
@@ -2291,14 +2270,12 @@ function applyOpusFields(fields) {
  */
 const NAME_PENDING = "（読み取り中）";
 const NAME_UNKNOWN = "（氏名を確認）";
-const REVIEW_TAG = "要確認";
 const batch = { total: 0, read: 0, opusWaiting: 0, opusDone: 0, running: false };
 
 function openBatchDialog() {
   $("bMetAt").value = todayYmd();
   $("bMetPlace").value = "";
-  $("bTags").value = "";
-  $("bFolder").value = activeFolder === ALL ? "" : activeFolder;
+  fillProjectSelect($("bFolder"), activeFolder === ALL ? "" : activeFolder, { add: true });
   $("batchDialog").showModal();
 }
 
@@ -2340,11 +2317,6 @@ function fillCardFields(card, fields, overwrite) {
     }
   }
   if (card.name === NAME_PENDING) { card.name = NAME_UNKNOWN; changed = true; }
-  // 氏名が読めたら「要確認」を外す（自分で付けたタグでなければ）
-  const hasName = card.name && card.name !== NAME_UNKNOWN;
-  const tags = card.tags || [];
-  if (hasName && card._reviewTag && tags.includes(REVIEW_TAG)) { card.tags = tags.filter((t) => t !== REVIEW_TAG); card._reviewTag = false; changed = true; }
-  if (!hasName && !tags.includes(REVIEW_TAG)) { card.tags = [...tags, REVIEW_TAG]; card._reviewTag = true; changed = true; }
   card._auto = [...auto];
   return changed;
 }
@@ -2354,8 +2326,8 @@ async function startBatch(files) {
   const common = {
     metAt: $("bMetAt").value || "",
     metPlace: $("bMetPlace").value.trim(),
-    folder: normFolder($("bFolder").value),
-    tags: [...new Set($("bTags").value.split(/[,、，]/).map((t) => t.trim()).filter(Boolean))],
+    folder: $("bFolder").value === NEW_PROJECT ? "" : normFolder($("bFolder").value),
+    tags: [],
   };
   if (common.folder) setEmptyFolders(getEmptyFolders().filter((x) => x !== common.folder));
   batch.total += files.length;
@@ -2648,6 +2620,7 @@ async function init() {
   bootstrapConfigFromHash(); // ブックマーク/アイコンのURLにexec URLを仕込めば毎回の手入力が不要になる
   db = await openDB();
   cards = await getAllCards();
+  migrateTagsToProjects();
   const savedSort = lsGet(SORT_KEY, "updated");
   if ([...$("sortSelect").options].some((o) => o.value === savedSort)) $("sortSelect").value = savedSort;
   render();
@@ -2688,6 +2661,12 @@ async function init() {
   });
   $("dupCloseBtn").addEventListener("click", () => $("dupDialog").close());
   $("folderBtn").addEventListener("click", openFolderDialog);
+  $("projectSelect").addEventListener("change", (e) => {
+    const sel = e.target;
+    if (sel.value === NEW_PROJECT) { if (handleNewProject(sel, { all: true, add: true })) setActiveFolder(sel.value); return; }
+    setActiveFolder(sel.value);
+  });
+  for (const id of ["fFolder", "bFolder"]) $(id).addEventListener("change", (e) => handleNewProject(e.target, { add: true }));
   $("folderCloseBtn").addEventListener("click", () => $("folderDialog").close());
   $("newFolderBtn").addEventListener("click", createFolder);
   $("newFolder").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); createFolder(); } });
@@ -2703,7 +2682,6 @@ async function init() {
   // 入力中: 重複の確認・OCR目印の解除・タグ候補の更新
   for (const id of ["fName", "fCompany", "fPhone", "fEmail"]) $(id).addEventListener("input", checkDuplicates);
   $("editForm").addEventListener("input", (e) => e.target.classList.remove("ocr-filled"));
-  $("fTags").addEventListener("input", renderTagSuggest);
   // 名刺画像はタップで拡大／縮小
   $("detailImg").addEventListener("click", () => $("detailImg").classList.toggle("zoom"));
   $("editForm").addEventListener("submit", saveCard);
