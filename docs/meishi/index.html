@@ -61,6 +61,19 @@
   }
   h1 { font-size: 18px; margin: 0; white-space: nowrap; flex: 1; }
   @media (min-width: 621px) { header.searching h1 { flex: none; } } /* PCでは検索欄を同じ行に広げる */
+  /* クラウド未接続のときは全面に出して、つなぐまで使えないようにする（端末の中だけに名刺が残るのを防ぐ） */
+  #cloudGate {
+    position: fixed; inset: 0; z-index: 50; background: var(--bg); overflow: auto;
+    display: flex; align-items: center; justify-content: center; padding: 24px 18px;
+  }
+  #cloudGate .gate-box { max-width: 460px; width: 100%; }
+  #cloudGate h2 { font-size: 20px; margin: 0 0 10px; }
+  #cloudGate p { color: var(--text-sub); font-size: 14px; line-height: 1.7; margin: 0 0 14px; }
+  #cloudGate input { width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 16px; margin-bottom: 10px; }
+  #cloudGate .gate-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  #cloudGate .gate-actions button { flex: 1; min-width: 150px; padding: 11px 12px; font-size: 15px; }
+  #cloudGate .gate-err { color: var(--danger); font-size: 13px; min-height: 1.4em; margin-top: 8px; }
+  #cloudGate .gate-sub { background: none; border: none; color: var(--text-sub); font-size: 12px; text-decoration: underline; padding: 6px 0; margin-top: 10px; cursor: pointer; }
   #searchBtn.on { border-color: var(--accent); color: var(--accent); }
   #searchBox {
     flex: 1; min-width: 180px;
@@ -478,6 +491,20 @@
   <div id="empty" hidden>名刺がまだありません。「＋ 新規登録」から追加してください。</div>
 </main>
 <button id="fab" title="新規登録" aria-label="新規登録">＋</button>
+<div id="cloudGate" hidden>
+  <div class="gate-box">
+    <h2>📇 名刺管理 — クラウドにつなぐ</h2>
+    <p>名刺は常にクラウド（Googleドライブ）に保存します。この端末はまだつながっていないので、<b>合鍵リンク</b>を貼り付けてつないでください。一度つなげば、次からはそのまま使えます。</p>
+    <p id="gateLocal" hidden></p>
+    <input type="text" id="gateLink" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="合鍵リンクをここに貼り付け">
+    <div class="gate-actions">
+      <button type="button" id="gatePasteBtn">📋 貼り付け</button>
+      <button type="button" class="primary" id="gateConnectBtn">つなぐ</button>
+    </div>
+    <div class="gate-err" id="gateErr"></div>
+    <button type="button" class="gate-sub" id="gateManualBtn">保存先の URL と合鍵を別々に入力する</button>
+  </div>
+</div>
 <div id="toast" role="status"></div>
 
 <footer id="footNote">データはこのブラウザ内に保存<span class="long">（IndexedDB）されます。定期的に ☰ →「バックアップを書き出し」で保存してください</span>。</footer>
@@ -695,7 +722,7 @@
       Google Apps Script の <b>ウェブアプリ URL</b> を入力すると、名刺データはスプレッドシートに、
       画像は Google Drive に保存されます（あなた自身の Google アカウント内）。<br>
       URL は<b>実質パスワード</b>です。他人に共有しないでください。設定はこのブラウザにのみ保存されます。
-      未設定なら、これまで通りこのブラウザ内（IndexedDB）だけで動作します。
+      名刺は常にクラウドに保存するため、未設定のままでは使えません。
     </p>
     <form id="cfgForm">
       <label>ウェブアプリ URL（…/exec）または 合鍵入りリンクをそのまま貼り付け</label>
@@ -2177,6 +2204,14 @@ function updateSyncUI() {
   // 同期できているときは何も出さない（問題があるときだけ知らせる）。手動の同期は ☰ メニューから。
   $("cloudSyncBtn").hidden = true;
   $("menuSync").hidden = !cloudConfigured();
+  // 常にクラウド保存: つながっていない端末では、つなぐ画面を全面に出す
+  const gated = !cloudConfigured();
+  $("cloudGate").hidden = !gated;
+  if (gated) {
+    const n = cards.length;
+    $("gateLocal").hidden = !n;
+    $("gateLocal").textContent = n ? `この端末の中に名刺が ${n} 枚あります。つなぐと自動でクラウドに保存されます（消えません）。` : "";
+  }
   bar.hidden = false;
   // 画面下の一言: いまの保存先を正しく伝える（クラウド接続中なのに「ブラウザ内に保存」と出さない）
   if (!GAS) $("footNote").innerHTML = cloudConfigured()
@@ -2288,7 +2323,7 @@ function clearCfg() {
   localStorage.removeItem(CFG_TOKEN);
   $("cfgUrl").value = "";
   $("cfgToken").value = "";
-  $("cfgResult").textContent = "設定を消しました（ローカルのみで動作します）。";
+  $("cfgResult").textContent = "設定を消しました。つなぎ直すまで名刺管理は使えません。";
   updateSyncUI();
 }
 
@@ -3770,23 +3805,38 @@ async function init() {
   $("cfgTestBtn").addEventListener("click", testCfg);
   $("cfgClearBtn").addEventListener("click", clearCfg);
   $("cloudSyncBtn").addEventListener("click", () => syncFromCloud());
+  // つなぐ画面
+  const gateConnect = (text) => {
+    if (connectFromLink(text)) { $("gateLink").value = ""; $("gateErr").textContent = ""; return true; }
+    $("gateErr").textContent = text.trim() ? "合鍵リンクではないようです。リンク全体（…#cfg=…&tok=…）を貼り付けてください。" : "合鍵リンクを貼り付けてください。";
+    return false;
+  };
+  $("gateConnectBtn").addEventListener("click", () => gateConnect($("gateLink").value));
+  $("gateLink").addEventListener("keydown", (e) => { if (e.key === "Enter") gateConnect($("gateLink").value); });
+  $("gateLink").addEventListener("paste", () => setTimeout(() => { if ($("gateLink").value.trim()) gateConnect($("gateLink").value); }, 0));
+  $("gatePasteBtn").addEventListener("click", async () => {
+    let text = "";
+    try { text = await navigator.clipboard.readText(); } catch { /* 読めない環境では手で貼ってもらう */ }
+    if (text) { $("gateLink").value = text; gateConnect(text); }
+    else { $("gateErr").textContent = "自動では貼り付けられませんでした。上の欄を長押しして「ペースト」してください。"; $("gateLink").focus(); }
+  });
+  $("gateManualBtn").addEventListener("click", openCfg);
   updateSyncUI();
   if (GAS) {
     $("menu").querySelector('[data-act="cfg"]').hidden = true;
     document.querySelector("footer").textContent = "データはあなたのGoogleドライブに保存されています（本人のみ）。";
   }
-  if (cloudConfigured()) {
-    // どの端末で開いても同じ一覧になるよう、開いたとき・画面に戻ったときに自動で取り込む
-    // （端末内の未送信分は先に送ってから取り込むので、消えることはない）
-    syncFromCloud({ quiet: true });
-    let lastSync = Date.now();
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && cloudConfigured() && Date.now() - lastSync > 30000) {
-        lastSync = Date.now();
-        syncFromCloud({ quiet: true });
-      }
-    });
-  }
+  // どの端末で開いても同じ一覧になるよう、開いたとき・画面に戻ったとき・通信が戻ったときに自動で同期する
+  // （端末内の未送信分は先に送ってから取り込むので、消えることはない）。後からつないだ端末でも働くよう、常に見張る。
+  if (cloudConfigured()) syncFromCloud({ quiet: true });
+  let lastSync = Date.now();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && cloudConfigured() && Date.now() - lastSync > 30000) {
+      lastSync = Date.now();
+      syncFromCloud({ quiet: true });
+    }
+  });
+  window.addEventListener("online", () => { if (cloudConfigured()) { lastSync = Date.now(); syncFromCloud({ quiet: true }); } });
 }
 
 init().catch((err) => {
