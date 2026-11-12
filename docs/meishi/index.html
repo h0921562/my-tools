@@ -137,7 +137,13 @@
   }
   dialog::backdrop { background: rgba(0,0,0,.45); }
   .dialog-body { padding: 20px; overflow-y: auto; max-height: calc(100vh - 60px); }
-  .dialog-body h2 { margin: 0 0 14px; font-size: 17px; }
+  .dialog-body h2 { margin: 0 0 14px; font-size: 17px; padding-right: 40px; }
+  /* どの画面でも右上に常に見える閉じるボタン（長い画面でも下までスクロールせずに戻れる） */
+  .dlg-x {
+    position: sticky; top: 0; z-index: 6; display: flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; margin: -6px -6px -30px auto; padding: 0; border-radius: 50%;
+    font-size: 17px; line-height: 1; background: var(--surface); box-shadow: 0 1px 6px rgba(0,0,0,.15);
+  }
   form label { display: block; font-size: 12px; color: var(--text-sub); margin: 10px 0 4px; }
   form input[type="text"], form input[type="tel"], form input[type="email"], form input[type="url"], form textarea {
     width: 100%; padding: 8px 10px;
@@ -397,7 +403,8 @@
       width: 100vw; max-width: 100vw; margin: auto 0 0; border-radius: 16px 16px 0 0;
       max-height: 92vh;
     }
-    .dialog-body { max-height: 92vh; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+    .dialog-body { max-height: 92vh; max-height: 92dvh; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+    dialog { max-height: 92dvh; }
     .sticky-actions { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
     footer { padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
     footer .long, .sync-bar .long { display: none; }
@@ -3338,6 +3345,17 @@ async function init() {
   });
   $("dupCloseBtn").addEventListener("click", () => $("dupDialog").close());
   $("folderBtn").addEventListener("click", openFolderDialog);
+  // すべての画面に「✕」を付ける。見るだけの画面は外側（暗い所）をタップしても閉じる
+  const tapOutsideOK = new Set(["detailDialog", "coDialog", "docDialog", "dupDialog", "folderDialog", "tagDialog"]);
+  document.querySelectorAll("dialog").forEach((dlg) => {
+    const body = dlg.querySelector(".dialog-body");
+    if (!body || body.querySelector(".dlg-x")) return;
+    const x = document.createElement("button");
+    x.type = "button"; x.className = "dlg-x"; x.textContent = "✕"; x.setAttribute("aria-label", "閉じる");
+    x.addEventListener("click", () => dlg.close());
+    body.prepend(x);
+    if (tapOutsideOK.has(dlg.id)) dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+  });
   for (const [sel, input] of [["fMetPlaceSel", "fMetPlace"], ["bMetPlaceSel", "bMetPlace"]]) {
     $(sel).addEventListener("change", (e) => { if (e.target.value) { $(input).value = e.target.value; e.target.value = ""; } });
   }
