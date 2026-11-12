@@ -488,6 +488,7 @@
           <div><label>会った場所・きっかけ</label><input type="text" id="fMetPlace" autocomplete="off" placeholder="例: 〇〇展示会、△△さんの紹介"></div>
         </div>
       </div>
+      <div class="field-note" id="stickyNote" hidden></div>
       <label>プロジェクト</label>
       <select id="fFolder" class="project-pick" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px"></select>
       <label>メモ</label><textarea id="fMemo"></textarea>
@@ -1178,7 +1179,37 @@ async function shareCard(c) {
 }
 
 /* ---------- 登録・編集 ---------- */
-// carry: 新規登録のときに前回から引き継ぐ値 { metAt, metPlace, tags }
+/* 前回のイベント（会った場所）とプロジェクトを、最後の新規登録から12時間は次の登録の初期値にする。
+ * 展示会などで何枚も入れるときに毎回入れ直さなくていいように。アプリを閉じても残る（スマホは勝手に再起動されるため）。 */
+const STICKY_KEY = "meishi.sticky";
+const STICKY_MS = 12 * 60 * 60 * 1000;
+function getSticky() {
+  try {
+    const v = JSON.parse(lsGet(STICKY_KEY, "null"));
+    if (v && Date.now() - (v.at || 0) < STICKY_MS) return v;
+  } catch {}
+  return null;
+}
+function setSticky(metPlace, folder) {
+  if (!metPlace && !folder) { lsSet(STICKY_KEY, "null"); return; }
+  lsSet(STICKY_KEY, JSON.stringify({ metPlace: metPlace || "", folder: folder || "", at: Date.now() }));
+}
+function showStickyNote(st) {
+  const el = $("stickyNote");
+  if (!st) { el.hidden = true; el.innerHTML = ""; return; }
+  const what = [st.metPlace && `イベント「${esc(st.metPlace)}」`, st.folder && `プロジェクト「${esc(st.folder)}」`].filter(Boolean).join("・");
+  const left = Math.max(1, Math.round((STICKY_MS - (Date.now() - st.at)) / 3600000));
+  el.innerHTML = `↩ 前回の${what}を入れています（あと約${left}時間）<button type="button" id="stickyClear" style="font-size:11px;padding:1px 8px;margin-left:6px">クリア</button>`;
+  el.hidden = false;
+  $("stickyClear").addEventListener("click", () => {
+    setSticky("", "");
+    $("fMetPlace").value = "";
+    fillProjectSelect($("fFolder"), activeFolder === ALL ? "" : activeFolder, { add: true });
+    showStickyNote(null);
+  });
+}
+
+// carry: 新規登録のときに前回から引き継ぐ値 { metAt, metPlace, folder }
 function openEdit(card, carry) {
   editingId = card ? card.id : null;
   pendingImage = undefined; // 変更なし
@@ -1196,9 +1227,12 @@ function openEdit(card, carry) {
   $("fWebsite").value = card?.website || "";
   // 新規は「会った日＝今日」を初期値にする（名刺はたいてい受け取った当日に登録するため）
   $("fMetAt").value = card ? String(card.metAt || "").slice(0, 10) : (carry?.metAt || todayYmd());
-  $("fMetPlace").value = card ? (card.metPlace || "") : (carry?.metPlace || "");
+  const sticky = !card && !carry ? getSticky() : null;
+  $("fMetPlace").value = card ? (card.metPlace || "") : (carry ? (carry.metPlace || "") : (sticky?.metPlace || ""));
   // 新規は、開いているフォルダに入れる
-  fillProjectSelect($("fFolder"), card ? (card.folder || "") : (carry ? (carry.folder || "") : (activeFolder === ALL ? "" : activeFolder)), { add: true });
+  // 新規のプロジェクトの初期値: 続けて登録の引き継ぎ ＞ 開いているプロジェクト ＞ 前回のプロジェクト（12時間）
+  fillProjectSelect($("fFolder"), card ? (card.folder || "") : (carry ? (carry.folder || "") : (activeFolder !== ALL ? activeFolder : (sticky?.folder || ""))), { add: true });
+  showStickyNote(sticky && (sticky.metPlace || (activeFolder === ALL && sticky.folder)) ? { ...sticky, folder: activeFolder === ALL ? sticky.folder : "" } : null);
   $("fMemo").value = card?.memo || "";
   $("continuousWrap").hidden = !!card;
   $("continuousChk").checked = !card && !!carry;
@@ -1292,6 +1326,7 @@ async function saveCard(e) {
     await putCard(card);
     const idx = cards.findIndex((c) => c.id === card.id);
     if (idx >= 0) cards[idx] = card; else cards.push(card);
+    if (!existing) setSticky(card.metPlace, card.folder);
     const continuous = !existing && $("continuousChk").checked;
     $("editDialog").close();
     render();
@@ -2274,8 +2309,9 @@ const batch = { total: 0, read: 0, opusWaiting: 0, opusDone: 0, running: false }
 
 function openBatchDialog() {
   $("bMetAt").value = todayYmd();
-  $("bMetPlace").value = "";
-  fillProjectSelect($("bFolder"), activeFolder === ALL ? "" : activeFolder, { add: true });
+  const st = getSticky();
+  $("bMetPlace").value = st?.metPlace || "";
+  fillProjectSelect($("bFolder"), activeFolder !== ALL ? activeFolder : (st?.folder || ""), { add: true });
   $("batchDialog").showModal();
 }
 
@@ -2330,6 +2366,7 @@ async function startBatch(files) {
     tags: [],
   };
   if (common.folder) setEmptyFolders(getEmptyFolders().filter((x) => x !== common.folder));
+  setSticky(common.metPlace, common.folder);
   batch.total += files.length;
   updateBatchBar();
   toast(`${files.length}枚を登録します`);
