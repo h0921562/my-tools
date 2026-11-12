@@ -1,2 +1,2 @@
-# 許可するメールアドレス（公開しない）。Apps Script 側にだけ置く
+# 合鍵（公開しない）。Apps Script 側にだけ置く
 Config.gs

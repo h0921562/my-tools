@@ -1437,6 +1437,7 @@ function saveCfg(e) {
   if (token) localStorage.setItem(CFG_TOKEN, token); else localStorage.removeItem(CFG_TOKEN);
   $("cfgDialog").close();
   updateSyncUI();
+  if (cloudConfigured()) syncFromCloud({ quiet: true });
 }
 async function testCfg() {
   const url = $("cfgUrl").value.trim();
@@ -2268,20 +2269,20 @@ async function init() {
   $("cloudSyncBtn").addEventListener("click", () => syncFromCloud());
   updateSyncUI();
   if (GAS) {
-    // Apps Script版: どの端末で開いても同じ一覧になるよう、開いたとき・画面に戻ったときに自動で取り込む
     $("menu").querySelector('[data-act="cfg"]').hidden = true;
     document.querySelector("footer").textContent = "データはあなたのGoogleドライブに保存されています（本人のみ）。";
+  }
+  if (cloudConfigured()) {
+    // どの端末で開いても同じ一覧になるよう、開いたとき・画面に戻ったときに自動で取り込む
+    // （端末内の未送信分は先に送ってから取り込むので、消えることはない）
     syncFromCloud({ quiet: true });
     let lastSync = Date.now();
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && Date.now() - lastSync > 30000) {
+      if (document.visibilityState === "visible" && cloudConfigured() && Date.now() - lastSync > 30000) {
         lastSync = Date.now();
         syncFromCloud({ quiet: true });
       }
     });
-  } else if (cloudConfigured()) {
-    // 起動時は削除キューだけ静かに流す（未同期カードの一括pushは行わず、バッジ＋手動「再同期」に委ねる）
-    flushPendingDeletes().then(updateSyncUI).catch(() => {});
   }
 }
 

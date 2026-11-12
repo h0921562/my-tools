@@ -1,21 +1,18 @@
 /**
- * 名刺管理 — Apps Script 版（Googleログインした本人だけが使えるウェブアプリ）
+ * 名刺管理 — クラウド保存先（Apps Script）
  *
- * ・アプリ画面は GitHub Pages の index.html を取得してそのまま配信する（コードの二重管理をしない）。
+ * ・画面は GitHub Pages のアプリ（docs/meishi/index.html）。このスクリプトはデータの保存先だけを担う。
  * ・データはこのスクリプトの持ち主の Google ドライブに保存する:
  *     スプレッドシート「名刺管理データ」… 名刺1枚＝1行
  *     フォルダ「名刺管理_画像」          … 名刺画像
- * ・開いた人のアカウントで動く（「次のユーザーとして実行: アクセスしているユーザー」）。
- *   使えるのは Config.gs の ALLOWED_EMAILS に書いたアカウントだけ。データは1つのスプレッドシート／
- *   画像フォルダに集め、許可したアカウント全員に共有するので、どのアカウントで開いても同じ一覧になる。
- *   Config.gs はメールアドレスを公開しないため Git に入れず、Apps Script 側にだけ置く。
+ * ・持ち主として実行し、Googleログインは使わない（スマホで複数アカウントにログインしていると
+ *   Apps Script のログイン方式は開けなくなる既知の問題があるため）。
+ *   代わりに Config.gs の API_TOKEN（長いランダムな合鍵）を知っている端末だけが読み書きできる。
+ *   Config.gs は合鍵を公開しないため Git に入れず、Apps Script 側にだけ置く。
+ * ・端末への配り方: アプリの URL に #cfg=<このウェブアプリのURL>&tok=<合鍵> を付けたリンクを一度開く。
  *
  * 設置手順は同じフォルダの README.md を参照。
  */
-
-// 画面の取得元。テスト中はブランチのプレビューURLなどに差し替えられる
-// （プロジェクトの設定 → スクリプト プロパティ に PAGE_URL を追加すると、そちらが優先される）。
-const DEFAULT_PAGE_URL = 'https://h0921562.github.io/my-tools/meishi/index.html';
 
 const SHEET_FILE_NAME = '名刺管理データ';
 const SHEET_TAB_NAME = '名刺';
@@ -26,93 +23,47 @@ const COLS = ['id', 'name', 'kana', 'company', 'companyKana', 'title', 'phone', 
   'website', 'metAt', 'metPlace', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt'];
 const NUMBER_COLS = { createdAt: true, updatedAt: true };
 
-/* ================= 画面の配信 ================= */
+/* ================= 合鍵の確認 ================= */
 
-/* ================= 使える人の確認 ================= */
-
-// Config.gs で定義（例: const ALLOWED_EMAILS = ['a@example.com', 'b@example.com'];）
-function allowedEmails_() {
-  const list = typeof ALLOWED_EMAILS !== 'undefined' ? ALLOWED_EMAILS : [];
-  return list.map(function (e) { return String(e).trim().toLowerCase(); }).filter(String);
-}
-function currentEmail_() {
-  return String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
-}
-function assertAllowed_() {
-  const me = currentEmail_();
-  if (!me || allowedEmails_().indexOf(me) < 0) {
-    throw new Error('このアカウント（' + (me || '不明') + '）は使えません。許可されたアカウントでログインしてください。');
-  }
-  return me;
+// Config.gs で定義（例: const API_TOKEN = '長いランダムな文字列';）
+function checkToken_(token) {
+  const expected = typeof API_TOKEN !== 'undefined' ? String(API_TOKEN) : '';
+  if (expected.length < 20) throw new Error('サーバー側の合鍵が未設定です（Config.gs）');
+  const got = String(token || '');
+  // 長さが違っても比較を最後までやる（一致した文字数から合鍵を推測されないように）
+  let diff = got.length ^ expected.length;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ (got.charCodeAt(i) || 0);
+  if (diff !== 0) throw new Error('合鍵が違います');
 }
 
+/* ================= 窓口 ================= */
+
+// アプリからの読み書き（fetch POST、本文は JSON）
+function doPost(e) {
+  let payload = {};
+  try { payload = JSON.parse((e && e.postData && e.postData.contents) || '{}'); }
+  catch (err) { return json_({ ok: false, error: '要求の形式が不正です' }); }
+  return json_(api(payload));
+}
+
+// ブラウザで直接開かれたとき（データは出さない）
 function doGet() {
-  try {
-    assertAllowed_();
-  } catch (e) {
-    return HtmlService.createHtmlOutput(
-      '<div style="font-family:sans-serif;padding:40px 20px;text-align:center;line-height:1.8">' +
-      '<h2>名刺管理</h2><p>' + String(e.message).replace(/[<>&]/g, '') + '</p>' +
-      '<p style="color:#666;font-size:14px">スマホで複数のGoogleアカウントにログインしている場合は、' +
-      '許可されたアカウントに切り替えてから開き直してください。</p></div>')
-      .setTitle('名刺管理')
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
-  }
-  const html = HtmlService.createHtmlOutput(getPageHtml_())
-    .setTitle('名刺管理')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, viewport-fit=cover');
-  return html;
+  return HtmlService.createHtmlOutput(
+    '<div style="font-family:sans-serif;padding:40px 20px;text-align:center;line-height:1.8">' +
+    '<h2>名刺管理の保存先</h2><p>ここはデータの保存先です。名刺管理アプリは<br>' +
+    '<a href="https://h0921562.github.io/my-tools/meishi/" target="_top">こちら</a>から開いてください。</p></div>')
+    .setTitle('名刺管理の保存先')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
 }
 
-function pageUrl_() {
-  return PropertiesService.getScriptProperties().getProperty('PAGE_URL') || DEFAULT_PAGE_URL;
+function json_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-// GitHub Pages から画面を取ってくる。毎回取りに行くと遅いので10分キャッシュする。
-// CacheService は1件100KBまでなので分割して保存する。
-function getPageHtml_() {
-  const cache = CacheService.getScriptCache();
-  const url = pageUrl_();
-  const key = 'page:' + Utilities.base64EncodeWebSafe(url).slice(0, 200);
-  const meta = cache.get(key + ':n');
-  if (meta) {
-    const keys = [];
-    for (let i = 0; i < Number(meta); i++) keys.push(key + ':' + i);
-    const parts = cache.getAll(keys);
-    if (keys.every(function (k) { return parts[k] != null; })) {
-      return keys.map(function (k) { return parts[k]; }).join('');
-    }
-  }
-  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
-  if (res.getResponseCode() !== 200) {
-    throw new Error('画面を取得できませんでした（' + res.getResponseCode() + '）: ' + url);
-  }
-  const text = res.getContentText('UTF-8');
-  const size = 90000;
-  const chunks = {};
-  let n = 0;
-  for (let i = 0; i < text.length; i += size) chunks[key + ':' + (n++)] = text.slice(i, i + size);
-  try {
-    cache.putAll(chunks, 600);
-    cache.put(key + ':n', String(n), 600);
-  } catch (e) { /* キャッシュに入らなくても表示はできる */ }
-  return text;
-}
-
-// 画面を更新した直後にすぐ反映させたいときは、エディタからこれを実行する
-function clearPageCache() {
-  const cache = CacheService.getScriptCache();
-  const key = 'page:' + Utilities.base64EncodeWebSafe(pageUrl_()).slice(0, 200);
-  cache.remove(key + ':n');
-}
-
-/* ================= 画面から呼ばれる窓口 ================= */
-
-// 画面側の google.script.run.api(payload) から呼ばれる。返り値は { ok, ... }。
 function api(payload) {
   try {
     payload = payload || {};
-    assertAllowed_();
+    checkToken_(payload.token);
     switch (payload.action) {
       case 'ping': sheet_(); folder_(); return { ok: true, sheetUrl: spreadsheet_().getUrl() };
       case 'list': return { ok: true, cards: listCards_() };
@@ -141,21 +92,11 @@ function spreadsheet_() {
   if (id) {
     // ⚠ 開けなくても作り直さない（共有前のアカウントが別のシートを作ると、一覧が2つに割れるため）
     try { return SpreadsheetApp.openById(id); }
-    catch (e) { throw new Error('名刺データのスプレッドシートを開けません。共有されているか確認してください（' + currentEmail_() + '）'); }
+    catch (e) { throw new Error('名刺データのスプレッドシートを開けません。共有されているか確認してください'); }
   }
   const ss = SpreadsheetApp.create(SHEET_FILE_NAME);
   props.setProperty('SHEET_ID', ss.getId());
-  shareWithAllowed_(DriveApp.getFileById(ss.getId()));
   return ss;
-}
-
-// 許可したアカウント全員に編集権限を付ける（作った人以外も同じデータを読み書きできるように）
-function shareWithAllowed_(item) {
-  const me = currentEmail_();
-  allowedEmails_().forEach(function (e) {
-    if (e === me) return;
-    try { item.addEditor(e); } catch (err) { /* 既に共有済みなど */ }
-  });
 }
 
 function sheet_() {
@@ -192,11 +133,10 @@ function folder_() {
   const id = props.getProperty('FOLDER_ID');
   if (id) {
     try { return DriveApp.getFolderById(id); }
-    catch (e) { throw new Error('名刺画像のフォルダを開けません。共有されているか確認してください（' + currentEmail_() + '）'); }
+    catch (e) { throw new Error('名刺画像のフォルダを開けません。共有されているか確認してください'); }
   }
   const f = DriveApp.createFolder(IMAGE_FOLDER_NAME);
   props.setProperty('FOLDER_ID', f.getId());
-  shareWithAllowed_(f);
   return f;
 }
 
@@ -332,10 +272,7 @@ function ocr_(dataUrl) {
 /* ================= 初回の権限付与用 ================= */
 // エディタでこれを1回実行すると、必要な権限の許可画面が出て、保存先が作られる。
 function setup() {
-  const r = api({ action: 'ping' });
+  const r = api({ action: 'ping', token: typeof API_TOKEN !== 'undefined' ? API_TOKEN : '' });
   if (!r.ok) throw new Error(r.error);
-  // 許可するアカウントを後から足したときのために、共有をやり直す
-  shareWithAllowed_(DriveApp.getFileById(spreadsheet_().getId()));
-  shareWithAllowed_(folder_());
   Logger.log('準備できました。データの保存先: ' + r.sheetUrl);
 }
