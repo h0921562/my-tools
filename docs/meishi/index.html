@@ -266,6 +266,25 @@
   }
   @media (prefers-color-scheme: dark) { #batchBar { background: #172554; color: #bfdbfe; border-color: #1e3a8a; } }
 
+  /* ---------- 会社・資料 ---------- */
+  .co-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .co-row:hover { background: var(--surface); }
+  .co-ic { width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 19px; background: var(--bg); border: 1px solid var(--border); flex-shrink: 0; }
+  .co-row .nm { font-weight: 700; }
+  .co-row .sub { color: var(--text-sub); font-size: 12px; margin-top: 2px; }
+  .sec-h { display: flex; align-items: center; gap: 8px; margin: 16px 0 6px; font-weight: 700; font-size: 14px; }
+  .sec-h .cnt { color: var(--text-sub); font-weight: 400; font-size: 12px; }
+  .sec-h button { margin-left: auto; font-size: 12px; padding: 4px 10px; }
+  .doc-item, .person-item { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 14px; }
+  .doc-item .ic { font-size: 20px; width: 26px; text-align: center; }
+  .doc-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .doc-item .sub, .person-item .sub { color: var(--text-sub); font-size: 11px; }
+  .doc-item button { font-size: 11px; padding: 2px 8px; }
+  .empty-note { color: var(--text-sub); font-size: 12px; padding: 6px 2px; }
+  .co-link { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; margin: 0 0 10px; }
+  #docView img { width: 100%; border-radius: 8px; display: block; }
+  #docView iframe { width: 100%; height: 70vh; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+
   /* ---------- メニュー ---------- */
   .menu-wrap { position: relative; }
   .menu {
@@ -432,6 +451,7 @@
     <div class="seg" role="group" aria-label="表示">
       <button id="viewGrid" title="カード表示">▦</button>
       <button id="viewList" title="リスト表示">☰</button>
+      <button id="viewCompany" title="会社ごとに見る（会社データベース）">🏢</button>
     </div>
   </div>
   <div id="cardGrid"></div>
@@ -520,7 +540,10 @@
     </div>
     <div class="detail-sub" id="detailSub"></div>
     <div class="actions-row" id="detailActions"></div>
+    <button class="co-link" id="detailCoLink" hidden>🏢 <span></span> の会社ページ</button>
     <dl class="detail-rows" id="detailRows"></dl>
+    <div class="sec-h">📎 この人の資料<span class="cnt" id="detailDocCnt"></span><button id="detailDocAdd">＋ 資料を追加</button></div>
+    <div id="detailDocs"></div>
     <div class="dialog-actions">
       <button class="danger" id="deleteBtn">削除</button>
       <button id="editBtn">編集</button>
@@ -528,6 +551,38 @@
     </div>
   </div>
 </dialog>
+
+<!-- 会社ページ -->
+<dialog id="coDialog">
+  <div class="dialog-body">
+    <h2 id="coName"></h2>
+    <div class="cfg-hint" id="coSub"></div>
+    <div class="sec-h">📝 会社メモ</div>
+    <textarea id="coMemo" placeholder="事業内容、取引の状況、担当者の関係など" style="width:100%;min-height:80px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px;font-family:inherit"></textarea>
+    <div class="cfg-hint" id="coMemoState"></div>
+    <div class="sec-h">👤 人<span class="cnt" id="coPeopleCnt"></span></div>
+    <div id="coPeople"></div>
+    <div class="sec-h">📎 資料<span class="cnt" id="coDocCnt"></span><button id="coDocAdd">＋ 資料を追加</button></div>
+    <div id="coDocs"></div>
+    <div class="dialog-actions">
+      <button class="primary" id="coCloseBtn">閉じる</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- 資料ビューア -->
+<dialog id="docDialog">
+  <div class="dialog-body">
+    <h2 id="docTitle" style="word-break:break-all"></h2>
+    <div class="cfg-hint" id="docSub"></div>
+    <div id="docView" style="margin-top:10px"></div>
+    <div class="dialog-actions">
+      <a id="docOpen" class="btn" target="_blank" rel="noopener" style="text-decoration:none"><button type="button">開く／保存</button></a>
+      <button class="primary" id="docCloseBtn">閉じる</button>
+    </div>
+  </div>
+</dialog>
+<input type="file" id="docFiles" accept="image/*,application/pdf" multiple hidden>
 
 <!-- フォルダダイアログ -->
 <dialog id="folderDialog">
@@ -1143,9 +1198,11 @@ function render() {
     ? (list.length === cards.length ? `全${cards.length}件` : `${list.length}件を表示（全${cards.length}件）`) : "";
 
   const view = lsGet(VIEW_KEY, "list");
-  grid.classList.toggle("list", view === "list");
-  $("viewGrid").classList.toggle("on", view !== "list");
+  grid.classList.toggle("list", view === "list" || view === "company");
+  $("viewGrid").classList.toggle("on", view === "grid");
   $("viewList").classList.toggle("on", view === "list");
+  $("viewCompany").classList.toggle("on", view === "company");
+  if (view === "company") { renderCompanyList(list); renderTagBar(); renderFolderUI(); return; }
 
   // 会社ごと表示: 会社名の見出しで区切る（会社名なしは最後にまとめる）
   const grouped = $("sortSelect").value === "company";
@@ -1243,6 +1300,7 @@ function openDetail(id) {
     ["登録日", c.createdAt ? new Date(c.createdAt).toLocaleDateString("ja-JP") : ""],
   ].filter(([, v]) => v);
   $("detailRows").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+  renderDetailDocs(c);
   $("detailRows").querySelectorAll("[data-copy]").forEach((el) => el.addEventListener("click", async () => {
     toast((await copyText(el.dataset.copy)) ? "コピーしました" : "コピーできませんでした");
   }));
@@ -1813,6 +1871,7 @@ async function syncFromCloud(opts = {}) {
     render();
     updateSyncUI();
     migrateTagsToProjects(); // 他の端末から古い形式（タグ）の名刺が来たとき
+    loadCompanyData();
     if (!opts.quiet) alert(`クラウドと同期しました（取り込み ${pulled} 件 / 削除反映 ${removed} 件 / クラウド全 ${remote.length} 件）`);
     else if (pulled || removed) toast(`クラウドから ${pulled} 件取り込み${removed ? `・${removed} 件削除` : ""}`);
     loadImages(imageJobs); // 待たない（一覧はもう見られる）
@@ -2658,6 +2717,212 @@ async function startBatchOpus(card) {
   updateBatchBar();
 }
 
+/* ---------- 会社データベース（資料・会社メモ） ----------
+ * 資料はクラウド（Driveの「名刺管理_資料」）にだけ置き、一覧は開いたときに取ってくる。
+ * 会社は「会社名を正規化したもの」（株式会社などの表記ゆれを無視）でまとめる。
+ */
+let docs = [];                 // 資料の一覧（中身はクラウド）
+const coInfo = new Map();      // companyKey → { key, name, memo, updatedAt }
+const docBlobCache = new Map();// fileId → Blob（一度開いた資料）
+let openCoKey = null;
+let docTarget = null;          // 次に追加する資料のひもづけ先 { companyKey, company, cardId }
+const coKeyOf = (name) => normComp(name || "");
+
+async function loadCompanyData() {
+  if (!cloudConfigured()) return;
+  try {
+    const [d, c] = await Promise.all([cloudPost({ action: "docList" }), cloudPost({ action: "coList" })]);
+    docs = d.docs || [];
+    coInfo.clear();
+    for (const row of c.companies || []) coInfo.set(row.key, row);
+    if (lsGet(VIEW_KEY, "list") === "company") render();
+    if ($("coDialog").open && openCoKey != null) renderCompany(openCoKey);
+    if ($("detailDialog").open && detailId) renderDetailDocs(cards.find((x) => x.id === detailId));
+  } catch (e) { /* 資料の一覧が取れなくても名刺は使える */ }
+}
+
+// 会社ごとにまとめる（表示中の名刺から。資料だけある会社も出す）
+function companyGroups(list) {
+  const map = new Map();
+  for (const c of list) {
+    if (!c.company) continue;
+    const k = coKeyOf(c.company);
+    if (!map.has(k)) map.set(k, { key: k, name: c.company, people: [], docs: 0, lastMet: "" });
+    const g = map.get(k);
+    g.people.push(c);
+    if ((c.metAt || "") > g.lastMet) g.lastMet = c.metAt;
+  }
+  const filtering = $("searchBox").value.trim() || activeFolder !== ALL;
+  for (const d of docs) {
+    const k = d.companyKey;
+    if (!k) continue;
+    if (!map.has(k)) { if (filtering) continue; map.set(k, { key: k, name: d.company || k, people: [], docs: 0, lastMet: "" }); }
+    map.get(k).docs++;
+  }
+  return [...map.values()].sort((a, b) => normComp(a.name).localeCompare(normComp(b.name), "ja"));
+}
+
+function renderCompanyList(list) {
+  const grid = $("cardGrid");
+  const groups = companyGroups(list);
+  const none = list.filter((c) => !c.company).length;
+  $("stats").textContent = `${groups.length}社` + (none ? `（会社名なしの名刺 ${none}件）` : "");
+  const frag = document.createDocumentFragment();
+  for (const g of groups) {
+    const el = document.createElement("div");
+    el.className = "co-row";
+    const memo = coInfo.get(g.key)?.memo;
+    el.innerHTML = `<div class="co-ic">🏢</div><div style="min-width:0;flex:1">
+      <div class="nm">${esc(g.name)}</div>
+      <div class="sub">👤 ${g.people.length}人${g.docs ? `　📎 資料 ${g.docs}件` : ""}${g.lastMet ? `　🤝 ${esc(fmtDate(g.lastMet))}` : ""}${memo ? "　📝" : ""}</div></div>`;
+    el.addEventListener("click", () => openCompany(g.key, g.name));
+    frag.appendChild(el);
+  }
+  grid.appendChild(frag);
+  $("empty").hidden = groups.length > 0 || cards.length === 0;
+}
+
+function openCompany(key, name) {
+  openCoKey = key;
+  $("coDialog").dataset.name = name || coInfo.get(key)?.name || key;
+  renderCompany(key);
+  if (!$("coDialog").open) $("coDialog").showModal();
+  loadCompanyData();
+}
+function renderCompany(key) {
+  const people = cards.filter((c) => c.company && coKeyOf(c.company) === key);
+  const name = people[0]?.company || $("coDialog").dataset.name || key;
+  const cdocs = docs.filter((d) => d.companyKey === key).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  $("coName").textContent = "🏢 " + name;
+  const site = people.map((c) => siteHref(c.website)).find(Boolean);
+  const addr = people.map((c) => c.address).find(Boolean);
+  $("coSub").innerHTML = [site && `<a href="${esc(site)}" target="_blank" rel="noopener">${esc(site.replace(/^https?:\/\//, ""))}</a>`, addr && esc(addr)].filter(Boolean).join("<br>");
+  const memoEl = $("coMemo");
+  if (document.activeElement !== memoEl) memoEl.value = coInfo.get(key)?.memo || "";
+  memoEl.disabled = !cloudConfigured();
+  $("coMemoState").textContent = cloudConfigured() ? "" : "会社メモと資料の保存には、クラウドへの接続が必要です。";
+  $("coPeopleCnt").textContent = `${people.length}人`;
+  $("coPeople").innerHTML = people.length ? "" : `<div class="empty-note">この会社の名刺はまだありません</div>`;
+  for (const c of people) {
+    const el = document.createElement("div");
+    el.className = "person-item";
+    el.innerHTML = `${avatarHtml(c).replace('class="avatar"', 'class="avatar" style="width:30px;height:30px;font-size:13px;background:' + avatarColor(c.name) + '"')}
+      <div style="min-width:0"><div>${esc(c.name)}</div><div class="sub">${esc([c.title, c.metAt && fmtDate(c.metAt), c.metPlace].filter(Boolean).join("・"))}</div></div>`;
+    el.addEventListener("click", () => { $("coDialog").close(); openDetail(c.id); });
+    $("coPeople").appendChild(el);
+  }
+  renderDocList($("coDocs"), cdocs, true);
+  $("coDocCnt").textContent = `${cdocs.length}件`;
+  $("coDocAdd").disabled = !cloudConfigured();
+}
+
+function renderDetailDocs(c) {
+  if (!c) return;
+  const list = docs.filter((d) => d.cardId === c.id).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  renderDocList($("detailDocs"), list, false);
+  $("detailDocCnt").textContent = list.length ? `${list.length}件` : "";
+  $("detailDocAdd").disabled = !cloudConfigured();
+  const link = $("detailCoLink");
+  link.hidden = !c.company;
+  link.querySelector("span").textContent = c.company || "";
+}
+
+function renderDocList(box, list, showPerson) {
+  box.innerHTML = "";
+  if (!list.length) {
+    box.innerHTML = `<div class="empty-note">${cloudConfigured() ? "まだ資料はありません。パンフレットの写真やPDFを追加できます。" : "資料を保存するにはクラウドへの接続が必要です。"}</div>`;
+    return;
+  }
+  for (const d of list) {
+    const person = showPerson && d.cardId ? cards.find((c) => c.id === d.cardId) : null;
+    const el = document.createElement("div");
+    el.className = "doc-item";
+    el.innerHTML = `<span class="ic">${/pdf/.test(d.mime) ? "📄" : "🖼"}</span>
+      <div class="t">${esc(d.title || "資料")}<div class="sub">${esc([fmtDate(new Date(d.createdAt || 0).toISOString().slice(0, 10)), person && "👤 " + person.name, d.size && fmtSize(d.size), d.note].filter(Boolean).join("・"))}</div></div>
+      <button data-act="del" class="danger">削除</button>`;
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return deleteDoc(d);
+      openDoc(d);
+    });
+    box.appendChild(el);
+  }
+}
+const fmtSize = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(n / 1024)) + "KB";
+
+function pickDocs(target) {
+  if (!cloudConfigured()) { alert("資料の保存には、クラウドへの接続が必要です。"); return; }
+  docTarget = target;
+  $("docFiles").click();
+}
+async function addDocs(files) {
+  const t = docTarget;
+  if (!t) return;
+  let ok = 0;
+  for (const [i, f] of files.entries()) {
+    toast(`資料を保存中… ${i + 1}/${files.length}`);
+    try {
+      let dataUrl, size;
+      if (f.type === "application/pdf" || /\.pdf$/i.test(f.name)) {
+        if (f.size > 25 * 1024 * 1024) throw new Error("25MBまでです");
+        dataUrl = await blobToDataURL(f.type ? f : new Blob([f], { type: "application/pdf" }));
+        size = f.size;
+      } else {
+        const b = await compressImage(f, 2200, 0.85); // 資料の写真は文字が読める程度に大きめ
+        dataUrl = await blobToDataURL(b);
+        size = b.size;
+      }
+      const now = Date.now();
+      const doc = { id: uuid(), companyKey: t.companyKey || "", company: t.company || "", cardId: t.cardId || "",
+        title: f.name || "資料", note: "", size, createdAt: now, updatedAt: now };
+      const r = await cloudPost({ action: "docUpsert", doc, file: dataUrl });
+      docs.push(r.doc || doc);
+      ok++;
+    } catch (e) {
+      alert(`「${f.name}」を保存できませんでした: ${e.message}`);
+    }
+  }
+  if (ok) toast(`資料を${ok}件保存しました`);
+  refreshDocViews();
+}
+function refreshDocViews() {
+  if ($("coDialog").open && openCoKey != null) renderCompany(openCoKey);
+  if ($("detailDialog").open && detailId) renderDetailDocs(cards.find((x) => x.id === detailId));
+  if (lsGet(VIEW_KEY, "list") === "company") render();
+}
+async function deleteDoc(d) {
+  if (!confirm(`資料「${d.title}」を削除しますか？（Googleドライブのゴミ箱に移ります）`)) return;
+  try {
+    await cloudPost({ action: "docDelete", id: d.id });
+    docs = docs.filter((x) => x.id !== d.id);
+    refreshDocViews();
+    toast("削除しました");
+  } catch (e) { alert("削除できませんでした: " + e.message); }
+}
+async function openDoc(d) {
+  $("docTitle").textContent = d.title || "資料";
+  $("docSub").textContent = [d.company, d.size && fmtSize(d.size)].filter(Boolean).join("・");
+  const view = $("docView");
+  view.innerHTML = `<div class="detail-img-loading">読み込み中…</div>`;
+  $("docOpen").removeAttribute("href");
+  $("docDialog").showModal();
+  try {
+    let blob = docBlobCache.get(d.fileId);
+    if (!blob) {
+      const r = await cloudPost({ action: "docFile", fileId: d.fileId });
+      blob = await dataURLToBlob(r.dataUrl);
+      docBlobCache.set(d.fileId, blob);
+    }
+    const url = makeUrl(blob);
+    $("docOpen").href = url;
+    $("docOpen").setAttribute("download", d.title || "資料");
+    view.innerHTML = /pdf/.test(blob.type || d.mime)
+      ? `<iframe src="${url}" title="${esc(d.title)}"></iframe>`
+      : `<img src="${url}" alt="${esc(d.title)}">`;
+  } catch (e) {
+    view.innerHTML = `<div class="empty-note">読み込めませんでした（${esc(e.message)}）</div>`;
+  }
+}
+
 /* ---------- 複数カードの保存・削除（整理機能用） ---------- */
 // 変更済みのカードを保存し、クラウド設定があれば送る。imageArgs: Map(id → dataURL) 画像を差し替えるものだけ。
 async function persistCards(list, imageArgs) {
@@ -2870,6 +3135,34 @@ async function init() {
   $("sortSelect").addEventListener("change", () => { lsSet(SORT_KEY, $("sortSelect").value); render(); });
   $("viewGrid").addEventListener("click", () => { lsSet(VIEW_KEY, "grid"); render(); });
   $("viewList").addEventListener("click", () => { lsSet(VIEW_KEY, "list"); render(); });
+  $("viewCompany").addEventListener("click", () => { lsSet(VIEW_KEY, "company"); render(); loadCompanyData(); });
+  $("coCloseBtn").addEventListener("click", () => $("coDialog").close());
+  $("docCloseBtn").addEventListener("click", () => $("docDialog").close());
+  $("detailCoLink").addEventListener("click", () => {
+    const c = cards.find((x) => x.id === detailId);
+    if (!c) return;
+    $("detailDialog").close();
+    openCompany(coKeyOf(c.company), c.company);
+  });
+  $("detailDocAdd").addEventListener("click", () => {
+    const c = cards.find((x) => x.id === detailId);
+    if (c) pickDocs({ companyKey: c.company ? coKeyOf(c.company) : "", company: c.company || "", cardId: c.id });
+  });
+  $("coDocAdd").addEventListener("click", () => pickDocs({ companyKey: openCoKey, company: $("coName").textContent.replace(/^🏢 /, ""), cardId: "" }));
+  $("docFiles").addEventListener("change", (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) addDocs(fs); });
+  // 会社メモ: 入力をやめて1秒たったら保存
+  let memoTimer = null;
+  $("coMemo").addEventListener("input", () => {
+    clearTimeout(memoTimer);
+    $("coMemoState").textContent = "…";
+    memoTimer = setTimeout(async () => {
+      const key = openCoKey;
+      if (key == null) return;
+      const row = { key, name: $("coName").textContent.replace(/^🏢 /, ""), memo: $("coMemo").value, updatedAt: Date.now() };
+      try { await cloudPost({ action: "coUpsert", company: row }); coInfo.set(key, row); $("coMemoState").textContent = "✓ 保存しました"; }
+      catch (e) { $("coMemoState").textContent = "保存できませんでした: " + e.message; }
+    }, 1000);
+  });
 
   // メニュー
   const menu = $("menu");

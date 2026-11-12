@@ -71,6 +71,13 @@ function api(payload) {
       case 'delete': return withLock_(function () { return deleteCard_(payload.id); });
       case 'image': return { ok: true, dataUrl: imageDataUrl_(payload.fileId) };
       case 'ocr': return { ok: true, text: ocr_(payload.image) };
+      // 資料（名刺・会社にひもづけるファイル）と会社メモ
+      case 'docList': return { ok: true, docs: tableList_(DOC_TABLE) };
+      case 'docUpsert': return withLock_(function () { return docUpsert_(payload.doc, payload.file); });
+      case 'docDelete': return withLock_(function () { return docDelete_(payload.id); });
+      case 'docFile': return { ok: true, dataUrl: docFile_(payload.fileId) };
+      case 'coList': return { ok: true, companies: tableList_(CO_TABLE) };
+      case 'coUpsert': return withLock_(function () { return { ok: true, row: tableUpsert_(CO_TABLE, payload.company) }; });
       // Opus（Claude CLI on GitHub Actions）による精読
       case 'ocrStart': return opusStart_(payload.image);
       case 'ocrPoll': return opusPoll_(payload.id);
@@ -364,4 +371,122 @@ function cleanupJobs_() {
       if (Date.now() - (j.at || 0) > JOB_TTL_MS) { trashFile_(j.fileId); props.deleteProperty(k); }
     } catch (e) { props.deleteProperty(k); }
   });
+}
+
+/* ================= 資料・会社（スプレッドシートの別タブ） =================
+ * 資料: 1ファイル＝1行。ファイル本体は Drive のフォルダ「名刺管理_資料」。
+ *       companyKey（会社名を正規化したもの）で会社に、cardId で名刺（人）にひもづく。
+ * 会社: 会社ごとのメモ。key は companyKey。
+ */
+const DOC_TABLE = { tab: '資料', key: 'id', cols: ['id', 'companyKey', 'company', 'cardId', 'title', 'fileId', 'mime', 'size', 'note', 'createdAt', 'updatedAt'], nums: { size: true, createdAt: true, updatedAt: true } };
+const CO_TABLE = { tab: '会社', key: 'key', cols: ['key', 'name', 'memo', 'updatedAt'], nums: { updatedAt: true } };
+const DOC_FOLDER_NAME = '名刺管理_資料';
+const DOC_MAX_BYTES = 25 * 1024 * 1024;
+
+function table_(t) {
+  const ss = spreadsheet_();
+  let sh = ss.getSheetByName(t.tab);
+  if (!sh) {
+    sh = ss.insertSheet(t.tab);
+    sh.getRange(1, 1, 1, t.cols.length).setValues([t.cols]);
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).setNumberFormat('@');
+  }
+  const head = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0].map(String);
+  const missing = t.cols.filter(function (c) { return head.indexOf(c) < 0; });
+  if (missing.length) {
+    sh.getRange(1, head.filter(String).length + 1, 1, missing.length).setValues([missing]);
+    head.push.apply(head, missing);
+  }
+  const idx = {};
+  t.cols.forEach(function (c) { idx[c] = head.indexOf(c); });
+  return { sh: sh, idx: idx, width: head.length };
+}
+
+function tableList_(t) {
+  const tb = table_(t);
+  const n = tb.sh.getLastRow() - 1;
+  if (n <= 0) return [];
+  return tb.sh.getRange(2, 1, n, tb.width).getValues()
+    .filter(function (r) { return r[tb.idx[t.key]]; })
+    .map(function (r) {
+      const o = {};
+      t.cols.forEach(function (c) { const v = r[tb.idx[c]]; o[c] = t.nums[c] ? (Number(v) || 0) : String(v == null ? '' : v); });
+      return o;
+    });
+}
+
+function tableFindRow_(tb, keyCol, key) {
+  const n = tb.sh.getLastRow() - 1;
+  if (n <= 0) return -1;
+  const vals = tb.sh.getRange(2, tb.idx[keyCol] + 1, n, 1).getValues();
+  for (let i = 0; i < vals.length; i++) if (String(vals[i][0]) === String(key)) return i + 2;
+  return -1;
+}
+
+function tableUpsert_(t, obj) {
+  if (!obj || !obj[t.key]) throw new Error('データが不正です');
+  const tb = table_(t);
+  const rowNo = tableFindRow_(tb, t.key, obj[t.key]);
+  const row = rowNo > 0 ? tb.sh.getRange(rowNo, 1, 1, tb.width).getValues()[0] : new Array(tb.width).fill('');
+  t.cols.forEach(function (c) { if (obj[c] !== undefined) row[tb.idx[c]] = obj[c] == null ? '' : String(obj[c]); });
+  const target = rowNo > 0 ? tb.sh.getRange(rowNo, 1, 1, tb.width) : tb.sh.getRange(tb.sh.getLastRow() + 1, 1, 1, tb.width);
+  target.setNumberFormat('@').setValues([row]);
+  return obj;
+}
+
+function docFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('DOC_FOLDER_ID');
+  if (id) {
+    try { return DriveApp.getFolderById(id); }
+    catch (e) { throw new Error('資料のフォルダを開けません'); }
+  }
+  const f = DriveApp.createFolder(DOC_FOLDER_NAME);
+  props.setProperty('DOC_FOLDER_ID', f.getId());
+  return f;
+}
+
+// file: 'data:...;base64,...'（新規・差し替え時のみ）
+function docUpsert_(doc, file) {
+  if (!doc || !doc.id) throw new Error('資料のデータが不正です');
+  if (typeof file === 'string' && file.indexOf('data:') === 0) {
+    const m = file.match(/^data:([^;,]+);base64,(.*)$/);
+    if (!m) throw new Error('ファイルの形式が不正です');
+    if (!/^(image\/(jpeg|png|webp|heic|heif|gif)|application\/pdf)$/.test(m[1])) throw new Error('写真かPDFだけ追加できます');
+    const bytes = Utilities.base64Decode(m[2]);
+    if (bytes.length > DOC_MAX_BYTES) throw new Error('ファイルが大きすぎます（25MBまで）');
+    const name = String(doc.title || 'document').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+    const created = docFolder_().createFile(Utilities.newBlob(bytes, m[1], name));
+    const tb = table_(DOC_TABLE);
+    const rowNo = tableFindRow_(tb, 'id', doc.id);
+    if (rowNo > 0) trashFile_(String(tb.sh.getRange(rowNo, tb.idx.fileId + 1).getValue() || ''));
+    doc.fileId = created.getId();
+    doc.mime = m[1];
+    doc.size = bytes.length;
+  }
+  tableUpsert_(DOC_TABLE, doc);
+  return { ok: true, doc: doc };
+}
+
+function docDelete_(id) {
+  const tb = table_(DOC_TABLE);
+  const rowNo = tableFindRow_(tb, 'id', id);
+  if (rowNo > 0) {
+    trashFile_(String(tb.sh.getRange(rowNo, tb.idx.fileId + 1).getValue() || ''));
+    tb.sh.deleteRow(rowNo);
+  }
+  return { ok: true };
+}
+
+function docFile_(fileId) {
+  if (!fileId) throw new Error('ファイルがありません');
+  const file = DriveApp.getFileById(fileId);
+  const parents = file.getParents();
+  const folderId = docFolder_().getId();
+  let ok = false;
+  while (parents.hasNext()) if (parents.next().getId() === folderId) { ok = true; break; }
+  if (!ok) throw new Error('このアプリの資料ではありません');
+  const blob = file.getBlob();
+  return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
 }
