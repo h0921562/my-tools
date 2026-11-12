@@ -8,7 +8,7 @@
 
 環境変数:
   JOB_ID                  … 処理するジョブ（UUID）
-  MEISHI_API_URL          … 保存先のウェブアプリURL（secret）
+  MEISHI_API_URL          … 保存先のウェブアプリURL（ワークフローに直書き）
   MEISHI_API_TOKEN        … 保存先の合鍵（secret）
   CLAUDE_CODE_OAUTH_TOKEN … Claude CLI のログイン情報（secret、`claude setup-token` で作る）
 """
