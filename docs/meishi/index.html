@@ -267,6 +267,11 @@
   }
   .actions-row .ic { font-size: 19px; line-height: 1; }
   .detail-img { cursor: zoom-in; }
+  .detail-img-loading {
+    width: 100%; aspect-ratio: 91 / 55; border-radius: 10px; margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg); border: 1px dashed var(--border); color: var(--text-sub); font-size: 13px;
+  }
   .detail-img.zoom { cursor: zoom-out; max-height: none; }
   .copyable { cursor: pointer; }
   .copyable:hover { text-decoration: underline dotted; }
@@ -468,6 +473,7 @@
 <dialog id="detailDialog">
   <div class="dialog-body">
     <img class="detail-img" id="detailImg" alt="名刺画像" title="タップで拡大" hidden>
+    <div class="detail-img-loading" id="detailImgLoading" hidden>名刺画像を読み込み中…</div>
     <div class="detail-head">
       <span class="avatar" id="detailAvatar"></span>
       <div>
@@ -806,8 +812,13 @@ function openDetail(id) {
   detailId = id;
   const img = $("detailImg");
   img.classList.remove("zoom");
+  $("detailImgLoading").hidden = true;
   if (c.image) { img.src = makeUrl(c.image); img.hidden = false; }
-  else { img.hidden = true; img.removeAttribute("src"); }
+  else {
+    img.hidden = true; img.removeAttribute("src");
+    // クラウドに画像があるのに、この端末にまだ届いていなければ、その場で取りに行く
+    if (c.imageFileId && cloudConfigured()) fetchDetailImage(c);
+  }
   const av = $("detailAvatar");
   av.textContent = Array.from((c.name || "?").trim())[0] || "?";
   av.style.background = avatarColor(c.name);
@@ -853,6 +864,28 @@ function openDetail(id) {
     toast((await copyText(el.dataset.copy)) ? "コピーしました" : "コピーできませんでした");
   }));
   $("detailDialog").showModal();
+}
+
+async function fetchDetailImage(c) {
+  const box = $("detailImgLoading");
+  box.textContent = "名刺画像を読み込み中…";
+  box.hidden = false;
+  try {
+    const r = await cloudPost({ action: "image", fileId: c.imageFileId });
+    const blob = await dataURLToBlob(r.dataUrl);
+    const cur = cards.find((x) => x.id === c.id);
+    if (cur) { cur.image = blob; await putCard(cur); }
+    // まだ同じ名刺の詳細を開いているときだけ表示を差し替える
+    if ($("detailDialog").open && detailId === c.id) {
+      const img = $("detailImg");
+      img.src = makeUrl(blob); img.hidden = false;
+      $("detailAvatar").hidden = true;
+      box.hidden = true;
+    }
+    render();
+  } catch (e) {
+    if (detailId === c.id) box.textContent = "名刺画像を読み込めませんでした（通信を確認してください）";
+  }
 }
 
 /* ---------- 連絡先(vCard)・CSV・共有 ---------- */
@@ -1324,6 +1357,7 @@ async function syncFromCloud(opts = {}) {
       const local = cards.find((c) => c.id === rid);
       if (local && (rc.updatedAt || 0) <= (local.updatedAt || 0)) {
         // 文字情報はローカルが新しい/同じ。画像だけ未取得なら取りに行く（新しい端末での初回など）
+        if ((rc.imageFileId || "") !== (local.imageFileId || "")) { local.imageFileId = rc.imageFileId || ""; await putCard(local); }
         if (rc.imageFileId && !local.image && local.synced === true) imageJobs.push([local, rc.imageFileId]);
         continue;
       }
@@ -1334,6 +1368,7 @@ async function syncFromCloud(opts = {}) {
         tags: Array.isArray(rc.tags) ? rc.tags : [], memo: rc.memo || "",
         // 画像は差し替わっているかもしれないので取り直す。取れるまでは手元の画像を出しておく
         image: rc.imageFileId ? (local ? local.image : null) : null,
+        imageFileId: rc.imageFileId || "",
         createdAt: rc.createdAt || Date.now(), updatedAt: rc.updatedAt || Date.now(),
         synced: true,
       };
