@@ -50,7 +50,7 @@
     color: var(--text);
   }
   header {
-    position: sticky; top: 0; z-index: 10;
+    position: sticky; top: 0; z-index: 25; /* メニューが ＋ ボタンの上に出るように */
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     padding: 12px 16px;
@@ -59,8 +59,14 @@
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     max-width: 1100px; margin: 0 auto;
   }
-  h1 { font-size: 18px; margin: 0; white-space: nowrap; flex: 1; }
-  @media (min-width: 621px) { header.searching h1 { flex: none; } } /* PCでは検索欄を同じ行に広げる */
+  /* 上部は1行だけ: プロジェクトの選択・検索・メニュー（表示の切り替えと並び替えはメニューの中） */
+  .header-row #projectSelect { flex: 1 1 0; min-width: 0; max-width: 340px; margin-right: auto; padding: 8px 10px; font-size: 15px; }
+  .menu .menu-ctl { display: flex; flex-direction: column; gap: 8px; padding: 6px 4px; }
+  .menu .menu-ctl .seg { display: flex; }
+  .menu .seg button { flex: 1; display: block; width: auto; text-align: center; padding: 8px 6px; font-size: 13px; border-radius: 0; }
+  .menu .seg button.on, .menu .seg button.on:hover { background: var(--accent); color: #fff; }
+  .menu .menu-ctl select { width: 100%; font-size: 15px; }
+  #stats:empty { display: none; }
   /* クラウド未接続のときは全面に出して、つなぐまで使えないようにする（端末の中だけに名刺が残るのを防ぐ） */
   #cloudGate {
     position: fixed; inset: 0; z-index: 50; background: var(--bg); overflow: auto;
@@ -313,6 +319,7 @@
     position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0,0,0,.18); min-width: 270px; max-width: calc(100vw - 24px); padding: 6px;
+    max-height: calc(100vh - 90px); max-height: calc(100dvh - 90px); overflow-y: auto; /* 長いメニューは中でスクロール */
   }
   .menu button {
     display: block; width: 100%; text-align: left; border: none; background: transparent;
@@ -394,7 +401,7 @@
   /* スマホ幅: 検索を全幅・ボタン圧縮でタップしやすく */
   @media (max-width: 620px) {
     header { padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); }
-    h1 { font-size: 16px; flex: 1; }
+    .header-row #projectSelect { max-width: none; font-size: 16px; }
     .header-row { gap: 8px; }
     #searchBox { min-width: 100%; order: 10; font-size: 16px; } /* 16px未満だとiOSが入力時にズームする */
     #cardGrid.list .card .met .met-place { display: none; } /* スマホの一覧では会った日だけ */
@@ -429,7 +436,7 @@
 <body>
 <header>
   <div class="header-row">
-    <h1>📇 名刺管理</h1>
+    <select id="projectSelect" class="folder-btn" title="プロジェクトで絞り込む"></select>
     <input type="search" id="searchBox" placeholder="氏名・会社・メモなどで検索" hidden>
     <button id="searchBtn" title="検索" aria-label="検索" aria-expanded="false">🔍</button>
     <button class="primary" id="addBtn">＋ 新規登録</button>
@@ -437,6 +444,20 @@
     <div class="menu-wrap">
       <button id="menuBtn" title="その他のメニュー" aria-haspopup="true" aria-expanded="false">☰</button>
       <div class="menu" id="menu" hidden>
+        <div class="menu-ctl">
+          <div class="seg" role="group" aria-label="表示">
+            <button id="viewList" title="リスト表示">☰ リスト</button>
+            <button id="viewGrid" title="カード表示">▦ カード</button>
+            <button id="viewCompany" title="会社ごとに見る（会社データベース）">🏢 会社</button>
+          </div>
+          <select id="sortSelect" title="並び替え">
+            <option value="updated">更新が新しい順</option>
+            <option value="met">会った日が新しい順</option>
+            <option value="name">氏名順</option>
+            <option value="company">会社ごと</option>
+          </select>
+        </div>
+        <hr>
         <button data-act="sync" id="menuSync" hidden>☁ 今すぐ同期</button>
         <button data-act="folders">📁 プロジェクトを整理</button>
         <button data-act="docs">📎 資料を追加（会社は自動で判定）</button>
@@ -461,24 +482,7 @@
 
 <main>
   <div id="batchBar" hidden></div>
-  <div class="folder-row">
-    <select id="projectSelect" class="folder-btn" title="プロジェクトで絞り込む" style="max-width:60%"></select>
-    <button id="folderBtn" title="プロジェクトを作る・名前変更・削除">⚙</button>
-  </div>
-  <div class="toolbar">
-    <div id="stats"></div>
-    <select id="sortSelect" title="並び替え">
-      <option value="updated">更新が新しい順</option>
-      <option value="met">会った日が新しい順</option>
-      <option value="name">氏名順</option>
-      <option value="company">会社ごと</option>
-    </select>
-    <div class="seg" role="group" aria-label="表示">
-      <button id="viewGrid" title="カード表示">▦</button>
-      <button id="viewList" title="リスト表示">☰</button>
-      <button id="viewCompany" title="会社ごとに見る（会社データベース）">🏢</button>
-    </div>
-  </div>
+  <div id="stats"></div>
   <div id="cardGrid"></div>
   <div id="empty" hidden>名刺がまだありません。「＋ 新規登録」から追加してください。</div>
 </main>
@@ -506,7 +510,7 @@
       <label>名刺画像</label>
       <div class="img-drop" id="imgDrop">
         <img id="imgPreview" alt="" hidden>
-        <span id="imgHint">タップして名刺を撮影／画像を選択（何枚でも。複数の名刺が写った写真も自動で分けます）</span>
+        <span id="imgHint">タップして名刺を撮影／選択（何枚でも・並べて撮っても自動で分けます。資料のPDFもここから）</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
         <button type="button" id="ocrBtn" style="font-size:12px;padding:4px 10px" hidden>📷 もう一度読み取る</button>
@@ -522,7 +526,7 @@
         <button type="button" id="ocrRawCopyBtn" style="font-size:12px;padding:4px 10px;margin-top:4px">全文をコピー</button>
         <span class="cfg-hint" id="ocrRawCopyDone"></span>
       </details>
-      <input type="file" id="imgInput" accept="image/*" multiple>
+      <input type="file" id="imgInput" accept="image/*,application/pdf" multiple>
       <div class="form-grid">
         <div>
           <label>氏名 *</label><input type="text" id="fName" required autocomplete="off">
@@ -1435,8 +1439,8 @@ function render() {
   } else {
     empty.hidden = true;
   }
-  $("stats").textContent = cards.length
-    ? (list.length === cards.length ? `全${cards.length}件` : `${list.length}件を表示（全${cards.length}件）`) : "";
+  // 件数は検索しているときだけ出す（ふだんはプロジェクトの選択に件数が出ている）
+  $("stats").textContent = $("searchBox").value.trim() ? `${list.length}件` : "";
 
   const view = lsGet(VIEW_KEY, "list");
   grid.classList.toggle("list", view === "list" || view === "company");
@@ -1775,7 +1779,7 @@ function openEdit(card, carry) {
   $("continuousChk").checked = !card && !!carry;
   const prev = $("imgPreview");
   if (card?.image) { prev.src = makeUrl(card.image); prev.hidden = false; $("imgHint").textContent = "クリックで画像を変更"; $("imgClearBtn").hidden = false; }
-  else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "タップして名刺を撮影／画像を選択（何枚でも。複数の名刺が写った写真も自動で分けます）"; $("imgClearBtn").hidden = true; }
+  else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "タップして名刺を撮影／選択（何枚でも・並べて撮っても自動で分けます。資料のPDFもここから）"; $("imgClearBtn").hidden = true; }
   setOcrStatus("");
   setOpusStatus("");
   cropOriginal = null;
@@ -3069,7 +3073,7 @@ function renderCompanyList(list) {
   const grid = $("cardGrid");
   const groups = companyGroups(list);
   const none = list.filter((c) => !c.company).length;
-  $("stats").textContent = `${groups.length}社` + (none ? `（会社名なしの名刺 ${none}件）` : "");
+  $("stats").textContent = $("searchBox").value.trim() ? `${groups.length}社` + (none ? `（会社名なしの名刺 ${none}件）` : "") : "";
   const frag = document.createDocumentFragment();
   const loose = docs.filter((d) => !d.companyKey && !d.cardId);
   if (loose.length) {
@@ -3622,7 +3626,9 @@ async function init() {
   });
   document.addEventListener("click", (e) => { if (!menu.hidden && !menu.contains(e.target)) closeMenu(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+  $("sortSelect").addEventListener("change", () => closeMenu());
   menu.addEventListener("click", (e) => {
+    if (e.target.closest(".seg button")) { closeMenu(); return; }
     const b = e.target.closest("button[data-act]");
     if (!b) return;
     closeMenu();
@@ -3648,7 +3654,6 @@ async function init() {
     }
   });
   $("dupCloseBtn").addEventListener("click", () => $("dupDialog").close());
-  $("folderBtn").addEventListener("click", openFolderDialog);
   // すべての画面に「✕」を付ける。見るだけの画面は外側（暗い所）をタップしても閉じる
   const tapOutsideOK = new Set(["detailDialog", "coDialog", "docDialog", "dupDialog", "folderDialog", "tagDialog"]);
   document.querySelectorAll("dialog").forEach((dlg) => {
@@ -3700,9 +3705,19 @@ async function init() {
 
   $("imgDrop").addEventListener("click", () => $("imgInput").click());
   $("imgInput").addEventListener("change", async (e) => {
-    const files = [...e.target.files];
-    const file = files[0];
+    const picked = [...e.target.files];
     e.target.value = "";
+    // PDF は資料として保存する（どの会社の資料かは内容から自動で判定）。画像は名刺として読む
+    const isPdf = (f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+    const pdfs = picked.filter(isPdf), files = picked.filter((f) => !isPdf(f));
+    if (pdfs.length) {
+      if (!files.length && !editingId) $("editDialog").close();
+      // 名刺を編集中ならその名刺（会社）の資料として、新規なら内容から会社を自動で判定
+      const ec = editingId ? cards.find((x) => x.id === editingId) : null;
+      docTarget = ec ? { companyKey: ec.company ? coKeyOf(ec.company) : "", company: ec.company || "", cardId: ec.id } : { auto: true };
+      addDocs(pdfs);
+    }
+    const file = files[0];
     if (!file) return;
     // 新規登録で、写真を何枚も選んだ／1枚に名刺が何枚か写っているときは、自動でまとめて登録に切り替える
     const fresh = !editingId;
@@ -3746,7 +3761,7 @@ async function init() {
     const prev = $("imgPreview");
     prev.hidden = true;
     prev.removeAttribute("src");
-    $("imgHint").textContent = "タップして名刺を撮影／画像を選択（何枚でも。複数の名刺が写った写真も自動で分けます）";
+    $("imgHint").textContent = "タップして名刺を撮影／選択（何枚でも・並べて撮っても自動で分けます。資料のPDFもここから）";
     $("imgClearBtn").hidden = true;
     updateOcrBtn();
     setOcrStatus("");
