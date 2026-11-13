@@ -300,6 +300,7 @@
   .back-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
   .back-row img { height: 54px; border-radius: 6px; border: 1px solid var(--border); }
   .back-row .back-label { font-size: 12px; color: var(--text-sub); }
+  .back-row .add-kind { flex: 1 1 130px; padding: 9px 10px; font-size: 14px; }
   .detail-imgs { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 14px; }
   .detail-imgs .detail-img { flex: 1 1 0; min-width: 0; width: auto; margin-bottom: 0; }
   .detail-imgs .detail-img.zoom { flex-basis: 100%; }
@@ -528,16 +529,18 @@
       <label>名刺画像</label>
       <div class="img-drop" id="imgDrop">
         <img id="imgPreview" alt="" hidden>
-        <span id="imgHint">タップして名刺を撮影／選択（何枚でも・並べて撮っても自動で分けます。資料のPDFもここから）</span>
+        <span id="imgHint">タップして名刺を撮影／選択（何枚でも・並べて撮っても自動で分けます）</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
         <button type="button" id="ocrBtn" style="font-size:12px;padding:4px 10px" hidden>📷 もう一度読み取る</button>
         <button type="button" id="imgClearBtn" class="danger" style="font-size:12px;padding:4px 10px" hidden>画像を外す</button>
       </div>
+      <!-- 表の写真のほかに入れるもの: 裏面か、資料（パンフレット・提案書など。PDFでも写真でも、どの会社の資料かは自動で判定） -->
       <div class="back-row">
         <img id="backPreview" alt="裏面" hidden>
         <span class="back-label" id="backLabel" hidden>裏面</span>
-        <button type="button" id="backBtn" style="font-size:12px;padding:4px 10px">＋ 裏面を追加</button>
+        <button type="button" id="backBtn" class="add-kind">＋ 裏面を追加</button>
+        <button type="button" id="docFromAddBtn" class="add-kind">📎 資料を追加</button>
         <button type="button" id="backClearBtn" class="danger" style="font-size:12px;padding:4px 10px" hidden>裏面を外す</button>
       </div>
       <p class="cfg-hint" id="ocrStatus" style="margin-top:6px" hidden></p>
@@ -1802,6 +1805,7 @@ function fillPlaceSelect(sel) {
 function openEdit(card, carry) {
   editingId = card ? card.id : null;
   pendingImage = undefined; // 変更なし
+  $("docFromAddBtn").title = card ? "この人の資料として追加（PDF・写真）" : "資料を追加（PDF・写真。どの会社の資料かは自動で判定）";
   pendingBack = undefined;
   showEditBack(card?.back || null, !!(card && (card.back || card.backFileId)));
   ocrSeq++;                 // 実行中の読み取りがあれば結果を捨てる
@@ -1831,7 +1835,7 @@ function openEdit(card, carry) {
   $("continuousChk").checked = !card && !!carry;
   const prev = $("imgPreview");
   if (card?.image) { prev.src = makeUrl(card.image); prev.hidden = false; $("imgHint").textContent = "クリックで画像を変更"; $("imgClearBtn").hidden = false; }
-  else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "タップして名刺を撮影／選択（何枚でも・並べて撮っても自動で分けます。資料のPDFもここから）"; $("imgClearBtn").hidden = true; }
+  else { prev.hidden = true; prev.removeAttribute("src"); $("imgHint").textContent = "タップして名刺を撮影／選択（何枚でも・並べて撮っても自動で分けます）"; $("imgClearBtn").hidden = true; }
   setOcrStatus("");
   setOpusStatus("");
   cropOriginal = null;
@@ -4031,10 +4035,18 @@ async function init() {
     const prev = $("imgPreview");
     prev.hidden = true;
     prev.removeAttribute("src");
-    $("imgHint").textContent = "タップして名刺を撮影／選択（何枚でも・並べて撮っても自動で分けます。資料のPDFもここから）";
+    $("imgHint").textContent = "タップして名刺を撮影／選択（何枚でも・並べて撮っても自動で分けます）";
     $("imgClearBtn").hidden = true;
     updateOcrBtn();
     setOcrStatus("");
+  });
+  // ＋の画面から資料を入れる: 新規なら会社を自動で判定、名刺の編集中ならその人の資料にする
+  $("docFromAddBtn").addEventListener("click", () => {
+    const ec = editingId ? cards.find((x) => x.id === editingId) : null;
+    // 何も入力していない新規の画面は、資料を選ぶのと同時に閉じる（入力途中なら残す）
+    const untouched = !ec && pendingImage === undefined && !["fName", "fCompany", "fTitle", "fPhone", "fEmail"].some((id) => $(id).value.trim());
+    if (untouched) $("editDialog").close();
+    pickDocs(ec ? { companyKey: ec.company ? coKeyOf(ec.company) : "", company: ec.company || "", cardId: ec.id } : { auto: true });
   });
   // 裏面: 編集フォームの「裏面を追加」、詳細の「裏面を追加」、自動で付けたときのお知らせ
   $("backBtn").addEventListener("click", () => { backTargetId = null; $("backInput").click(); });
