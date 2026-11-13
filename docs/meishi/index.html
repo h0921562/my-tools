@@ -4075,7 +4075,8 @@ function renderDupList() {
   });
 }
 
-async function mergeCards(keepId, otherIds) {
+// opts.fromDelete: 消すために選んだ名刺をまとめるとき。食い違う値（読み間違いのことが多い）はメモに残さない
+async function mergeCards(keepId, otherIds, opts = {}) {
   const keep = cards.find((c) => c.id === keepId);
   const others = otherIds.map((id) => cards.find((c) => c.id === id)).filter(Boolean);
   if (!keep || !others.length) return;
@@ -4086,7 +4087,7 @@ async function mergeCards(keepId, otherIds) {
       const v = (o[k] || "").trim();
       if (!v) continue;
       if (!keep[k]) keep[k] = v;
-      else if (normalize(keep[k]).replace(/\s/g, "") !== normalize(v).replace(/\s/g, "")) extra.push(`${FIELD_LABELS[k] || (k === "metPlace" ? "会った場所" : k)}: ${v}`);
+      else if (!opts.fromDelete && normalize(keep[k]).replace(/\s/g, "") !== normalize(v).replace(/\s/g, "")) extra.push(`${FIELD_LABELS[k] || (k === "metPlace" ? "会った場所" : k)}: ${v}`);
     }
   }
   // 会った日は一番古い日（初めて会った日）を残す
@@ -4114,9 +4115,17 @@ async function mergeCards(keepId, otherIds) {
       else await putCard(keep);
     }
   }
+  // 元の写真（切り抜きを直す用）も、残す方になければ引き継ぐ
+  if (!keep.src) { const o = others.find((x) => x.src); if (o) { keep.src = o.src; keep.quadN = o.quadN || null; await putCard(keep); } }
+  // 消す名刺に付けていた資料は、残す名刺に付け替える
+  for (const d of docs.filter((x) => others.some((o) => o.id === x.cardId))) {
+    try { await linkDoc(d, { cardId: keep.id, companyKey: d.companyKey || (keep.company ? coKeyOf(keep.company) : ""), company: d.company || keep.company || "" }); } catch (e) { /* 資料は会社にも紐づいているので、失敗しても見失わない */ }
+  }
   for (const o of others) await removeCard(o.id);
   render();
   updateSyncUI();
+  // Sales Desk: 残す名刺がまだ入っていなければ送る（同じ人は Sales Desk 側でも1人にまとまる）
+  pushSalesDeskNow([keep.id]);
 }
 
 /* ---------- タグの整理 ---------- */
@@ -4540,9 +4549,18 @@ async function init() {
   $("deleteBtn").addEventListener("click", async () => {
     const c = cards.find((x) => x.id === detailId);
     if (!c) return;
-    if (!confirm(`「${c.name}」を削除しますか？`)) return;
+    // 同じ人の名刺がほかにあれば（二重に入れてしまった など）、消す前にそちらへ情報を移す
+    const twin = cards.filter((x) => x.id !== c.id && x.name !== NAME_PENDING && dupReason(c, x))
+      .sort((a, b) => (b.sdStatus === "ok") - (a.sdStatus === "ok") || (a.createdAt || 0) - (b.createdAt || 0))[0];
+    const msg = twin
+      ? `「${c.name}」を削除しますか？\n\n同じ人の名刺「${twin.name}${twin.company ? `（${twin.company}）` : ""}」が残っているので、メモ・資料・裏面・空いている項目はそちらに移してから消します。`
+      : `「${c.name}」を削除しますか？`;
+    if (!confirm(msg)) return;
     $("detailDialog").close();
-    await removeCard(c.id);
+    if (twin) {
+      await mergeCards(twin.id, [c.id], { fromDelete: true });
+      toast(`重なっていた名刺を消し、情報を「${twin.name}」にまとめました`);
+    } else await removeCard(c.id);
     render();
     if (cloudConfigured()) updateSyncUI();
   });
