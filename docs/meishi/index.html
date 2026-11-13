@@ -4149,6 +4149,40 @@ async function init() {
   window.addEventListener("online", () => { if (cloudConfigured()) { lastSync = Date.now(); syncFromCloud({ quiet: true }); } });
 }
 
+/* ---------- 自動更新 ----------
+ * ホーム画面のアイコンから開くと、古い版が端末に残ったまま動き続けることがある。
+ * 開いたとき・画面に戻ったときに公開中の最新版と見比べ、違っていれば（入力中や登録中でなければ）自動で読み込み直す。 */
+(function autoUpdate() {
+  const mine = {
+    js: (document.querySelector("script:not([src])") || {}).textContent || "",
+    css: (document.querySelector("style") || {}).textContent || "",
+  };
+  let pending = false, lastCheck = 0;
+  const busy = () => !!document.querySelector("dialog[open]") || batch.total > 0 || document.visibilityState !== "visible";
+  const apply = () => {
+    if (busy()) return;
+    // 続けて何度も読み込み直さない（うまく更新できない環境でのくり返しを防ぐ）
+    try { if (Date.now() - Number(sessionStorage.getItem("meishi.updated") || 0) < 60000) return; sessionStorage.setItem("meishi.updated", String(Date.now())); } catch (e) {}
+    location.replace(location.pathname + "?u=" + Date.now() + location.hash);
+  };
+  const check = async () => {
+    if (pending) { apply(); return; }
+    if (Date.now() - lastCheck < 60000) return;
+    lastCheck = Date.now();
+    try {
+      const res = await fetch(location.pathname + "?check=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) return;
+      const html = await res.text();
+      const js = (html.match(/<script>([\s\S]*?)<\/script>/) || [])[1], css = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1];
+      if (js == null || css == null) return;
+      if (js !== mine.js || css !== mine.css) { pending = true; apply(); }
+    } catch (e) { /* 圏外などは次の機会に */ }
+  };
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+  setInterval(() => { if (pending) apply(); }, 15000); // 入力や登録が終わったら反映
+  setTimeout(check, 1500);
+})();
+
 init().catch((err) => {
   document.body.innerHTML = `<p style="padding:40px;text-align:center">起動に失敗しました: ${esc(err.message)}<br>IndexedDBが使えるブラウザ（Chrome/Edge/Safari/Firefox）で開いてください。</p>`;
 });
