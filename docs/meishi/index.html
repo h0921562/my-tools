@@ -3542,6 +3542,16 @@ function askBeforeAddDocs(files) {
 
 /* 入れた資料がどこに紐づいたかのお知らせ（自分で閉じるまで残す）。判定中 → 紐づけ先 → 「開く」で確認できる */
 const docNotices = []; // 資料のID
+// 確定した資料のお知らせを消す（判定中にまた始まったものは消さない）
+function dismissDocNotice(id, ms) {
+  setTimeout(() => {
+    const d = docs.find((x) => x.id === id);
+    if (d && classifying.has(id)) return;
+    if (d && !d.companyKey && !d.cardId) return; // まだ聞いている途中
+    const i = docNotices.indexOf(id);
+    if (i >= 0) { docNotices.splice(i, 1); renderDocBar(); }
+  }, ms);
+}
 function renderDocBar() {
   const bar = $("docBar");
   const rows = docNotices.map((id) => docs.find((d) => d.id === id)).filter(Boolean);
@@ -3708,8 +3718,9 @@ async function classifyDoc(d, opts = {}) {
     toast("資料の判定に失敗しました: " + e.message);
   } finally {
     classifying.delete(d.id);
-    // 会社がわからないままなら、お知らせで聞く
+    // 会社がわからないままなら、お知らせで聞く。決まったら、結果を少し見せてからお知らせを消す
     if (!d.companyKey && !d.cardId && docs.includes(d) && !docNotices.includes(d.id)) docNotices.push(d.id);
+    else dismissDocNotice(d.id, 4000);
     refreshDocViews();
   }
 }
@@ -4050,7 +4061,7 @@ async function init() {
     const input = $("docBar").querySelector(`[data-doc-co="${CSS.escape(set.dataset.docSet)}"]`);
     const co = coTargetOf(input && input.value);
     if (!d || !co) { if (input) input.focus(); return; }
-    try { await linkDoc(d, co); toast(`${co.company} の資料にしました`); }
+    try { await linkDoc(d, co); toast(`${co.company} の資料にしました`); dismissDocNotice(d.id, 0); }
     catch (err) { alert("変更できませんでした: " + err.message); }
   });
   // 会社メモ: 入力をやめて1秒たったら保存
