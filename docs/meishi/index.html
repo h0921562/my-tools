@@ -303,6 +303,12 @@
     background: #eff6ff; color: #1e3a8a; border: 1px solid #bfdbfe; }
   #docBar .back-note span { flex: 1; min-width: 160px; }
   #docBar .back-note button { font-size: 12px; padding: 4px 10px; }
+  #docBar .ask { background: #fffbeb; color: #78350f; border-color: #fcd34d; }
+  #docBar .ask span { flex-basis: 100%; }
+  #docBar .ask input { flex: 1 1 160px; min-width: 0; padding: 6px 8px; font-size: 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+  @media (prefers-color-scheme: dark) { #docBar .ask { background: #422006; color: #fde68a; border-color: #92400e; } }
+  #docAddDialog label { display: block; font-size: 13px; color: var(--text-sub); margin: 12px 0 4px; }
+  #docAddDialog input, #docAddDialog textarea { width: 100%; padding: 9px 10px; font-size: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-family: inherit; }
   @media (prefers-color-scheme: dark) { #docBar .back-note { background: #172554; color: #bfdbfe; border-color: #1e3a8a; } }
   .back-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
   .back-row img { height: 54px; border-radius: 6px; border: 1px solid var(--border); }
@@ -680,6 +686,23 @@
   </div>
 </dialog>
 <input type="file" id="docFiles" accept="image/*,application/pdf" multiple hidden>
+<datalist id="coNames"></datalist>
+<!-- 資料を入れる前に、どこの会社の資料か・補足を伝えられる（空欄なら内容から自動で判定） -->
+<dialog id="docAddDialog">
+  <div class="dialog-body">
+    <h2>📎 資料を追加</h2>
+    <div class="cfg-hint" id="daFiles"></div>
+    <label for="daCompany">どこの会社の資料？</label>
+    <input type="text" id="daCompany" list="coNames" autocomplete="off" placeholder="空欄なら資料の内容から自動で判定">
+    <label for="daHint">補足・指示（任意）</label>
+    <textarea id="daHint" rows="3" placeholder="例: 展示会で〇〇さんにもらった価格表。裏の手書きの数字は値引き後の価格"></textarea>
+    <div class="cfg-hint">資料に会社名が書かれていないときは、ここで指定してください。わからないまま追加しても、判定できなければ後で聞きます。</div>
+    <div class="dialog-actions">
+      <button type="button" id="daCancel">やめる</button>
+      <button type="button" class="primary" id="daOk">追加する</button>
+    </div>
+  </div>
+</dialog>
 <input type="file" id="backInput" accept="image/*" hidden>
 
 <!-- フォルダダイアログ -->
@@ -3490,18 +3513,53 @@ function renderDocList(box, list, showPerson, viewer) {
 }
 const fmtSize = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(n / 1024)) + "KB";
 
+// 会社名の候補（名刺・会社メモ・資料にある会社）を入力欄の候補に入れる
+function fillCoNames() {
+  const names = new Map();
+  for (const [k, v] of knownCompanies()) names.set(k, v.name);
+  for (const [k, v] of coInfo) if (v.name && !names.has(k)) names.set(k, v.name);
+  for (const d of docs) if (d.companyKey && d.company && !names.has(d.companyKey)) names.set(d.companyKey, d.company);
+  $("coNames").innerHTML = [...names.values()].sort((a, b) => normComp(a).localeCompare(normComp(b), "ja")).map((n) => `<option value="${esc(n)}">`).join("");
+}
+// 入力された会社名 → 紐づけ先（登録済みの会社なら、その表記にそろえる）
+function coTargetOf(name) {
+  name = String(name || "").trim();
+  if (!name) return null;
+  const k = coKeyOf(name);
+  const known = knownCompanies().get(k) || (coInfo.get(k) && { name: coInfo.get(k).name || name });
+  return { companyKey: k, company: known ? known.name : name };
+}
+// 資料を入れる前の確認（どこの会社か・補足）。どこの資料か決まっていないときだけ出す
+let docAddFiles = null;
+function askBeforeAddDocs(files) {
+  docAddFiles = files;
+  fillCoNames();
+  $("daFiles").textContent = files.map((f) => f.name || "資料").join("、");
+  $("daCompany").value = "";
+  $("daHint").value = "";
+  $("docAddDialog").showModal();
+}
+
 /* 入れた資料がどこに紐づいたかのお知らせ（自分で閉じるまで残す）。判定中 → 紐づけ先 → 「開く」で確認できる */
 const docNotices = []; // 資料のID
 function renderDocBar() {
   const bar = $("docBar");
   const rows = docNotices.map((id) => docs.find((d) => d.id === id)).filter(Boolean);
   bar.hidden = !rows.length;
+  if (rows.some((d) => !d.companyKey && !d.cardId)) fillCoNames();
   bar.innerHTML = rows.map((d) => {
     const person = d.cardId ? cards.find((c) => c.id === d.cardId) : null;
+    // 判定できなかった資料は、どこの会社の資料か聞く
+    if (!d.companyKey && !d.cardId && !classifying.has(d.id)) {
+      return `<div class="back-note ask"><span>❓ 「${esc(d.title || "資料")}」はどこの会社の資料ですか？</span>
+        <input type="text" list="coNames" data-doc-co="${esc(d.id)}" placeholder="会社名を入力・選択" autocomplete="off">
+        <button type="button" data-doc-set="${esc(d.id)}">決定</button><button type="button" data-doc-open="${esc(d.id)}">開く</button>
+        <button type="button" data-doc-ok="${esc(d.id)}" title="未分類のままにする">✕</button></div>`;
+    }
     const where = classifying.has(d.id) && !d.companyKey ? "🤖 どの会社の資料か判定中…（1分ほど）"
       : d.companyKey ? `→ 🏢 ${esc(d.company || "会社")} に紐づけました${person ? `（${esc(person.name)} さんの資料）` : ""}${classifying.has(d.id) ? "　🤖 内容をまとめ中…" : d.detail ? "　📋 内容をまとめました" : ""}`
       : person ? `→ 👤 ${esc(person.name)} さんの資料に追加しました`
-      : "→ 会社を判定できませんでした（「未分類の資料」に入っています）";
+      : "";
     const canOpen = !(classifying.has(d.id) && !d.companyKey);
     return `<div class="back-note"><span>📎 「${esc(d.title || "資料")}」 ${where}</span>
       ${canOpen ? `<button type="button" data-doc-open="${esc(d.id)}">開く</button>` : ""}<button type="button" data-doc-ok="${esc(d.id)}" title="閉じる">✕</button></div>`;
@@ -3532,7 +3590,7 @@ async function addDocs(files) {
       }
       const now = Date.now();
       const doc = { id: uuid(), companyKey: t.companyKey || "", company: t.company || "", cardId: t.cardId || "",
-        title: f.name || "資料", note: "", size, createdAt: now, updatedAt: now };
+        title: f.name || "資料", note: "", hint: t.hint || "", size, createdAt: now, updatedAt: now };
       const r = await cloudPost({ action: "docUpsert", doc, file: dataUrl });
       const saved = r.doc || doc;
       docs.push(saved);
@@ -3616,7 +3674,7 @@ async function classifyDoc(d, opts = {}) {
     }
     // Opus で社名・資料名・要約・内容のまとめ
     let start;
-    try { start = await cloudPost({ action: "docOpusStart", fileId: d.fileId }); }
+    try { start = await cloudPost({ action: "docOpusStart", fileId: d.fileId, hint: d.hint || "" }); }
     catch (e) { if (!matched) toast(`資料「${d.title}」の会社を判定できませんでした（未分類に置いています）`); return; }
     await new Promise((r) => setTimeout(r, 15000));
     const t0 = Date.now();
@@ -3650,6 +3708,8 @@ async function classifyDoc(d, opts = {}) {
     toast("資料の判定に失敗しました: " + e.message);
   } finally {
     classifying.delete(d.id);
+    // 会社がわからないままなら、お知らせで聞く
+    if (!d.companyKey && !d.cardId && docs.includes(d) && !docNotices.includes(d.id)) docNotices.push(d.id);
     refreshDocViews();
   }
 }
@@ -3967,7 +4027,32 @@ async function init() {
     if (c) pickDocs({ companyKey: c.company ? coKeyOf(c.company) : "", company: c.company || "", cardId: c.id });
   });
   $("coDocAdd").addEventListener("click", () => pickDocs(openCoKey === "" ? { auto: true } : { companyKey: openCoKey, company: $("coName").textContent.replace(/^🏢 /, ""), cardId: "" }));
-  $("docFiles").addEventListener("change", (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) addDocs(fs); });
+  $("docFiles").addEventListener("change", (e) => {
+    const fs = [...e.target.files]; e.target.value = "";
+    if (!fs.length) return;
+    if (docTarget && docTarget.auto) askBeforeAddDocs(fs); else addDocs(fs);
+  });
+  $("daCancel").addEventListener("click", () => { docAddFiles = null; $("docAddDialog").close(); });
+  $("daOk").addEventListener("click", () => {
+    const files = docAddFiles; docAddFiles = null;
+    $("docAddDialog").close();
+    if (!files) return;
+    const co = coTargetOf($("daCompany").value);
+    docTarget = { ...(co || { auto: true }), hint: $("daHint").value.trim() };
+    addDocs(files);
+  });
+  // お知らせから会社を指定する
+  $("docBar").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.dataset.docCo) e.target.closest(".back-note").querySelector("[data-doc-set]").click(); });
+  $("docBar").addEventListener("click", async (e) => {
+    const set = e.target.closest("[data-doc-set]");
+    if (!set) return;
+    const d = docs.find((x) => x.id === set.dataset.docSet);
+    const input = $("docBar").querySelector(`[data-doc-co="${CSS.escape(set.dataset.docSet)}"]`);
+    const co = coTargetOf(input && input.value);
+    if (!d || !co) { if (input) input.focus(); return; }
+    try { await linkDoc(d, co); toast(`${co.company} の資料にしました`); }
+    catch (err) { alert("変更できませんでした: " + err.message); }
+  });
   // 会社メモ: 入力をやめて1秒たったら保存
   let memoTimer = null;
   $("coMemo").addEventListener("input", () => {
@@ -4081,7 +4166,7 @@ async function init() {
       // 名刺を編集中ならその名刺（会社）の資料として、新規なら内容から会社を自動で判定
       const ec = editingId ? cards.find((x) => x.id === editingId) : null;
       docTarget = ec ? { companyKey: ec.company ? coKeyOf(ec.company) : "", company: ec.company || "", cardId: ec.id } : { auto: true };
-      addDocs(pdfs);
+      if (docTarget.auto) askBeforeAddDocs(pdfs); else addDocs(pdfs);
     }
     const file = files[0];
     if (!file) return;
@@ -4184,7 +4269,7 @@ async function init() {
     // 紐づけ先を開く: 会社のページ（会社が分からないものは「未分類の資料」）。個人だけに付けた資料はその人の詳細
     if (d.companyKey) openCompany(d.companyKey, d.company || "");
     else if (d.cardId && cards.some((c) => c.id === d.cardId)) openDetail(d.cardId);
-    else openCompany("", "未分類の資料");
+    else openDoc(d); // 会社がまだわからない資料は、中身を見て判断できるように資料そのものを開く
   });
   $("backBar").addEventListener("click", (e) => {
     const u = e.target.closest("[data-back-undo]"), ok = e.target.closest("[data-back-ok]");

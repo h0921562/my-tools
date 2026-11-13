@@ -74,10 +74,14 @@ def api(payload):
     return data
 
 
-def run_claude(img_path, kind="card"):
+def run_claude(img_path, kind="card", hint=""):
     prompt, fields = (DOC_PROMPT, DOC_FIELDS) if kind == "doc" else (PROMPT, FIELDS)
+    text = prompt.format(path=img_path)
+    if kind == "doc" and hint:
+        # 利用者が資料を入れるときに書いた補足（どこの会社の資料か など）。資料から分からないことはこれに従う
+        text += "\n\n利用者からの補足（資料に書かれていないことは、これを正として使う）:\n" + hint[:500]
     out = subprocess.run(
-        ["claude", "-p", prompt.format(path=img_path),
+        ["claude", "-p", text,
          "--model", "opus",
          "--allowedTools", "Read",
          "--output-format", "json",
@@ -111,7 +115,7 @@ def main():
             path = os.path.join(d, f"card.{ext}")
             with open(path, "wb") as f:
                 f.write(base64.b64decode(m.group(3)))
-            fields = run_claude(path, kind)
+            fields = run_claude(path, kind, str(data.get("hint") or ""))
         api({"action": "ocrResult", "id": job, "fields": fields})
         print(f"完了（{len(fields)} 項目）")  # 項目数だけ。中身は出さない
         return 0

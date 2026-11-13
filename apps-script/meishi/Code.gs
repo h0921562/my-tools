@@ -82,7 +82,7 @@ function api(payload) {
       case 'docDelete': return withLock_(function () { return docDelete_(payload.id); });
       case 'docFile': return { ok: true, dataUrl: docFile_(payload.fileId) };
       case 'docText': return { ok: true, text: docText_(payload.fileId) };       // 資料の文字（会社の自動判定用）
-      case 'docOpusStart': return opusStartFile_(payload.fileId);              // 資料を Opus に読ませる
+      case 'docOpusStart': return opusStartFile_(payload.fileId, payload.hint); // 資料を Opus に読ませる（hint: 利用者からの補足・指示）
       case 'coList': return { ok: true, companies: tableList_(CO_TABLE) };
       case 'coUpsert': return withLock_(function () { return { ok: true, row: tableUpsert_(CO_TABLE, payload.company) }; });
       // Opus（Claude CLI on GitHub Actions）による精読
@@ -356,7 +356,7 @@ function opusJob_(id) {
   const blob = DriveApp.getFileById(job.fileId).getBlob();
   job.status = 'running';
   setJob_(id, job);
-  return { ok: true, kind: job.kind || 'card', dataUrl: 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
+  return { ok: true, kind: job.kind || 'card', hint: job.hint || '', dataUrl: 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
 }
 
 function opusResult_(id, fields, error) {
@@ -406,7 +406,7 @@ function cleanupJobs_() {
  *       companyKey（会社名を正規化したもの）で会社に、cardId で名刺（人）にひもづく。
  * 会社: 会社ごとのメモ。key は companyKey。
  */
-const DOC_TABLE = { tab: '資料', key: 'id', cols: ['id', 'companyKey', 'company', 'cardId', 'title', 'fileId', 'mime', 'size', 'note', 'createdAt', 'updatedAt', 'kind', 'detail'], nums: { size: true, createdAt: true, updatedAt: true } };
+const DOC_TABLE = { tab: '資料', key: 'id', cols: ['id', 'companyKey', 'company', 'cardId', 'title', 'fileId', 'mime', 'size', 'note', 'createdAt', 'updatedAt', 'kind', 'detail', 'hint'], nums: { size: true, createdAt: true, updatedAt: true } };
 const CO_TABLE = { tab: '会社', key: 'key', cols: ['key', 'name', 'memo', 'updatedAt'], nums: { updatedAt: true } };
 const DOC_FOLDER_NAME = '名刺管理_資料';
 const DOC_MAX_BYTES = 25 * 1024 * 1024;
@@ -527,13 +527,13 @@ function docText_(fileId) {
 }
 
 // 資料ファイルを Opus に読ませるジョブ（ファイルは消さない）
-function opusStartFile_(fileId) {
+function opusStartFile_(fileId, hint) {
   const gh = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
   if (!gh) return { ok: false, error: 'opus-not-configured' };
   docFile_(fileId); // このアプリの資料か確認
   cleanupJobs_();
   const id = Utilities.getUuid();
-  setJob_(id, { status: 'queued', fileId: fileId, kind: 'doc', keep: true, at: Date.now() });
+  setJob_(id, { status: 'queued', fileId: fileId, kind: 'doc', keep: true, hint: String(hint || '').slice(0, 500), at: Date.now() });
   const res = UrlFetchApp.fetch('https://api.github.com/repos/' + GH_REPO + '/actions/workflows/' + GH_WORKFLOW + '/dispatches', {
     method: 'post', contentType: 'application/json',
     headers: { Authorization: 'Bearer ' + gh, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
