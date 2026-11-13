@@ -288,6 +288,23 @@
   .fold-item .n { color: var(--text-sub); font-size: 12px; }
   .fold-item button { font-size: 12px; padding: 2px 8px; }
   .card .folder-chip { color: var(--text-sub); font-size: 11px; margin-right: 6px; }
+  /* 裏面: 自動で紐づけたときのお知らせ（取り消せる） */
+  #backBar { margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+  #backBar .back-note {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px;
+    background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; border-radius: 8px; padding: 7px 10px;
+  }
+  #backBar .back-note span { flex: 1; min-width: 160px; }
+  #backBar .back-note button { font-size: 12px; padding: 4px 10px; }
+  @media (prefers-color-scheme: dark) { #backBar .back-note { background: #052e2b; color: #a7f3d0; border-color: #115e59; } }
+  .back-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .back-row img { height: 54px; border-radius: 6px; border: 1px solid var(--border); }
+  .back-row .back-label { font-size: 12px; color: var(--text-sub); }
+  .detail-imgs { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 14px; }
+  .detail-imgs .detail-img { flex: 1 1 0; min-width: 0; width: auto; margin-bottom: 0; }
+  .detail-imgs .detail-img.zoom { flex-basis: 100%; }
+  .detail-imgs:empty, .detail-imgs:not(:has(img:not([hidden]))) { display: none; }
+  #detailBackBtn { font-size: 12px; padding: 4px 10px; margin: -6px 0 12px; }
   #batchBar {
     position: sticky; top: 0; z-index: 15; margin: 0 0 10px; padding: 8px 12px; border-radius: 10px;
     background: #eff6ff; color: #1e40af; font-size: 13px; border: 1px solid #bfdbfe;
@@ -482,6 +499,7 @@
 
 <main>
   <div id="batchBar" hidden></div>
+  <div id="backBar" hidden></div>
   <div id="stats"></div>
   <div id="cardGrid"></div>
   <div id="empty" hidden>名刺がまだありません。「＋ 新規登録」から追加してください。</div>
@@ -515,6 +533,12 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
         <button type="button" id="ocrBtn" style="font-size:12px;padding:4px 10px" hidden>📷 もう一度読み取る</button>
         <button type="button" id="imgClearBtn" class="danger" style="font-size:12px;padding:4px 10px" hidden>画像を外す</button>
+      </div>
+      <div class="back-row">
+        <img id="backPreview" alt="裏面" hidden>
+        <span class="back-label" id="backLabel" hidden>裏面</span>
+        <button type="button" id="backBtn" style="font-size:12px;padding:4px 10px">＋ 裏面を追加</button>
+        <button type="button" id="backClearBtn" class="danger" style="font-size:12px;padding:4px 10px" hidden>裏面を外す</button>
       </div>
       <p class="cfg-hint" id="ocrStatus" style="margin-top:6px" hidden></p>
       <div class="cfg-hint" id="opusStatus" hidden></div>
@@ -572,8 +596,13 @@
 <!-- 詳細ダイアログ -->
 <dialog id="detailDialog">
   <div class="dialog-body">
-    <img class="detail-img" id="detailImg" alt="名刺画像" title="タップで拡大" hidden>
+    <!-- 表と裏は横に並べる（タップした方が大きくなる） -->
+    <div class="detail-imgs">
+      <img class="detail-img" id="detailImg" alt="名刺画像" title="タップで拡大" hidden>
+      <img class="detail-img" id="detailBack" alt="名刺の裏面" title="裏面（タップで拡大）" hidden>
+    </div>
     <div class="detail-img-loading" id="detailImgLoading" hidden>名刺画像を読み込み中…</div>
+    <button type="button" id="detailBackBtn" hidden>＋ 裏面を追加</button>
     <div class="detail-head">
       <span class="avatar" id="detailAvatar"></span>
       <div>
@@ -630,6 +659,7 @@
   </div>
 </dialog>
 <input type="file" id="docFiles" accept="image/*,application/pdf" multiple hidden>
+<input type="file" id="backInput" accept="image/*" hidden>
 
 <!-- フォルダダイアログ -->
 <dialog id="folderDialog">
@@ -781,6 +811,8 @@ let editingId = null;      // 編集中カードID（nullなら新規）
 let detailId = null;       // 詳細表示中カードID
 let cropOriginal = null;   // 自動トリミング前の写真（「元に戻す」用）
 let pendingImage = null;   // 編集フォームで選択された画像Blob（undefined=変更なし, null=削除, Blob=新規）
+let pendingBack = undefined; // 編集フォームの裏面（同じく undefined=変更なし, null=外す, Blob=新規）
+let backTargetId = null;   // 裏面の写真を選んでいる対象: 名刺のID＝詳細から追加 / null＝編集フォーム
 let objectUrls = [];       // 表示のたびに作るURLを解放するための控え
 
 const $ = (id) => document.getElementById(id);
@@ -1505,6 +1537,12 @@ function openDetail(id) {
     // クラウドに画像があるのに、この端末にまだ届いていなければ、その場で取りに行く
     if (c.imageFileId && cloudConfigured()) fetchDetailImage(c);
   }
+  // 裏面（あれば表の下に出す。クラウドにだけあるときは、その場で取りに行く）
+  const bimg = $("detailBack");
+  bimg.classList.remove("zoom");
+  if (c.back) { bimg.src = makeUrl(c.back); bimg.hidden = false; }
+  else { bimg.hidden = true; bimg.removeAttribute("src"); if (c.backFileId && cloudConfigured()) fetchDetailBack(c); }
+  $("detailBackBtn").hidden = !!(c.back || c.backFileId);
   const av = $("detailAvatar");
   av.textContent = Array.from((c.name || "?").trim())[0] || "?";
   av.style.background = avatarColor(c.name);
@@ -1555,6 +1593,18 @@ function openDetail(id) {
     toast((await copyText(el.dataset.copy)) ? "コピーしました" : "コピーできませんでした");
   }));
   $("detailDialog").showModal();
+}
+
+async function fetchDetailBack(c) {
+  try {
+    const r = await cloudPost({ action: "image", fileId: c.backFileId });
+    const blob = await dataURLToBlob(r.dataUrl);
+    const cur = cards.find((x) => x.id === c.id);
+    if (cur && cur.backFileId === c.backFileId) { cur.back = blob; await putCard(cur); }
+    if ($("detailDialog").open && detailId === c.id) {
+      $("detailBack").src = makeUrl(blob); $("detailBack").hidden = false;
+    }
+  } catch (e) { /* 次に開いたときにもう一度取りに行く */ }
 }
 
 async function fetchDetailImage(c) {
@@ -1752,6 +1802,8 @@ function fillPlaceSelect(sel) {
 function openEdit(card, carry) {
   editingId = card ? card.id : null;
   pendingImage = undefined; // 変更なし
+  pendingBack = undefined;
+  showEditBack(card?.back || null, !!(card && (card.back || card.backFileId)));
   ocrSeq++;                 // 実行中の読み取りがあれば結果を捨てる
   $("ocrBtn").disabled = false;
   $("editTitle").textContent = card ? "名刺を編集" : (carry ? "続けて登録" : "名刺を登録");
@@ -1861,6 +1913,11 @@ async function saveCard(e) {
       tags: [],
       memo: $("fMemo").value.trim(),
       image: pendingImage === undefined ? (existing?.image || null) : pendingImage,
+      back: pendingBack === undefined ? (existing?.back || null) : pendingBack,
+      // フォームにない項目は、元の名刺から引き継ぐ（保存先の画像・Sales Desk への登録状況）
+      imageFileId: existing?.imageFileId || "",
+      backFileId: pendingBack === undefined ? (existing?.backFileId || "") : "",
+      sdStatus: existing?.sdStatus || "",
       createdAt: existing?.createdAt || now,
       updatedAt: now,
       synced: false,
@@ -1869,6 +1926,8 @@ async function saveCard(e) {
     // 画像変更の意図を確定（pendingImageは以降のUI操作で変わるため先に確保）
     const imageArg = pendingImage === undefined ? undefined
       : (pendingImage === null ? null : await blobToDataURL(pendingImage));
+    const backArg = pendingBack === undefined ? undefined
+      : (pendingBack === null ? null : await blobToDataURL(pendingBack));
     await putCard(card);
     const idx = cards.findIndex((c) => c.id === card.id);
     if (idx >= 0) cards[idx] = card; else cards.push(card);
@@ -1887,7 +1946,7 @@ async function saveCard(e) {
     // クラウドへ反映（設定時のみ／失敗してもローカルには保存済み）
     if (cloudConfigured()) {
       try {
-        await pushCard(card, imageArg);
+        await pushCard(card, imageArg, backArg);
         card.synced = true;
         await putCard(card);
         pushSalesDeskNow([card.id]); // 保存できたら、待たずに Sales Desk へ
@@ -1920,7 +1979,7 @@ async function dataURLToBlob(url) {
 async function exportJSON() {
   const out = [];
   for (const c of cards) {
-    out.push({ ...c, image: c.image ? await blobToDataURL(c.image) : null });
+    out.push({ ...c, image: c.image ? await blobToDataURL(c.image) : null, back: c.back ? await blobToDataURL(c.back) : null });
   }
   const blob = new Blob([JSON.stringify({ app: "meishi", version: 1, cards: out }, null, 1)],
     { type: "application/json" });
@@ -1949,6 +2008,7 @@ async function importJSON(file) {
         tags: Array.isArray(c.tags) ? c.tags.map(String) : [],
         memo: c.memo || "",
         image: typeof c.image === "string" && c.image.startsWith("data:") ? await dataURLToBlob(c.image) : null,
+        back: typeof c.back === "string" && c.back.startsWith("data:") ? await dataURLToBlob(c.back) : null,
         createdAt: c.createdAt || Date.now(),
         updatedAt: c.updatedAt || Date.now(),
       };
@@ -2054,11 +2114,15 @@ function cardMeta(c) {
   };
 }
 
-// imageArg: undefined=送らない(画像変更なし) / null=画像削除 / string(dataURL)=差し替え
-async function pushCard(card, imageArg) {
+// imageArg / backArg: undefined=送らない(画像変更なし) / null=画像削除 / string(dataURL)=差し替え（backArg は裏面）
+async function pushCard(card, imageArg, backArg) {
   const payload = { action: "upsert", card: cardMeta(card) };
   if (imageArg !== undefined) payload.image = imageArg;
-  await cloudPost(payload);
+  if (backArg !== undefined) payload.back = backArg;
+  const r = await cloudPost(payload);
+  // 保存先でのファイルの番号を覚えておく（裏面を送り済みかどうかの判断にも使う）
+  if (r && typeof r.imageFileId === "string") card.imageFileId = r.imageFileId;
+  if (r && typeof r.backFileId === "string") card.backFileId = r.backFileId;
 }
 
 // Sales Desk へすぐ送る（保存した直後・読み取りが終わった直後に呼ぶ）。
@@ -2088,7 +2152,9 @@ async function pushUnsynced() {
     try {
       const payload = { action: "upsert", card: cardMeta(c) };
       if (c.image) payload.image = await blobToDataURL(c.image);
-      await cloudPost(payload);
+      if (c.back && !c.backFileId) payload.back = await blobToDataURL(c.back); // まだ送れていない裏面
+      const r = await cloudPost(payload);
+      if (r && typeof r.backFileId === "string") c.backFileId = r.backFileId;
       c.synced = true;
       await putCard(c);
     } catch (e) { /* 次回に持ち越し */ }
@@ -2140,6 +2206,11 @@ async function syncFromCloud(opts = {}) {
       if (local && (rc.updatedAt || 0) <= (local.updatedAt || 0)) {
         // 文字情報はローカルが新しい/同じ。画像だけ未取得なら取りに行く（新しい端末での初回など）
         if ((rc.imageFileId || "") !== (local.imageFileId || "")) { local.imageFileId = rc.imageFileId || ""; await putCard(local); }
+        // 裏面と Sales Desk の登録状況も、保存先に合わせる（送信待ちの裏面は消さない）
+        if ("backFileId" in rc && local.synced === true && (rc.backFileId || "") !== (local.backFileId || "")) {
+          local.backFileId = rc.backFileId || ""; local.back = null; await putCard(local);
+        }
+        if ("sdStatus" in rc && (rc.sdStatus || "") !== (local.sdStatus || "")) { local.sdStatus = rc.sdStatus || ""; await putCard(local); }
         if (rc.imageFileId && !local.image && local.synced === true) imageJobs.push([local, rc.imageFileId]);
         continue;
       }
@@ -2151,6 +2222,9 @@ async function syncFromCloud(opts = {}) {
         // 画像は差し替わっているかもしれないので取り直す。取れるまでは手元の画像を出しておく
         image: rc.imageFileId ? (local ? local.image : null) : null,
         imageFileId: rc.imageFileId || "",
+        // 裏面は詳細を開いたときに取りに行く（同じファイルなら手元のものをそのまま使う）
+        back: "backFileId" in rc ? (rc.backFileId && local && local.backFileId === rc.backFileId ? local.back || null : null) : (local?.back || null),
+        backFileId: "backFileId" in rc ? (rc.backFileId || "") : (local?.backFileId || ""),
         createdAt: rc.createdAt || Date.now(), updatedAt: rc.updatedAt || Date.now(),
         synced: true,
       };
@@ -2793,7 +2867,22 @@ async function runCloudOcr(blob, alive) {
   setOcrStatus("読み取り中…（数秒かかります）");
   const dataUrl = await blobToDataURL(blob);
   const data = await cloudPost({ action: "ocr", image: dataUrl });
-  if (alive()) applyOcrText((data && data.text) || "", "Google OCR");
+  const text = (data && data.text) || "";
+  // 新規登録で、まだ何も入力していないとき: さっき登録した名刺の裏面らしければ、新しい名刺にせずその名刺に付ける
+  if (alive() && !editingId && !$("fName").value.trim() && !$("fCompany").value.trim() && pendingImage === blob) {
+    const recent = recentCards(15 * 60 * 1000);
+    const prev = recent.filter((x) => Date.now() - (x.createdAt || 0) < 5 * 60 * 1000).pop() || null;
+    const fields = parseCardText(text).fields;
+    const front = findFrontFor(fields, recent, prev);
+    if (front) {
+      ocrSeq++;                     // この写真の読み取り（Opus）は使わない
+      $("editDialog").close();
+      await attachBack(front, blob, { text, fields, notice: true });
+      toast(`「${front.name}」の裏面として追加しました`);
+      return;
+    }
+  }
+  if (alive()) applyOcrText(text, "Google OCR");
 }
 let ocrSeq = 0; // 読み取りの世代番号（フォームを開き直すたび・画像を変えるたびに進める）
 
@@ -2881,7 +2970,7 @@ function applyOpusFields(fields) {
  */
 const NAME_PENDING = "（読み取り中）";
 const NAME_UNKNOWN = "（氏名を確認）";
-const batch = { total: 0, read: 0, opusWaiting: 0, opusDone: 0, running: false };
+const batch = { total: 0, read: 0, opusWaiting: 0, opusDone: 0, running: false, hold: 0 };
 
 function openBatchDialog() {
   $("bMetAt").value = todayYmd();
@@ -2897,10 +2986,10 @@ function updateBatchBar() {
   if (!batch.total) { bar.hidden = true; return; }
   const parts = [`📷 ${batch.total}枚を登録中：読み取り ${batch.read}/${batch.total}`];
   if (batch.opusWaiting || batch.opusDone) parts.push(`🤖 Opus精読 ${batch.opusDone}/${batch.opusDone + batch.opusWaiting}`);
-  const done = batch.read >= batch.total && batch.opusWaiting === 0;
+  const done = batch.read >= batch.total && batch.opusWaiting === 0 && !batch.hold;
   bar.textContent = parts.join("　") + (done ? "　✓ 完了" : "（この画面を開いたままにしてください）");
   bar.hidden = false;
-  if (done) setTimeout(() => { if (batch.read >= batch.total && batch.opusWaiting === 0) { batch.total = batch.read = batch.opusDone = 0; updateBatchBar(); } }, 6000);
+  if (done) setTimeout(() => { if (batch.read >= batch.total && batch.opusWaiting === 0 && !batch.hold) { batch.total = batch.read = batch.opusDone = 0; updateBatchBar(); } }, 6000);
 }
 
 // 画像から文字を読む（クラウド＝Google、未接続＝ブラウザ内OCR）
@@ -2934,6 +3023,124 @@ function fillCardFields(card, fields, overwrite) {
   return changed;
 }
 
+/* ---------- 名刺の裏面 ----------
+ * 裏面は名刺1枚につき1つ（card.back / 保存先では backFileId）。
+ * ＋で入れた写真が「直前の名刺の裏面」らしいときは、新しい名刺にせず自動でその名刺に付ける（お知らせから取り消せる）。
+ * 裏面に書いてある内容は、表で空いている欄を埋め、全文をメモに残す（検索にかかるようにする）。 */
+function showEditBack(blob, has) {
+  const prev = $("backPreview");
+  if (blob) { prev.src = makeUrl(blob); prev.hidden = false; } else { prev.hidden = true; prev.removeAttribute("src"); }
+  $("backLabel").hidden = !has;
+  $("backBtn").textContent = has ? "裏面を変更" : "＋ 裏面を追加";
+  $("backClearBtn").hidden = !has;
+}
+// 裏面の文字から、メモに残す分を作る
+function backMemoText(text) {
+  const t = String(text || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean).join("\n").slice(0, 600);
+  return t.replace(/\s/g, "").length >= 4 ? t : "";
+}
+const BACK_FILL = ["title", "phone", "email", "address", "website"];
+// 同じ人かどうか（表が日本語・裏が英語のように文字の種類が違うときは比べられないので「違うとは言えない」）
+function differentPerson(a, b) {
+  const n = (x) => String(x || "").replace(/\s/g, "").toLowerCase();
+  const cjk = (x) => /[぀-ヿ一-鿿]/.test(x);
+  a = n(a); b = n(b);
+  if (!a || !b || a === NAME_PENDING || b === NAME_PENDING || a === NAME_UNKNOWN || b === NAME_UNKNOWN) return false;
+  return cjk(a) === cjk(b) && a !== b;
+}
+// 新しく読んだ写真（fields）が裏面だと判断できれば、その表にあたる名刺を返す。
+//   pool … 同じ人の名刺を探す範囲（さっき登録したばかりの名刺）   prev … 直前に登録した名刺
+function findFrontFor(fields, pool, prev) {
+  const f = fields || {};
+  const usable = (c) => c && !c.back && !c.backFileId && c.name && c.name !== NAME_PENDING;
+  const hasName = !!(f.name || "").trim();
+  const mail = (f.email || "").trim().toLowerCase();
+  const dig = digitsOf(f.phone || "");
+  // 1) メールか電話番号が同じで、別人とは言えない → 同じ人の名刺の裏面（英語面など）
+  //    同じ会社の別の人は代表電話が同じになるので、氏名が読めていて違う人なら裏面にしない
+  if (mail || dig.length >= 9) {
+    const hit = (pool || []).filter(usable).find((c) =>
+      ((mail && (c.email || "").trim().toLowerCase() === mail) || (dig.length >= 9 && digitsOf(c.phone) === dig))
+      && !differentPerson(f.name, c.name));
+    if (hit) return hit;
+  }
+  // 2) 氏名が読めない写真は、直前の名刺の裏面とみなす（会社名・サイト・メールのドメインが合う、または連絡先が何も書かれていない）
+  if (!hasName && usable(prev)) {
+    const dom = (u) => { const h = siteHref(u); try { return h ? new URL(h).hostname.replace(/^www\./, "") : ""; } catch { return ""; } };
+    const mdom = (e) => (String(e || "").split("@")[1] || "").trim().toLowerCase();
+    const sameCo = !!f.company && !!prev.company && coKeyOf(f.company) === coKeyOf(prev.company);
+    const prevDoms = [dom(prev.website), mdom(prev.email)].filter(Boolean);
+    const sameDom = [dom(f.website), mdom(f.email)].filter(Boolean).some((d) => prevDoms.includes(d));
+    const nothing = !mail && dig.length < 9 && !(f.company || "").trim();
+    if (sameCo || sameDom || nothing) return prev;
+  }
+  return null;
+}
+// 最近登録した名刺（裏面を自動で付ける相手の候補）
+function recentCards(ms, exceptIds) {
+  const now = Date.now();
+  return cards.filter((c) => now - (c.createdAt || 0) < ms && !(exceptIds && exceptIds.has(c.id)))
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+}
+// 名刺 front に裏面を付ける。info.text / info.fields は裏面を読み取った結果（なければここで読む）。
+// info.notice=true なら「裏面として追加しました」を出して、取り消せるようにする（自動で付けたとき）。
+async function attachBack(front, blob, info = {}) {
+  let text = info.text, fields = info.fields;
+  if (text === undefined) {
+    try { text = await ocrTextFor(blob); fields = parseCardText(text).fields; } catch (e) { text = ""; fields = {}; }
+  }
+  const cur = cards.find((x) => x.id === front.id);
+  if (!cur) return;
+  const undo = { frontId: cur.id, blob, memoBefore: cur.memo || "", filled: {}, common: { metAt: cur.metAt || "", metPlace: cur.metPlace || "", folder: cur.folder || "", tags: [] } };
+  cur.back = blob;
+  cur.backFileId = "";
+  for (const k of BACK_FILL) {
+    const v = ((fields || {})[k] || "").trim();
+    if (v && !(cur[k] || "").trim()) { cur[k] = v; undo.filled[k] = v; }
+  }
+  const t = backMemoText(text);
+  if (t) cur.memo = (cur.memo ? cur.memo + "\n" : "") + "【裏面】\n" + t;
+  undo.memoAfter = cur.memo || "";
+  cur.updatedAt = Date.now();
+  cur.synced = false;
+  await putCard(cur);
+  render();
+  if ($("detailDialog").open && detailId === cur.id) openDetail(cur.id);
+  if (cloudConfigured()) {
+    try { await pushCard(cur, undefined, await blobToDataURL(blob)); cur.synced = true; await putCard(cur); } catch (e) { /* 未同期として残り、あとで送られる */ }
+    updateSyncUI();
+  }
+  if (info.notice) addBackNotice(undo);
+}
+const backNotices = [];
+function addBackNotice(undo) { backNotices.push(undo); renderBackBar(); }
+function renderBackBar() {
+  const bar = $("backBar");
+  bar.hidden = !backNotices.length;
+  bar.innerHTML = backNotices.map((u, i) => {
+    const c = cards.find((x) => x.id === u.frontId);
+    return `<div class="back-note"><span>🔁 「${esc(c ? c.name : "名刺")}」の裏面として追加しました</span>
+      <button type="button" data-back-undo="${i}">別の名刺にする</button><button type="button" data-back-ok="${i}" title="閉じる">✕</button></div>`;
+  }).join("");
+}
+// 自動で付けた裏面を取り消して、別の名刺として登録し直す
+async function undoBack(u) {
+  const cur = cards.find((x) => x.id === u.frontId);
+  if (cur && cur.back === u.blob) {
+    cur.back = null; cur.backFileId = "";
+    if ((cur.memo || "") === u.memoAfter) cur.memo = u.memoBefore;      // その後に手で直していなければ元に戻す
+    for (const k of Object.keys(u.filled)) if (cur[k] === u.filled[k]) cur[k] = "";
+    cur.updatedAt = Date.now(); cur.synced = false;
+    await putCard(cur);
+    if (cloudConfigured()) {
+      try { await pushCard(cur, undefined, null); cur.synced = true; await putCard(cur); } catch (e) { /* あとで送られる */ }
+      updateSyncUI();
+    }
+  }
+  render();
+  startBatch([{ ready: u.blob, noPair: true }], u.common);
+}
+
 // files: 写真（File）か、切り分け済みの名刺画像（{ ready: Blob }）。common を渡さなければ「まとめて登録」の入力欄を使う
 async function startBatch(files, common) {
   if ($("batchDialog").open) $("batchDialog").close();
@@ -2951,6 +3158,8 @@ async function startBatch(files, common) {
 
   // 1) まず全部を「読み取り中」の名刺として保存（画像を確実に残す）
   const created = [];
+  const noPair = new Set(); // 「別の名刺にする」で戻した写真は、もう裏面にしない
+  const before = recentCards(15 * 60 * 1000); // この登録より前に入れたばかりの名刺（その裏面かもしれない）
   let splitPhotos = 0, splitCardsN = 0, crowdedN = 0;
   for (const file of files) {
     let blobs;
@@ -2972,6 +3181,7 @@ async function startBatch(files, common) {
     await putCard(card);
     cards.push(card);
     created.push(card);
+    if (file.noPair) noPair.add(card.id);
    }
   }
   if (crowdedN) toast(`写真${crowdedN}枚は名刺を分けられませんでした（重なっていると分けられません）。写真のまま登録しています`);
@@ -2987,21 +3197,42 @@ async function startBatch(files, common) {
   }
 
   // 3) 読み取り（クラウドは並行3件、ブラウザ内OCRは重いので1件ずつ）
+  batch.hold++; // 裏面の判定と精読の開始が済むまでは「完了」と出さない
+  try {
+  const read = new Map(); // 名刺ID → { text, fields }（裏面の判定に使う）
   await runPool(created, cloudConfigured() ? 3 : 1, async (c) => {
-    const opus = cloudConfigured() ? startBatchOpus(c) : null; // Opusは別に走らせる（1分前後）
-    try {
-      const text = await ocrTextFor(c.image);
-      const cur = cards.find((x) => x.id === c.id);
-      if (cur && fillCardFields(cur, parseCardText(text).fields, false)) await saveBatchCard(cur);
-    } catch (e) {
-      const cur = cards.find((x) => x.id === c.id);
-      if (cur && fillCardFields(cur, {}, false)) await saveBatchCard(cur);
-    }
+    let text = "", fields = {};
+    try { text = await ocrTextFor(c.image); fields = parseCardText(text).fields; } catch (e) { /* 読めなければ氏名は「確認」になる */ }
+    read.set(c.id, { text, fields });
+    const cur = cards.find((x) => x.id === c.id);
+    if (cur && fillCardFields(cur, fields, false)) await saveBatchCard(cur);
     batch.read++;
     updateBatchBar();
-    // 読み取り（Google と Opus の両方）が終わったら、待たずに Sales Desk へ
-    if (opus) opus.then(() => pushSalesDeskNow([c.id]));
   });
+
+  // 4) 裏面の写真は、新しい名刺にせず表の名刺に付ける（撮った順に見ていく）
+  const fronts = [];
+  let backs = 0;
+  for (let i = 0; i < created.length; i++) {
+    const c = cards.find((x) => x.id === created[i].id);
+    if (!c) continue;
+    const info = read.get(c.id) || { text: "", fields: {} };
+    // 直前の名刺: 同じ登録の中で1つ前に撮った名刺。先頭の写真は、この登録の直前（5分以内）に入れた名刺
+    const prev = i > 0 ? (fronts[fronts.length - 1] && fronts[fronts.length - 1].id === created[i - 1].id ? fronts[fronts.length - 1] : null)
+      : before.filter((x) => Date.now() - (x.createdAt || 0) < 5 * 60 * 1000).pop() || null;
+    const front = noPair.has(c.id) ? null : findFrontFor(info.fields, before.concat(fronts), prev);
+    if (front && front.id !== c.id) {
+      await removeCard(c.id);                       // 裏面だった方は名刺としては消す（写真は表の名刺に移る）
+      await attachBack(front, c.image, { text: info.text, fields: info.fields, notice: true });
+      backs++;
+      batch.total--; batch.read--; updateBatchBar();
+    } else fronts.push(c);
+  }
+  if (backs) toast(`${backs}枚を裏面として、表の名刺に付けました`);
+
+  // 5) Opus で精読（1分前後）。終わったら、待たずに Sales Desk へ
+  if (cloudConfigured()) for (const c of fronts) startBatchOpus(c).then(() => pushSalesDeskNow([c.id]));
+  } finally { batch.hold--; updateBatchBar(); }
 }
 
 async function runPool(items, n, fn) {
@@ -3023,10 +3254,10 @@ async function saveBatchCard(card) {
 
 async function startBatchOpus(card) {
   let start;
-  try { start = await cloudPost({ action: "ocrStart", image: await blobToDataURL(card.image) }); }
-  catch { return; } // 未設定・起動失敗なら Google の結果のまま
-  batch.opusWaiting++;
+  batch.opusWaiting++; // 起動を待つ間も「精読中」に数える
   updateBatchBar();
+  try { start = await cloudPost({ action: "ocrStart", image: await blobToDataURL(card.image) }); }
+  catch { batch.opusWaiting--; updateBatchBar(); return; } // 未設定・起動失敗なら Google の結果のまま
   const t0 = Date.now();
   await new Promise((r) => setTimeout(r, 15000));
   try {
@@ -3513,6 +3744,15 @@ async function mergeCards(keepId, otherIds) {
   }
   // 先に残す方を保存してから、他を消す（途中で失敗しても情報が消えない順序）
   await persistCards([keep], imageArgs);
+  // 裏面は、残す方になければ他の名刺のものを引き継ぐ
+  if (!keep.back && !keep.backFileId) {
+    const withBack = others.find((o) => o.back);
+    if (withBack) {
+      keep.back = withBack.back;
+      if (cloudConfigured()) { try { await pushCard(keep, undefined, await blobToDataURL(keep.back)); await putCard(keep); } catch (e) { keep.synced = false; await putCard(keep); } }
+      else await putCard(keep);
+    }
+  }
   for (const o of others) await removeCard(o.id);
   render();
   updateSyncUI();
@@ -3787,6 +4027,48 @@ async function init() {
     $("imgClearBtn").hidden = true;
     updateOcrBtn();
     setOcrStatus("");
+  });
+  // 裏面: 編集フォームの「裏面を追加」、詳細の「裏面を追加」、自動で付けたときのお知らせ
+  $("backBtn").addEventListener("click", () => { backTargetId = null; $("backInput").click(); });
+  $("backClearBtn").addEventListener("click", () => { pendingBack = null; showEditBack(null, false); });
+  $("detailBackBtn").addEventListener("click", () => { backTargetId = detailId; $("backInput").click(); });
+  $("detailBack").addEventListener("click", () => $("detailBack").classList.toggle("zoom"));
+  $("backInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const blob = (await prepareCardImage(file)).blob;
+      if (backTargetId) {
+        // 詳細から: その名刺にすぐ付ける（内容も読み取って、空いている欄とメモに補う）
+        const front = cards.find((x) => x.id === backTargetId);
+        if (!front) return;
+        toast("裏面を追加しています…");
+        await attachBack(front, blob, {});
+        toast("裏面を追加しました");
+      } else {
+        // 編集フォーム: 保存したときに反映。内容は読み取って、空いている欄とメモに補う
+        pendingBack = blob;
+        showEditBack(blob, true);
+        ocrTextFor(blob).then((text) => {
+          if (!$("editDialog").open || pendingBack !== blob) return;
+          const fields = parseCardText(text).fields;
+          for (const k of BACK_FILL) { const el = $(FIELD_MAP[k]); const v = (fields[k] || "").trim(); if (v && !el.value.trim()) el.value = v; }
+          const t = backMemoText(text), memo = $("fMemo");
+          if (t && !memo.value.includes("【裏面】")) memo.value = (memo.value.trim() ? memo.value.trim() + "\n" : "") + "【裏面】\n" + t;
+        }).catch(() => {});
+      }
+    } catch (err) {
+      alert("画像の読み込みに失敗しました: " + err.message);
+    }
+  });
+  $("backBar").addEventListener("click", (e) => {
+    const u = e.target.closest("[data-back-undo]"), ok = e.target.closest("[data-back-ok]");
+    if (!u && !ok) return;
+    const i = Number((u || ok).dataset.backUndo ?? (u || ok).dataset.backOk);
+    const item = backNotices.splice(i, 1)[0];
+    renderBackBar();
+    if (u && item) undoBack(item);
   });
   $("ocrBtn").addEventListener("click", runOcr);
   $("ocrRawCopyBtn").addEventListener("click", async () => {

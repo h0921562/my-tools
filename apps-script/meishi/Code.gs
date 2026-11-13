@@ -20,7 +20,8 @@ const IMAGE_FOLDER_NAME = '名刺管理_画像';
 
 // 列の並び（見出し行の名前で列を探すので、後から列を足しても壊れない）
 const COLS = ['id', 'name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address',
-  'website', 'industry', 'metAt', 'metPlace', 'folder', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt', 'sdStatus'];
+  'website', 'industry', 'metAt', 'metPlace', 'folder', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt', 'sdStatus',
+  'backFileId']; // backFileId: 名刺の裏面の画像
 const NUMBER_COLS = { createdAt: true, updatedAt: true };
 // sdStatus はサーバーだけが書く（アプリからの保存では上書きしない）
 const SERVER_ONLY_COLS = { sdStatus: true };
@@ -71,7 +72,7 @@ function api(payload) {
     switch (payload.action) {
       case 'ping': sheet_(); folder_(); return { ok: true, sheetUrl: spreadsheet_().getUrl() };
       case 'list': return { ok: true, cards: listCards_() };
-      case 'upsert': return withLock_(function () { return upsertCard_(payload.card, payload.image); });
+      case 'upsert': return withLock_(function () { return upsertCard_(payload.card, payload.image, payload.back); });
       case 'delete': return withLock_(function () { return deleteCard_(payload.id); });
       case 'image': return { ok: true, dataUrl: imageDataUrl_(payload.fileId) };
       case 'ocr': return { ok: true, text: ocr_(payload.image) };
@@ -193,7 +194,8 @@ function findRow_(sh, idCol, id) {
 }
 
 // image: undefined=画像はそのまま / null=画像を外す / 'data:image/...'=差し替え
-function upsertCard_(card, image) {
+// image / back: 省略=変更なし、null=外す、dataURL=差し替え（back は裏面）
+function upsertCard_(card, image, back) {
   if (!card || !card.id || !card.name) throw new Error('名刺のデータが不正です');
   const sh = sheet_();
   const ci = colIndex_(sh);
@@ -217,19 +219,29 @@ function upsertCard_(card, image) {
     trashFile_(imageFileId);
     imageFileId = newId;
   }
+  let backFileId = ci.idx.backFileId >= 0 ? String(row[ci.idx.backFileId] || '') : '';
+  if (back === null) {
+    trashFile_(backFileId);
+    backFileId = '';
+  } else if (typeof back === 'string' && back.indexOf('data:') === 0) {
+    const newBack = saveImage_(card.id + '_back', back);
+    trashFile_(backFileId);
+    backFileId = newBack;
+  }
 
   COLS.forEach(function (k) {
     const i = ci.idx[k];
     if (i < 0) return;
     if (SERVER_ONLY_COLS[k]) return;
     if (k === 'imageFileId') row[i] = imageFileId;
+    else if (k === 'backFileId') row[i] = backFileId;
     else if (k === 'tags') row[i] = (card.tags || []).map(String).join(', ');
     else if (card[k] !== undefined) row[i] = card[k] == null ? '' : String(card[k]);
   });
 
   const target = rowNo > 0 ? sh.getRange(rowNo, 1, 1, ci.width) : sh.getRange(sh.getLastRow() + 1, 1, 1, ci.width);
   target.setNumberFormat('@').setValues([row]);
-  return { ok: true, imageFileId: imageFileId };
+  return { ok: true, imageFileId: imageFileId, backFileId: backFileId };
 }
 
 function deleteCard_(id) {
@@ -238,6 +250,7 @@ function deleteCard_(id) {
   const rowNo = findRow_(sh, ci.idx.id, id);
   if (rowNo > 0) {
     if (ci.idx.imageFileId >= 0) trashFile_(String(sh.getRange(rowNo, ci.idx.imageFileId + 1).getValue() || ''));
+    if (ci.idx.backFileId >= 0) trashFile_(String(sh.getRange(rowNo, ci.idx.backFileId + 1).getValue() || ''));
     sh.deleteRow(rowNo);
   }
   return { ok: true };
