@@ -297,6 +297,13 @@
   #backBar .back-note span { flex: 1; min-width: 160px; }
   #backBar .back-note button { font-size: 12px; padding: 4px 10px; }
   @media (prefers-color-scheme: dark) { #backBar .back-note { background: #052e2b; color: #a7f3d0; border-color: #115e59; } }
+  .doc-chip { flex: 0 0 auto; font-size: 12px; color: var(--text-sub); white-space: nowrap; margin-right: 6px; }
+  #docBar { margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+  #docBar .back-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; border-radius: 8px; padding: 7px 10px;
+    background: #eff6ff; color: #1e3a8a; border: 1px solid #bfdbfe; }
+  #docBar .back-note span { flex: 1; min-width: 160px; }
+  #docBar .back-note button { font-size: 12px; padding: 4px 10px; }
+  @media (prefers-color-scheme: dark) { #docBar .back-note { background: #172554; color: #bfdbfe; border-color: #1e3a8a; } }
   .back-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
   .back-row img { height: 54px; border-radius: 6px; border: 1px solid var(--border); }
   .back-row .back-label { font-size: 12px; color: var(--text-sub); }
@@ -501,6 +508,7 @@
 <main>
   <div id="batchBar" hidden></div>
   <div id="backBar" hidden></div>
+  <div id="docBar" hidden></div>
   <div id="stats"></div>
   <div id="cardGrid"></div>
   <div id="empty" hidden>名刺がまだありません。「＋ 新規登録」から追加してください。</div>
@@ -616,7 +624,7 @@
     <div class="actions-row" id="detailActions"></div>
     <button class="co-link" id="detailCoLink" hidden>🏢 <span></span> の会社ページ</button>
     <dl class="detail-rows" id="detailRows"></dl>
-    <div class="sec-h">📎 この人の資料<span class="cnt" id="detailDocCnt"></span><button id="detailDocAdd">＋ 資料を追加</button></div>
+    <div class="sec-h">📎 資料（この人・会社）<span class="cnt" id="detailDocCnt"></span><button id="detailDocAdd">＋ 資料を追加</button></div>
     <div id="detailDocs"></div>
     <div class="dialog-actions">
       <button class="danger" id="deleteBtn">削除</button>
@@ -1508,13 +1516,14 @@ function render() {
     // 会社ごと表示では見出しに会社名があるので役職だけ出す
     const sub = grouped ? c.title : [c.company, c.title].filter(Boolean).join(" / ");
     const metDate = fmtDate(c.metAt), met = metDate || c.metPlace;
+    const nDocs = docsFor(c).length;
     const metHtml = `<span class="met-ic">🤝 </span>${esc(metDate)}${c.metPlace ? `<span class="met-place">${metDate ? "・" : ""}${esc(c.metPlace)}</span>` : ""}`;
     el.innerHTML = `
       ${thumb}
       <div class="info">
         <div class="name">${esc(c.name)}</div>
         <div class="company">${esc(sub)}</div>
-        ${met ? `<div class="met">${metHtml}</div>` : ""}${c.folder && c.folder !== activeFolder ? `<span class="folder-chip">📁 ${esc(c.folder.split("/").pop())}</span>` : ""}
+        ${nDocs ? `<span class="doc-chip" title="資料 ${nDocs}件">📎${nDocs}</span>` : ""}${met ? `<div class="met">${metHtml}</div>` : ""}${c.folder && c.folder !== activeFolder ? `<span class="folder-chip">📁 ${esc(c.folder.split("/").pop())}</span>` : ""}
       </div>`;
     el.addEventListener("click", () => openDetail(c.id));
     frag.appendChild(el);
@@ -3400,8 +3409,9 @@ function renderCompany(key) {
 
 function renderDetailDocs(c) {
   if (!c) return;
-  const list = docs.filter((d) => d.cardId === c.id).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  renderDocList($("detailDocs"), list, false);
+  // 資料は会社（法人）に紐づく。その会社の人の詳細からも同じ資料が見られるようにする
+  const list = docsFor(c).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  renderDocList($("detailDocs"), list, false, c);
   $("detailDocCnt").textContent = list.length ? `${list.length}件` : "";
   $("detailDocAdd").disabled = !cloudConfigured();
   const link = $("detailCoLink");
@@ -3409,7 +3419,13 @@ function renderDetailDocs(c) {
   link.querySelector("span").textContent = c.company || "";
 }
 
-function renderDocList(box, list, showPerson) {
+// その人に関係する資料: 本人に付けた資料 ＋ その人の会社の資料
+function docsFor(c) {
+  const k = c.company ? coKeyOf(c.company) : "";
+  return docs.filter((d) => d.cardId === c.id || (k && d.companyKey === k));
+}
+// viewer: 個人の詳細から見ているときの名刺（本人に付けた資料か、会社の資料かを添える）
+function renderDocList(box, list, showPerson, viewer) {
   box.innerHTML = "";
   if (!list.length) {
     box.innerHTML = `<div class="empty-note">${cloudConfigured() ? "まだ資料はありません。パンフレットの写真やPDFを追加できます。" : "資料を保存するにはクラウドへの接続が必要です。"}</div>`;
@@ -3417,10 +3433,12 @@ function renderDocList(box, list, showPerson) {
   }
   for (const d of list) {
     const person = showPerson && d.cardId ? cards.find((c) => c.id === d.cardId) : null;
+    const other = viewer && d.cardId && d.cardId !== viewer.id ? cards.find((c) => c.id === d.cardId) : null;
+    const scope = !viewer ? "" : d.cardId === viewer.id ? "👤 この人の資料" : other ? "🏢 会社の資料（" + other.name + " さん）" : "🏢 会社の資料";
     const el = document.createElement("div");
     el.className = "doc-item";
     el.innerHTML = `<span class="ic">${/pdf/.test(d.mime) ? "📄" : "🖼"}</span>
-      <div class="t">${esc(d.title || "資料")}${classifying.has(d.id) ? ` <span class="sub">🤖 会社を判定中…</span>` : ""}<div class="sub">${esc([fmtDate(new Date(d.createdAt || 0).toISOString().slice(0, 10)), person && "👤 " + person.name, d.size && fmtSize(d.size), d.note].filter(Boolean).join("・"))}</div></div>
+      <div class="t">${esc(d.title || "資料")}${classifying.has(d.id) ? ` <span class="sub">🤖 ${d.companyKey ? "要約を作成中…" : "会社を判定中…"}</span>` : ""}<div class="sub">${esc([scope, fmtDate(new Date(d.createdAt || 0).toISOString().slice(0, 10)), person && "👤 " + person.name, d.size && fmtSize(d.size), d.note].filter(Boolean).join("・"))}</div></div>
       <button data-act="del" class="danger">削除</button>`;
     el.addEventListener("click", (e) => {
       if (e.target.closest("button")) return deleteDoc(d);
@@ -3430,6 +3448,24 @@ function renderDocList(box, list, showPerson) {
   }
 }
 const fmtSize = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(n / 1024)) + "KB";
+
+/* 入れた資料がどこに紐づいたかのお知らせ（自分で閉じるまで残す）。判定中 → 紐づけ先 → 「開く」で確認できる */
+const docNotices = []; // 資料のID
+function renderDocBar() {
+  const bar = $("docBar");
+  const rows = docNotices.map((id) => docs.find((d) => d.id === id)).filter(Boolean);
+  bar.hidden = !rows.length;
+  bar.innerHTML = rows.map((d) => {
+    const person = d.cardId ? cards.find((c) => c.id === d.cardId) : null;
+    const where = classifying.has(d.id) && !d.companyKey ? "🤖 どの会社の資料か判定中…（1分ほど）"
+      : d.companyKey ? `→ 🏢 ${esc(d.company || "会社")} に紐づけました${person ? `（${esc(person.name)} さんの資料）` : ""}`
+      : person ? `→ 👤 ${esc(person.name)} さんの資料に追加しました`
+      : "→ 会社を判定できませんでした（「未分類の資料」に入っています）";
+    const canOpen = !(classifying.has(d.id) && !d.companyKey);
+    return `<div class="back-note"><span>📎 「${esc(d.title || "資料")}」 ${where}</span>
+      ${canOpen ? `<button type="button" data-doc-open="${esc(d.id)}">開く</button>` : ""}<button type="button" data-doc-ok="${esc(d.id)}" title="閉じる">✕</button></div>`;
+  }).join("");
+}
 
 function pickDocs(target) {
   if (!cloudConfigured()) { alert("資料の保存には、クラウドへの接続が必要です。"); return; }
@@ -3459,6 +3495,7 @@ async function addDocs(files) {
       const r = await cloudPost({ action: "docUpsert", doc, file: dataUrl });
       const saved = r.doc || doc;
       docs.push(saved);
+      docNotices.push(saved.id);
       ok++;
       // 会社が決まっていなければ、資料の中身から判定する（待たない）
       if (!saved.companyKey) classifyDoc(saved);
@@ -3472,7 +3509,8 @@ async function addDocs(files) {
 function refreshDocViews() {
   if ($("coDialog").open && openCoKey != null) renderCompany(openCoKey);
   if ($("detailDialog").open && detailId) renderDetailDocs(cards.find((x) => x.id === detailId));
-  if (lsGet(VIEW_KEY, "list") === "company") render();
+  render(); // 一覧の 📎（資料の件数）も更新する
+  renderDocBar();
 }
 /* ---------- 資料の会社を自動判定 ----------
  * 1) Googleの文字認識で資料の文字を読み、登録済みの会社名やWebサイトのドメインが出てくれば、その会社に。
@@ -4081,6 +4119,18 @@ async function init() {
     } catch (err) {
       alert("画像の読み込みに失敗しました: " + err.message);
     }
+  });
+  $("docBar").addEventListener("click", (e) => {
+    const open = e.target.closest("[data-doc-open]"), ok = e.target.closest("[data-doc-ok]");
+    if (!open && !ok) return;
+    const id = (open || ok).dataset.docOpen || (open || ok).dataset.docOk;
+    const d = docs.find((x) => x.id === id);
+    if (ok) { const i = docNotices.indexOf(id); if (i >= 0) docNotices.splice(i, 1); renderDocBar(); return; }
+    if (!d) return;
+    // 紐づけ先を開く: 会社のページ（会社が分からないものは「未分類の資料」）。個人だけに付けた資料はその人の詳細
+    if (d.companyKey) openCompany(d.companyKey, d.company || "");
+    else if (d.cardId && cards.some((c) => c.id === d.cardId)) openDetail(d.cardId);
+    else openCompany("", "未分類の資料");
   });
   $("backBar").addEventListener("click", (e) => {
     const u = e.target.closest("[data-back-undo]"), ok = e.target.closest("[data-back-ok]");
