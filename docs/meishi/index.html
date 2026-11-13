@@ -3052,7 +3052,8 @@ function differentPerson(a, b) {
 //   pool … 同じ人の名刺を探す範囲（さっき登録したばかりの名刺）   prev … 直前に登録した名刺
 function findFrontFor(fields, pool, prev) {
   const f = fields || {};
-  const usable = (c) => c && !c.back && !c.backFileId && c.name && c.name !== NAME_PENDING;
+  // 表になれるのは、氏名まで読めている名刺だけ（読み取りに失敗した名刺どうしをくっつけない）
+  const usable = (c) => c && !c.back && !c.backFileId && c.name && c.name !== NAME_PENDING && c.name !== NAME_UNKNOWN;
   const hasName = !!(f.name || "").trim();
   const mail = (f.email || "").trim().toLowerCase();
   const dig = digitsOf(f.phone || "");
@@ -3159,6 +3160,8 @@ async function startBatch(files, common) {
   // 1) まず全部を「読み取り中」の名刺として保存（画像を確実に残す）
   const created = [];
   const noPair = new Set(); // 「別の名刺にする」で戻した写真は、もう裏面にしない
+  const photoOf = new Map(); // 名刺ID → 何枚目の写真から取ったか（1枚の写真に並んでいた名刺どうしは表と裏ではない）
+  let photoNo = 0;
   const before = recentCards(15 * 60 * 1000); // この登録より前に入れたばかりの名刺（その裏面かもしれない）
   let splitPhotos = 0, splitCardsN = 0, crowdedN = 0;
   for (const file of files) {
@@ -3181,8 +3184,10 @@ async function startBatch(files, common) {
     await putCard(card);
     cards.push(card);
     created.push(card);
+    photoOf.set(card.id, photoNo);
     if (file.noPair) noPair.add(card.id);
    }
+   photoNo++;
   }
   if (crowdedN) toast(`写真${crowdedN}枚は名刺を分けられませんでした（重なっていると分けられません）。写真のまま登録しています`);
   else if (splitPhotos) toast(`写真${splitPhotos}枚から名刺を${splitCardsN}枚見つけて、1枚ずつに分けました`);
@@ -3201,9 +3206,9 @@ async function startBatch(files, common) {
   try {
   const read = new Map(); // 名刺ID → { text, fields }（裏面の判定に使う）
   await runPool(created, cloudConfigured() ? 3 : 1, async (c) => {
-    let text = "", fields = {};
-    try { text = await ocrTextFor(c.image); fields = parseCardText(text).fields; } catch (e) { /* 読めなければ氏名は「確認」になる */ }
-    read.set(c.id, { text, fields });
+    let text = "", fields = {}, ok = false;
+    try { text = await ocrTextFor(c.image); fields = parseCardText(text).fields; ok = true; } catch (e) { /* 読めなければ氏名は「確認」になる */ }
+    read.set(c.id, { text, fields, ok });
     const cur = cards.find((x) => x.id === c.id);
     if (cur && fillCardFields(cur, fields, false)) await saveBatchCard(cur);
     batch.read++;
@@ -3216,11 +3221,14 @@ async function startBatch(files, common) {
   for (let i = 0; i < created.length; i++) {
     const c = cards.find((x) => x.id === created[i].id);
     if (!c) continue;
-    const info = read.get(c.id) || { text: "", fields: {} };
+    const info = read.get(c.id) || { text: "", fields: {}, ok: false };
+    const other = (x) => photoOf.get(x.id) !== photoOf.get(c.id); // 別の写真から取った名刺だけが相手になる
     // 直前の名刺: 同じ登録の中で1つ前に撮った名刺。先頭の写真は、この登録の直前（5分以内）に入れた名刺
-    const prev = i > 0 ? (fronts[fronts.length - 1] && fronts[fronts.length - 1].id === created[i - 1].id ? fronts[fronts.length - 1] : null)
+    const last = fronts[fronts.length - 1];
+    const prev = i > 0 ? (last && last.id === created[i - 1].id && other(last) ? last : null)
       : before.filter((x) => Date.now() - (x.createdAt || 0) < 5 * 60 * 1000).pop() || null;
-    const front = noPair.has(c.id) ? null : findFrontFor(info.fields, before.concat(fronts), prev);
+    // 読み取りそのものに失敗した写真は判断できないので、裏面にはしない
+    const front = noPair.has(c.id) || !info.ok ? null : findFrontFor(info.fields, before.concat(fronts.filter(other)), prev);
     if (front && front.id !== c.id) {
       await removeCard(c.id);                       // 裏面だった方は名刺としては消す（写真は表の名刺に移る）
       await attachBack(front, c.image, { text: info.text, fields: info.fields, notice: true });
