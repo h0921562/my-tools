@@ -3525,7 +3525,7 @@ async function classifyDoc(d) {
     if (matched) {
       await linkDoc(d, { companyKey: matched.key, company: matched.name });
       toast(`資料「${d.title}」を ${matched.name} に紐づけました`);
-      if (!genericName(d.title)) return; // 名前も分かりやすいなら終わり
+      if (!genericName(d.title) && d.note) return; // 名前も要約もそろっていれば終わり（要約がなければ Opus に書いてもらう）
     }
     // Opus で社名・資料名・要約を判定
     let start;
