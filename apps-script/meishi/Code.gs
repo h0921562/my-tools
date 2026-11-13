@@ -365,10 +365,11 @@ function opusResult_(id, fields, error) {
   if (!job.keep) trashFile_(job.fileId); // 名刺の一時画像はもう要らない（資料ファイルは残す）
   const clean = {};
   const keys = job.kind === 'doc'
-    ? ['company', 'title', 'summary', 'person']
+    ? ['company', 'title', 'summary', 'person', 'kind', 'detail']
     : ['name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address', 'website', 'industry'];
   if (fields && typeof fields === 'object') {
-    keys.forEach(function (k) { if (fields[k]) clean[k] = String(fields[k]).slice(0, 300); });
+    // detail（資料から抜き出した内容のまとめ）だけは長くてよい。ジョブの一時保存（9KBまで）に収まる長さにする
+    keys.forEach(function (k) { if (fields[k]) clean[k] = String(fields[k]).slice(0, k === 'detail' ? 2500 : 300); });
   }
   setJob_(id, { status: error ? 'error' : 'done', fields: clean, error: error ? String(error).slice(0, 200) : '', at: job.at });
   return { ok: true };
@@ -405,7 +406,7 @@ function cleanupJobs_() {
  *       companyKey（会社名を正規化したもの）で会社に、cardId で名刺（人）にひもづく。
  * 会社: 会社ごとのメモ。key は companyKey。
  */
-const DOC_TABLE = { tab: '資料', key: 'id', cols: ['id', 'companyKey', 'company', 'cardId', 'title', 'fileId', 'mime', 'size', 'note', 'createdAt', 'updatedAt'], nums: { size: true, createdAt: true, updatedAt: true } };
+const DOC_TABLE = { tab: '資料', key: 'id', cols: ['id', 'companyKey', 'company', 'cardId', 'title', 'fileId', 'mime', 'size', 'note', 'createdAt', 'updatedAt', 'kind', 'detail'], nums: { size: true, createdAt: true, updatedAt: true } };
 const CO_TABLE = { tab: '会社', key: 'key', cols: ['key', 'name', 'memo', 'updatedAt'], nums: { updatedAt: true } };
 const DOC_FOLDER_NAME = '名刺管理_資料';
 const DOC_MAX_BYTES = 25 * 1024 * 1024;

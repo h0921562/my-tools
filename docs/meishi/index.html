@@ -333,6 +333,15 @@
   .doc-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .doc-item .sub, .person-item .sub { color: var(--text-sub); font-size: 11px; }
   .doc-item button { font-size: 11px; padding: 2px 8px; }
+  .doc-kind { display: inline-block; font-size: 10px; padding: 1px 6px; margin-right: 6px; border-radius: 999px; background: var(--border); color: var(--text-sub); vertical-align: 1px; }
+  .doc-detail { margin: 0 0 6px 36px; font-size: 13px; }
+  .doc-detail summary { cursor: pointer; color: var(--accent); font-size: 12px; padding: 4px 0; }
+  .doc-summary, .doc-detail { line-height: 1.6; }
+  .doc-summary { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 13px; max-height: 45vh; overflow: auto; }
+  .dd-h { font-weight: 700; margin-top: 8px; }
+  .dd-h:first-child { margin-top: 0; }
+  .dd-l { white-space: pre-wrap; word-break: break-word; }
+  .dd-note { font-weight: 600; margin-bottom: 6px; }
   .empty-note { color: var(--text-sub); font-size: 12px; padding: 6px 2px; }
   .co-link { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; margin: 0 0 10px; }
   #docView img { width: 100%; border-radius: 8px; display: block; }
@@ -660,8 +669,9 @@
     <div style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap">
       <span class="cfg-hint" style="margin:0">紐づけ先:</span>
       <select id="docLink" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px"></select>
-      <button type="button" id="docAuto" style="font-size:12px">🤖 内容から判定</button>
+      <button type="button" id="docAuto" style="font-size:12px">🤖 判定・まとめ直す</button>
     </div>
+    <div id="docSummary" class="doc-summary" hidden></div>
     <div id="docView" style="margin-top:10px"></div>
     <div class="dialog-actions">
       <a id="docOpen" class="btn" target="_blank" rel="noopener" style="text-decoration:none"><button type="button">開く／保存</button></a>
@@ -3314,12 +3324,31 @@ async function loadCompanyData() {
   try {
     const [d, c] = await Promise.all([cloudPost({ action: "docList" }), cloudPost({ action: "coList" })]);
     docs = d.docs || [];
+    summarizeOldDocs();
     coInfo.clear();
     for (const row of c.companies || []) coInfo.set(row.key, row);
     if (lsGet(VIEW_KEY, "list") === "company") render();
     if ($("coDialog").open && openCoKey != null) renderCompany(openCoKey);
     if ($("detailDialog").open && detailId) renderDetailDocs(cards.find((x) => x.id === detailId));
   } catch (e) { /* 資料の一覧が取れなくても名刺は使える */ }
+}
+
+// まだ内容のまとめがない資料を、裏で少しずつまとめる（同じ資料は1日に1回まで試す）
+let oldDocsRunning = false;
+async function summarizeOldDocs() {
+  if (oldDocsRunning || !cloudConfigured()) return;
+  let tried = {};
+  try { tried = JSON.parse(lsGet("meishi.docTried", "{}")) || {}; } catch (e) {}
+  const todo = docs.filter((d) => d.fileId && !d.detail && !classifying.has(d.id) && Date.now() - (tried[d.id] || 0) > 24 * 3600 * 1000);
+  if (!todo.length) return;
+  oldDocsRunning = true;
+  try {
+    await runPool(todo, 2, async (d) => {
+      tried[d.id] = Date.now();
+      try { localStorage.setItem("meishi.docTried", JSON.stringify(tried)); } catch (e) {}
+      await classifyDoc(d);
+    });
+  } finally { oldDocsRunning = false; }
 }
 
 // 会社ごとにまとめる（表示中の名刺から。資料だけある会社も出す）
@@ -3425,6 +3454,11 @@ function docsFor(c) {
   return docs.filter((d) => d.cardId === c.id || (k && d.companyKey === k));
 }
 // viewer: 個人の詳細から見ているときの名刺（本人に付けた資料か、会社の資料かを添える）
+// 抜き出した内容（■見出し・・項目の文章）を表示用の HTML にする
+function docDetailHtml(text) {
+  return String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    .map((l) => /^■/.test(l) ? `<div class="dd-h">${esc(l.replace(/^■\s*/, ""))}</div>` : `<div class="dd-l">${esc(l)}</div>`).join("");
+}
 function renderDocList(box, list, showPerson, viewer) {
   box.innerHTML = "";
   if (!list.length) {
@@ -3438,13 +3472,20 @@ function renderDocList(box, list, showPerson, viewer) {
     const el = document.createElement("div");
     el.className = "doc-item";
     el.innerHTML = `<span class="ic">${/pdf/.test(d.mime) ? "📄" : "🖼"}</span>
-      <div class="t">${esc(d.title || "資料")}${classifying.has(d.id) ? ` <span class="sub">🤖 ${d.companyKey ? "要約を作成中…" : "会社を判定中…"}</span>` : ""}<div class="sub">${esc([scope, fmtDate(new Date(d.createdAt || 0).toISOString().slice(0, 10)), person && "👤 " + person.name, d.size && fmtSize(d.size), d.note].filter(Boolean).join("・"))}</div></div>
+      <div class="t">${d.kind ? `<span class="doc-kind">${esc(d.kind)}</span>` : ""}${esc(d.title || "資料")}${classifying.has(d.id) ? ` <span class="sub">🤖 ${d.companyKey ? "内容をまとめ中…" : "会社を判定中…"}</span>` : ""}<div class="sub">${esc([scope, fmtDate(new Date(d.createdAt || 0).toISOString().slice(0, 10)), person && "👤 " + person.name, d.size && fmtSize(d.size), d.note].filter(Boolean).join("・"))}</div></div>
       <button data-act="del" class="danger">削除</button>`;
     el.addEventListener("click", (e) => {
       if (e.target.closest("button")) return deleteDoc(d);
       openDoc(d);
     });
     box.appendChild(el);
+    // 資料の中身のまとめ（タップで開く）
+    if (d.detail) {
+      const det = document.createElement("details");
+      det.className = "doc-detail";
+      det.innerHTML = `<summary>📋 内容のまとめ</summary>${docDetailHtml(d.detail)}`;
+      box.appendChild(det);
+    }
   }
 }
 const fmtSize = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(n / 1024)) + "KB";
@@ -3458,7 +3499,7 @@ function renderDocBar() {
   bar.innerHTML = rows.map((d) => {
     const person = d.cardId ? cards.find((c) => c.id === d.cardId) : null;
     const where = classifying.has(d.id) && !d.companyKey ? "🤖 どの会社の資料か判定中…（1分ほど）"
-      : d.companyKey ? `→ 🏢 ${esc(d.company || "会社")} に紐づけました${person ? `（${esc(person.name)} さんの資料）` : ""}`
+      : d.companyKey ? `→ 🏢 ${esc(d.company || "会社")} に紐づけました${person ? `（${esc(person.name)} さんの資料）` : ""}${classifying.has(d.id) ? "　🤖 内容をまとめ中…" : d.detail ? "　📋 内容をまとめました" : ""}`
       : person ? `→ 👤 ${esc(person.name)} さんの資料に追加しました`
       : "→ 会社を判定できませんでした（「未分類の資料」に入っています）";
     const canOpen = !(classifying.has(d.id) && !d.companyKey);
@@ -3497,8 +3538,8 @@ async function addDocs(files) {
       docs.push(saved);
       docNotices.push(saved.id);
       ok++;
-      // 会社が決まっていなければ、資料の中身から判定する（待たない）
-      if (!saved.companyKey) classifyDoc(saved);
+      // 中身を読んで内容をまとめる。会社が決まっていなければ会社も判定する（待たない）
+      classifyDoc(saved);
     } catch (e) {
       alert(`「${f.name}」を保存できませんでした: ${e.message}`);
     }
@@ -3554,22 +3595,26 @@ async function linkDoc(d, patch) {
   refreshDocViews();
 }
 
-async function classifyDoc(d) {
+// 資料を Opus に読ませて、会社の判定と内容のまとめ（要約・種類・抜き出した内容）を行う。
+// すでに会社が決まっている資料は紐づけ先を変えない（redetect: true のときだけ判定し直す）。
+async function classifyDoc(d, opts = {}) {
   if (!cloudConfigured() || classifying.has(d.id)) return;
   classifying.add(d.id);
   refreshDocViews();
+  const linked = !!d.companyKey && !opts.redetect;
   try {
-    let matched = null;
-    try {
-      const r = await cloudPost({ action: "docText", fileId: d.fileId });
-      matched = matchCompanyInText(r.text);
-    } catch (e) { /* 文字が読めなくても Opus で続ける */ }
-    if (matched) {
-      await linkDoc(d, { companyKey: matched.key, company: matched.name });
-      toast(`資料「${d.title}」を ${matched.name} に紐づけました`);
-      if (!genericName(d.title) && d.note) return; // 名前も要約もそろっていれば終わり（要約がなければ Opus に書いてもらう）
+    let matched = linked ? { key: d.companyKey, name: d.company, already: true } : null;
+    if (!linked) {
+      try {
+        const r = await cloudPost({ action: "docText", fileId: d.fileId });
+        matched = matchCompanyInText(r.text);
+      } catch (e) { /* 文字が読めなくても Opus で続ける */ }
+      if (matched) {
+        await linkDoc(d, { companyKey: matched.key, company: matched.name });
+        toast(`資料「${d.title}」を ${matched.name} に紐づけました`);
+      }
     }
-    // Opus で社名・資料名・要約を判定
+    // Opus で社名・資料名・要約・内容のまとめ
     let start;
     try { start = await cloudPost({ action: "docOpusStart", fileId: d.fileId }); }
     catch (e) { if (!matched) toast(`資料「${d.title}」の会社を判定できませんでした（未分類に置いています）`); return; }
@@ -3580,8 +3625,11 @@ async function classifyDoc(d) {
       if (r.status === "done") {
         const f = r.fields || {};
         const patch = {};
-        if (f.title && genericName(d.title)) patch.title = f.title;
+        // ファイル名のままの資料名（〜.pdf など）は、内容に合った名前に置き換える
+        if (f.title && (genericName(d.title) || /\.(pdf|jpe?g|png|heic|heif|webp|gif)$/i.test(d.title || ""))) patch.title = f.title;
         if (f.summary && !d.note) patch.note = f.summary;
+        if (f.kind) patch.kind = f.kind;
+        if (f.detail) patch.detail = f.detail;
         if (!matched && f.company) {
           const k = coKeyOf(f.company);
           const known = knownCompanies().get(k) || [...knownCompanies()].find(([kk]) => kk.length >= 3 && (kk.includes(k) || k.includes(kk)))?.[1];
@@ -3589,8 +3637,9 @@ async function classifyDoc(d) {
           patch.companyKey = key; patch.company = known ? known.name : f.company;
         }
         if (Object.keys(patch).length) await linkDoc(d, patch);
-        if (patch.companyKey) toast(`資料を ${patch.company} に紐づけました`);
+        if (patch.companyKey) toast(`資料を ${patch.company} に紐づけ、内容をまとめました`);
         else if (!matched) toast(`資料「${d.title}」の会社は判断できませんでした（未分類に置いています）`);
+        else if (patch.detail) toast(`資料「${d.title}」の内容をまとめました`);
         return;
       }
       if (r.status === "error" || r.status === "gone") break;
@@ -3628,7 +3677,12 @@ async function openDoc(d) {
   openDocRef = d;
   fillDocLink(d);
   $("docTitle").textContent = d.title || "資料";
-  $("docSub").textContent = [d.company, d.size && fmtSize(d.size)].filter(Boolean).join("・");
+  $("docSub").textContent = [d.kind, d.company, d.size && fmtSize(d.size)].filter(Boolean).join("・");
+  // まとめ（要約と抜き出した内容）を資料の上に出す
+  const sum = $("docSummary");
+  sum.innerHTML = (d.note ? `<div class="dd-note">${esc(d.note)}</div>` : "") + docDetailHtml(d.detail)
+    || (classifying.has(d.id) ? `<div class="dd-l">🤖 内容をまとめています…（1分ほど）</div>` : `<div class="dd-l">まだ内容のまとめがありません。「🤖 判定・まとめ直す」でまとめられます。</div>`);
+  sum.hidden = false;
   const view = $("docView");
   view.innerHTML = `<div class="detail-img-loading">読み込み中…</div>`;
   $("docOpen").removeAttribute("href");
@@ -3899,8 +3953,8 @@ async function init() {
   $("docAuto").addEventListener("click", () => {
     const d = openDocRef; if (!d) return;
     $("docDialog").close();
-    toast("資料の内容から会社を判定しています…");
-    classifyDoc(d);
+    toast("資料の内容から、会社の判定と内容のまとめをしています…（1分ほど）");
+    classifyDoc(d, { redetect: true });
   });
   $("detailCoLink").addEventListener("click", () => {
     const c = cards.find((x) => x.id === detailId);
