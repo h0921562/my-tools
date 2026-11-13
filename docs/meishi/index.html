@@ -539,10 +539,10 @@
         <div><label>ふりがな（会社名の読み）</label><input type="text" id="fCompanyKana" autocomplete="off" placeholder="例: ぶらびっしま"></div>
         <div><label>部署・役職</label><input type="text" id="fTitle" autocomplete="off"></div>
         <div><label>電話番号</label><input type="tel" id="fPhone" autocomplete="off"></div>
-        <div><label>メール</label><input type="email" id="fEmail" autocomplete="off"></div>
+        <div><label>メール</label><input type="text" inputmode="email" autocapitalize="off" spellcheck="false" id="fEmail" autocomplete="off"></div>
       </div>
       <label>住所</label><input type="text" id="fAddress" autocomplete="off">
-      <label>Webサイト</label><input type="url" id="fWebsite" autocomplete="off" placeholder="https://…">
+      <label>Webサイト</label><input type="text" inputmode="url" autocapitalize="off" spellcheck="false" id="fWebsite" autocomplete="off" placeholder="www.example.co.jp">
       <label>業態</label><input type="text" id="fIndustry" list="industryList" autocomplete="off" placeholder="選ぶか自由に入力（読み取り時にOpusが判断）">
       <datalist id="industryList"></datalist>
       <div id="dupWarn" class="dup-warn" hidden></div>
