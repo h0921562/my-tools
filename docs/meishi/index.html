@@ -307,6 +307,9 @@
   #docBar .ask span { flex-basis: 100%; }
   #docBar .ask input { flex: 1 1 160px; min-width: 0; padding: 6px 8px; font-size: 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
   @media (prefers-color-scheme: dark) { #docBar .ask { background: #422006; color: #fde68a; border-color: #92400e; } }
+  .page-memo { width: 100%; min-height: 80px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 16px; font-family: inherit; line-height: 1.5; resize: vertical; }
+  #cropStage { position: relative; touch-action: none; user-select: none; -webkit-user-select: none; margin: 10px 0; display: flex; justify-content: center; }
+  #cropCanvas { max-width: 100%; display: block; border-radius: 6px; background: #000; touch-action: none; }
   #docAddDialog label { display: block; font-size: 13px; color: var(--text-sub); margin: 12px 0 4px; }
   #docAddDialog input, #docAddDialog textarea { width: 100%; padding: 9px 10px; font-size: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-family: inherit; }
   @media (prefers-color-scheme: dark) { #docBar .back-note { background: #172554; color: #bfdbfe; border-color: #1e3a8a; } }
@@ -501,7 +504,7 @@
         <button data-act="sync" id="menuSync" hidden>☁ 今すぐ同期</button>
         <button data-act="folders">📁 プロジェクトを整理</button>
         <button data-act="docs">📎 資料を追加（会社は自動で判定）</button>
-        <button data-act="salesdesk">📤 表示中を今すぐ Sales Desk に追加（通常は自動）</button>
+        <button data-act="salesdesk">📤 未登録の名刺を今すぐ Sales Desk に送る（通常は自動）</button>
         <hr>
         <button data-act="dups">🔍 重複をチェック・統合</button>
         <hr>
@@ -556,6 +559,7 @@
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
         <button type="button" id="ocrBtn" style="font-size:12px;padding:4px 10px" hidden>📷 もう一度読み取る</button>
+        <button type="button" id="cropEditBtn" style="font-size:12px;padding:4px 10px" hidden>✂ 切り抜きを直す</button>
         <button type="button" id="imgClearBtn" class="danger" style="font-size:12px;padding:4px 10px" hidden>画像を外す</button>
       </div>
       <!-- 表の写真のほかに入れるもの: 裏面か、資料（パンフレット・提案書など。PDFでも写真でも、どの会社の資料かは自動で判定） -->
@@ -568,7 +572,7 @@
       </div>
       <p class="cfg-hint" id="ocrStatus" style="margin-top:6px" hidden></p>
       <div class="cfg-hint" id="opusStatus" hidden></div>
-      <div class="cfg-hint" id="cropNote" hidden>✂ 名刺の部分を自動で切り抜きました <button type="button" id="cropUndo" style="font-size:11px;padding:1px 8px;margin-left:4px">元の写真に戻す</button></div>
+      <div class="cfg-hint" id="cropNote" hidden>✂ 名刺の部分を自動で切り抜きました（ずれていたら「✂ 切り抜きを直す」） <button type="button" id="cropUndo" style="font-size:11px;padding:1px 8px;margin-left:4px">元の写真に戻す</button></div>
       <!-- OCR生テキスト: 振り分けがおかしいときに全文を確認・コピーして報告できるようにする（端末内のみ・外部送信なし） -->
       <details id="ocrRawWrap" style="margin-top:6px" hidden>
         <summary class="cfg-hint" style="cursor:pointer;display:list-item">📄 読み取った全文を表示（振り分けがおかしいときは、これをコピーして報告してください）</summary>
@@ -639,6 +643,8 @@
     <div class="actions-row" id="detailActions"></div>
     <button class="co-link" id="detailCoLink" hidden>🏢 <span></span> の会社ページ</button>
     <dl class="detail-rows" id="detailRows"></dl>
+    <div class="sec-h">📝 メモ<span class="cnt" id="detailMemoState"></span></div>
+    <textarea id="detailMemo" class="page-memo" placeholder="話した内容、次にやること、気づいたことなど（自動で保存）"></textarea>
     <div class="sec-h">📎 資料（この人・会社）<span class="cnt" id="detailDocCnt"></span><button id="detailDocAdd">＋ 資料を追加</button></div>
     <div id="detailDocs"></div>
     <div class="dialog-actions">
@@ -678,6 +684,8 @@
       <button type="button" id="docAuto" style="font-size:12px">🤖 判定・まとめ直す</button>
     </div>
     <div id="docSummary" class="doc-summary" hidden></div>
+    <div class="sec-h">📝 メモ<span class="cnt" id="docMemoState"></span></div>
+    <textarea id="docMemo" class="page-memo" placeholder="この資料についてのメモ（自動で保存）"></textarea>
     <div id="docView" style="margin-top:10px"></div>
     <div class="dialog-actions">
       <a id="docOpen" class="btn" target="_blank" rel="noopener" style="text-decoration:none"><button type="button">開く／保存</button></a>
@@ -687,6 +695,22 @@
 </dialog>
 <input type="file" id="docFiles" accept="image/*,application/pdf" multiple hidden>
 <datalist id="coNames"></datalist>
+<!-- 切り抜きを手で直す: 四隅の●を名刺の角に合わせる -->
+<dialog id="cropDialog">
+  <div class="dialog-body">
+    <h2>✂ 切り抜きを直す</h2>
+    <div class="cfg-hint">四隅の ● をドラッグして、名刺の角に合わせてください。指で隠れる部分は拡大して表示します。</div>
+    <div id="cropStage"><canvas id="cropCanvas"></canvas></div>
+    <div class="dialog-actions" style="flex-wrap:wrap">
+      <button type="button" id="cropRotate" title="写真を90度回す">↻ 回転</button>
+      <button type="button" id="cropReset" title="自動で見つけた位置に戻す">自動の位置</button>
+      <button type="button" id="cropWhole" title="写真全体を使う">全体</button>
+      <span style="flex:1"></span>
+      <button type="button" id="cropCancel">やめる</button>
+      <button type="button" class="primary" id="cropOk">決定</button>
+    </div>
+  </div>
+</dialog>
 <!-- 資料を入れる前に、どこの会社の資料か・補足を伝えられる（空欄なら内容から自動で判定） -->
 <dialog id="docAddDialog">
   <div class="dialog-body">
@@ -854,6 +878,7 @@ let activeTag = null;      // タグ絞り込み
 let editingId = null;      // 編集中カードID（nullなら新規）
 let detailId = null;       // 詳細表示中カードID
 let cropOriginal = null;   // 自動トリミング前の写真（「元に戻す」用）
+let cropSrc = null;        // 切り抜きを直すときの元の写真 { blob, quadN }
 let pendingImage = null;   // 編集フォームで選択された画像Blob（undefined=変更なし, null=削除, Blob=新規）
 let pendingBack = undefined; // 編集フォームの裏面（同じく undefined=変更なし, null=外す, Blob=新規）
 let backTargetId = null;   // 裏面の写真を選んでいる対象: 名刺のID＝詳細から追加 / null＝編集フォーム
@@ -1290,21 +1315,28 @@ function homography(from, to) {
 // 写真1枚から名刺の画像を取り出す（写真を入れた時点で切り抜く）。
 // 名刺が何枚か写っていれば1枚ずつに分けて返す（opts.single なら分けない）。
 // 小さく写った名刺でも文字が読めるよう、元の写真は大きめ（長辺2800px）のまま切り出す。
+// 返り値の src（元の写真）と quadN（その中の名刺の四隅。写真の幅・高さを1とした割合）は、
+// あとで「切り抜きを直す」ときに使う（端末の中にだけ残す）
 async function prepareCardImages(file, opts = {}) {
+  let src = null;
   try {
     const { full, fctx, W, H } = await loadCardCanvas(file, 2800);
+    const small = () => { const c = document.createElement("canvas"); const k = Math.min(1, 2000 / Math.max(W, H)); c.width = Math.round(W * k); c.height = Math.round(H * k); c.getContext("2d").drawImage(full, 0, 0, c.width, c.height); return c; };
+    src = await new Promise((res) => small().toBlob(res, "image/jpeg", 0.85));
     const det = detectCards(full, W, H, 480);
     const many = det.cards.length > 1;
+    const norm = (q) => q.map(([x, y]) => [x / det.s / W, y / det.s / H]);
     // 名刺が何枚か写っていそうだが分けられない: 1枚だけ切り抜くと他が消えるので、写真全体を残す
-    if (det.crowded || (many && opts.single)) return [{ blob: await compressImage(file, 2000), original: null, crowded: !opts.single }];
+    if (det.crowded || (many && opts.single)) return [{ blob: await compressImage(file, 2000), original: null, crowded: !opts.single, src, quadN: null }];
     if (many || (det.cards.length === 1 && autoCropOn())) {
       const sd = fctx.getImageData(0, 0, W, H).data, out = [];
-      for (const q of det.cards) { const b = await warpCard(sd, W, H, q, det.s); if (b) out.push(b); }
-      if (many && out.length > 1) return out.map((blob) => ({ blob, original: null }));
-      if (!many && out.length === 1) return [{ blob: out[0], original: await compressImage(file) }];
+      for (const q of det.cards) { const b = await warpCard(sd, W, H, q, det.s); if (b) out.push({ blob: b, quadN: norm(q) }); }
+      if (many && out.length > 1) return out.map((x) => ({ blob: x.blob, original: null, src, quadN: x.quadN }));
+      if (!many && out.length === 1) return [{ blob: out[0].blob, original: await compressImage(file), src, quadN: out[0].quadN }];
     }
+    if (det.cards.length === 1) return [{ blob: await compressImage(file), original: null, src, quadN: norm(det.cards[0]) }];
   } catch (e) { /* 失敗しても元の写真で続ける */ }
-  return [{ blob: await compressImage(file), original: null }];
+  return [{ blob: await compressImage(file), original: null, src, quadN: null }];
 }
 // 画像を取り込む共通処理（1枚だけ）: 縮小 → （オンなら）自動トリミング
 async function prepareCardImage(file) {
@@ -1607,13 +1639,11 @@ function openDetail(id) {
   if (c.address) acts.push(`<a href="https://www.google.com/maps/search/?api=1&query=${esc(encodeURIComponent(c.address.replace(/^〒\s?\d{3}-?\d{4}\s*/, "")))}" target="_blank" rel="noopener"><span class="ic">📍</span>地図</a>`);
   if (site) acts.push(`<a href="${esc(site)}" target="_blank" rel="noopener"><span class="ic">🌐</span>サイト</a>`);
   acts.push(`<button type="button" data-act="vcf"><span class="ic">👤</span>連絡先に保存</button>`);
-  if (c.company) acts.push(`<button type="button" data-act="sd"><span class="ic">📤</span>Sales Deskへ</button>`);
   if (navigator.share) acts.push(`<button type="button" data-act="share"><span class="ic">↗️</span>共有</button>`);
   const box = $("detailActions");
   box.innerHTML = acts.join("");
   box.querySelectorAll("button[data-act]").forEach((b) => b.addEventListener("click", () => {
     if (b.dataset.act === "vcf") saveVcf([c], vcfFileName([c]));
-    else if (b.dataset.act === "sd") sendToSalesDesk([c]);
     else shareCard(c);
   }));
 
@@ -1624,20 +1654,22 @@ function openDetail(id) {
     ["メール", c.email ? `<span class="copyable" data-copy="${esc(c.email)}" title="タップでコピー">${esc(c.email)}</span>` : ""],
     ["住所", c.address ? `<span class="copyable" data-copy="${esc(c.address)}" title="タップでコピー">${esc(c.address)}</span>` : ""],
     ["業態", esc(c.industry)],
-    ["Sales Desk", !c.company ? "" : c.sdStatus === "ok" ? "✓ マスターに登録済み" : String(c.sdStatus || "").startsWith("conflict") ? "⚠ 要確認（同じ名前の会社が複数あるため、Sales Desk 側で選んでください）" : String(c.sdStatus || "").startsWith("error") ? "⚠ 登録できませんでした（内容を確認してください）" : "自動で登録します（保存・読み取りが終わるとすぐ送られます）"],
+    ["Sales Desk", !c.company ? "" : c.sdStatus === "ok" ? "✓ マスターに登録済み" : String(c.sdStatus || "").startsWith("conflict") ? "⚠ 要確認（同じ名前の会社が複数あるため、Sales Desk 側で選んでください）" : String(c.sdStatus || "").startsWith("error") ? "⚠ 登録できませんでした（自動で送り直します）" : "⏳ 自動で登録しています…"],
     ["Web", site ? `<a href="${esc(site)}" target="_blank" rel="noopener">${esc(c.website)}</a>` : esc(c.website)],
     ["プロジェクト", c.folder ? esc(c.folder.split("/").join(" › ")) : ""],
     ["会った日", c.metAt ? esc(fmtDate(c.metAt)) : ""],
     ["会った場所", esc(c.metPlace)],
-    ["メモ", esc(c.memo)],
     ["登録日", c.createdAt ? new Date(c.createdAt).toLocaleDateString("ja-JP") : ""],
   ].filter(([, v]) => v);
   $("detailRows").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
   renderDetailDocs(c);
+  if (document.activeElement !== $("detailMemo")) { $("detailMemo").value = c.memo || ""; $("detailMemoState").textContent = ""; }
   $("detailRows").querySelectorAll("[data-copy]").forEach((el) => el.addEventListener("click", async () => {
     toast((await copyText(el.dataset.copy)) ? "コピーしました" : "コピーできませんでした");
   }));
   $("detailDialog").showModal();
+  // まだ Sales Desk に入っていなければ、開いたついでに送る（押さなくても自動で入る）
+  if (c.company && c.sdStatus !== "ok" && !String(c.sdStatus || "").startsWith("conflict")) pushSalesDeskNow([c.id]);
 }
 
 async function fetchDetailBack(c) {
@@ -1886,6 +1918,7 @@ function openEdit(card, carry) {
   setOcrStatus("");
   setOpusStatus("");
   cropOriginal = null;
+  cropSrc = card && (card.src || card.image) ? { blob: card.src || card.image, quadN: card.src ? card.quadN : null } : null;
   showCropNote(false);
   clearOcrMarks();
   updateOcrBtn();
@@ -1964,6 +1997,8 @@ async function saveCard(e) {
       tags: [],
       memo: $("fMemo").value.trim(),
       image: pendingImage === undefined ? (existing?.image || null) : pendingImage,
+      src: pendingImage === undefined ? (existing?.src || null) : (pendingImage ? cropSrc?.blob || null : null),
+      quadN: pendingImage === undefined ? (existing?.quadN || null) : (pendingImage ? cropSrc?.quadN || null : null),
       back: pendingBack === undefined ? (existing?.back || null) : pendingBack,
       // フォームにない項目は、元の名刺から引き継ぐ（保存先の画像・Sales Desk への登録状況）
       imageFileId: existing?.imageFileId || "",
@@ -2178,6 +2213,13 @@ async function pushCard(card, imageArg, backArg) {
 
 // Sales Desk へすぐ送る（保存した直後・読み取りが終わった直後に呼ぶ）。
 // 失敗しても何もしない: 送りそびれた名刺は、保存先が後からまとめて送る。
+// 未登録の名刺をまとめて送る（開いたとき・同期したときに自動で呼ぶ）。送った件数を返す
+async function pushAllSalesDesk() {
+  const ids = cards.filter((c) => c.synced === true && c.company && c.name && c.name !== NAME_PENDING && c.name !== NAME_UNKNOWN
+    && c.sdStatus !== "ok" && !String(c.sdStatus || "").startsWith("conflict")).map((c) => c.id);
+  for (let i = 0; i < ids.length; i += 50) await pushSalesDeskNow(ids.slice(i, i + 50));
+  return ids.length;
+}
 async function pushSalesDeskNow(ids) {
   if (!cloudConfigured()) return;
   const list = ids.map((id) => cards.find((c) => c.id === id)).filter((c) => c && c.synced === true && c.company && c.name
@@ -2276,6 +2318,7 @@ async function syncFromCloud(opts = {}) {
         // 裏面は詳細を開いたときに取りに行く（同じファイルなら手元のものをそのまま使う）
         back: "backFileId" in rc ? (rc.backFileId && local && local.backFileId === rc.backFileId ? local.back || null : null) : (local?.back || null),
         backFileId: "backFileId" in rc ? (rc.backFileId || "") : (local?.backFileId || ""),
+        src: local?.src || null, quadN: local?.quadN || null, // 切り抜きを直すための元の写真（この端末だけ）
         createdAt: rc.createdAt || Date.now(), updatedAt: rc.updatedAt || Date.now(),
         synced: true,
       };
@@ -2304,6 +2347,7 @@ async function syncFromCloud(opts = {}) {
     updateSyncUI();
     migrateTagsToProjects(); // 他の端末から古い形式（タグ）の名刺が来たとき
     loadCompanyData();
+    pushAllSalesDesk(); // 送りそびれた名刺があれば、ここで自動で送る
     if (!opts.quiet) alert(`クラウドと同期しました（取り込み ${pulled} 件 / 削除反映 ${removed} 件 / クラウド全 ${remote.length} 件）`);
     else if (pulled || removed) toast(`クラウドから ${pulled} 件取り込み${removed ? `・${removed} 件削除` : ""}`);
     loadImages(imageJobs); // 待たない（一覧はもう見られる）
@@ -2757,6 +2801,7 @@ function currentEditImageBlob() {
 function updateOcrBtn() {
   const btn = $("ocrBtn");
   if (btn) btn.hidden = !currentEditImageBlob();
+  $("cropEditBtn").hidden = !currentEditImageBlob();
 }
 function setOcrStatus(msg) {
   const el = $("ocrStatus");
@@ -3215,6 +3260,108 @@ async function undoBack(u) {
   startBatch([{ ready: u.blob, noPair: true }], u.common);
 }
 
+/* ---------- 切り抜きを手で直す ----------
+ * 元の写真の上に四角形を出し、四隅を名刺の角に合わせてもらう。決定すると、その四角形を長方形にまっすぐ切り出す。 */
+const crop = { bmp: null, W: 0, H: 0, q: null, auto: null, drag: -1, pt: null, done: null };
+const cropInset = () => [[0.06, 0.06], [0.94, 0.06], [0.94, 0.94], [0.06, 0.94]];
+async function openCropEditor(src, onDone) {
+  if (!src || !src.blob) return;
+  const bmp = await createImageBitmap(src.blob);
+  crop.bmp = bmp; crop.W = bmp.width; crop.H = bmp.height; crop.done = onDone; crop.drag = -1;
+  crop.auto = src.quadN ? src.quadN.map((p) => p.slice()) : null;
+  crop.q = (crop.auto || cropInset()).map((p) => p.slice());
+  $("cropReset").hidden = !crop.auto;
+  $("cropDialog").showModal();
+  requestAnimationFrame(drawCrop);
+}
+function drawCrop() {
+  const cv = $("cropCanvas"), stage = $("cropStage");
+  const maxW = Math.max(200, stage.clientWidth || 340), maxH = Math.max(220, window.innerHeight * 0.58);
+  const k = Math.min(maxW / crop.W, maxH / crop.H);
+  const w = Math.round(crop.W * k), h = Math.round(crop.H * k), dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + "px"; cv.style.height = h + "px"; }
+  const x = cv.getContext("2d");
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.drawImage(crop.bmp, 0, 0, w, h);
+  const P = crop.q.map(([u, v]) => [u * w, v * h]);
+  const path = () => { x.beginPath(); P.forEach((p, i) => (i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1]))); x.closePath(); };
+  // 外側を暗くする
+  x.save(); x.beginPath(); x.rect(0, 0, w, h); x.moveTo(P[0][0], P[0][1]); for (let i = 3; i >= 0; i--) x.lineTo(P[i][0], P[i][1]); x.closePath();
+  x.fillStyle = "rgba(0,0,0,.5)"; x.fill("evenodd"); x.restore();
+  path(); x.lineWidth = 2; x.strokeStyle = "#22c55e"; x.stroke();
+  P.forEach((p, i) => {
+    x.beginPath(); x.arc(p[0], p[1], crop.drag === i ? 13 : 11, 0, Math.PI * 2);
+    x.fillStyle = crop.drag === i ? "rgba(34,197,94,.55)" : "rgba(255,255,255,.85)"; x.fill();
+    x.lineWidth = 2.5; x.strokeStyle = "#16a34a"; x.stroke();
+  });
+  // 拡大鏡（ドラッグ中の角の周りを、指に隠れない位置に大きく出す）
+  if (crop.drag >= 0) {
+    const [px, py] = P[crop.drag], R = Math.min(64, w * 0.2), Z = 3;
+    const cx = px < w / 2 && py < h / 2 ? w - R - 8 : R + 8, cy = R + 8;
+    x.save(); x.beginPath(); x.arc(cx, cy, R, 0, Math.PI * 2); x.clip();
+    x.fillStyle = "#000"; x.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+    x.translate(cx - px * Z, cy - py * Z); x.scale(Z, Z);
+    x.drawImage(crop.bmp, 0, 0, w, h);
+    path(); x.lineWidth = 2 / Z; x.strokeStyle = "#22c55e"; x.stroke();
+    x.restore();
+    x.beginPath(); x.arc(cx, cy, R, 0, Math.PI * 2); x.lineWidth = 2; x.strokeStyle = "#fff"; x.stroke();
+    x.beginPath(); x.moveTo(cx - 8, cy); x.lineTo(cx + 8, cy); x.moveTo(cx, cy - 8); x.lineTo(cx, cy + 8); x.strokeStyle = "#ef4444"; x.lineWidth = 1.5; x.stroke();
+  }
+}
+function cropPoint(e) {
+  const r = $("cropCanvas").getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+}
+function setupCropEditor() {
+  const cv = $("cropCanvas");
+  cv.addEventListener("pointerdown", (e) => {
+    const [u, v] = cropPoint(e), r = cv.getBoundingClientRect();
+    let best = -1, bd = Infinity;
+    crop.q.forEach(([qx, qy], i) => { const d = Math.hypot((qx - u) * r.width, (qy - v) * r.height); if (d < bd) { bd = d; best = i; } });
+    if (bd > 48) return; // 角から遠いところは無視
+    crop.drag = best; crop.pt = [u - crop.q[best][0], v - crop.q[best][1]];
+    try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+    e.preventDefault(); drawCrop();
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (crop.drag < 0) return;
+    const [u, v] = cropPoint(e);
+    crop.q[crop.drag] = [Math.min(1, Math.max(0, u - crop.pt[0])), Math.min(1, Math.max(0, v - crop.pt[1]))];
+    e.preventDefault(); drawCrop();
+  });
+  const end = () => { if (crop.drag >= 0) { crop.drag = -1; drawCrop(); } };
+  cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+  $("cropReset").addEventListener("click", () => { if (crop.auto) { crop.q = crop.auto.map((p) => p.slice()); drawCrop(); } });
+  $("cropWhole").addEventListener("click", () => { crop.q = [[0, 0], [1, 0], [1, 1], [0, 1]]; drawCrop(); });
+  $("cropRotate").addEventListener("click", async () => {
+    // 写真を時計回りに90度回す（四隅の位置も一緒に回す）
+    const c = document.createElement("canvas"); c.width = crop.H; c.height = crop.W;
+    const x = c.getContext("2d"); x.translate(crop.H, 0); x.rotate(Math.PI / 2); x.drawImage(crop.bmp, 0, 0);
+    crop.bmp = await createImageBitmap(c); [crop.W, crop.H] = [crop.H, crop.W];
+    const rot = (q) => { const r = q.map(([u, v]) => [1 - v, u]); return [r[3], r[0], r[1], r[2]]; };
+    crop.q = rot(crop.q);
+    if (crop.auto) crop.auto = rot(crop.auto);
+    drawCrop();
+  });
+  $("cropCancel").addEventListener("click", () => $("cropDialog").close());
+  $("cropOk").addEventListener("click", async () => {
+    const c = document.createElement("canvas"); c.width = crop.W; c.height = crop.H;
+    const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(crop.bmp, 0, 0);
+    // 角の順番がねじれていても、左上から時計回りに並べ直してから切り出す
+    const pts = crop.q.map(([u, v]) => [u * crop.W, v * crop.H]);
+    const mx = pts.reduce((a, p) => a + p[0], 0) / 4, my = pts.reduce((a, p) => a + p[1], 0) / 4;
+    pts.sort((a, b) => Math.atan2(a[1] - my, a[0] - mx) - Math.atan2(b[1] - my, b[0] - mx));
+    let first = 0; pts.forEach((p, i) => { if (p[0] + p[1] < pts[first][0] + pts[first][1]) first = i; });
+    const quad = pts.slice(first).concat(pts.slice(0, first));
+    const whole = crop.q.every(([u, v]) => (u < 0.005 || u > 0.995) && (v < 0.005 || v > 0.995));
+    const blob = whole ? await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85)) : await warpCard(x.getImageData(0, 0, crop.W, crop.H).data, crop.W, crop.H, quad, 1);
+    if (!blob) { alert("切り抜けませんでした。四隅の位置を確かめてください。"); return; }
+    const src = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85)); // 回転していれば、回した写真を元の写真として残す
+    $("cropDialog").close();
+    if (crop.done) crop.done(blob, { blob: src, quadN: crop.q.map((p) => p.slice()) });
+  });
+}
+
 // files: 写真（File）か、切り分け済みの名刺画像（{ ready: Blob }）。common を渡さなければ「まとめて登録」の入力欄を使う
 async function startBatch(files, common) {
   if ($("batchDialog").open) $("batchDialog").close();
@@ -3238,20 +3385,20 @@ async function startBatch(files, common) {
   const before = recentCards(15 * 60 * 1000); // この登録より前に入れたばかりの名刺（その裏面かもしれない）
   let splitPhotos = 0, splitCardsN = 0, crowdedN = 0;
   for (const file of files) {
-    let blobs;
+    let sets;
     try {
-      const sets = file.ready ? [{ blob: file.ready }] : await prepareCardImages(file);
+      sets = file.ready ? [{ blob: file.ready, src: file.src || null, quadN: file.quadN || null }] : await prepareCardImages(file);
       if (sets[0].crowded) crowdedN++;
-      blobs = sets.map((x) => x.blob);
     } catch { batch.read++; updateBatchBar(); continue; }
-    if (blobs.length > 1) { splitPhotos++; splitCardsN += blobs.length; batch.total += blobs.length - 1; updateBatchBar(); }
-   for (const blob of blobs) {
+    if (sets.length > 1) { splitPhotos++; splitCardsN += sets.length; batch.total += sets.length - 1; updateBatchBar(); }
+   for (const set of sets) {
+    const blob = set.blob;
     const now = Date.now();
     const card = {
       id: uuid(), name: NAME_PENDING, kana: "", company: "", companyKana: "", title: "",
       phone: "", email: "", address: "", website: "",
       metAt: common.metAt, metPlace: common.metPlace, folder: common.folder,
-      tags: [...common.tags], memo: "", image: blob,
+      tags: [...common.tags], memo: "", image: blob, src: set.src || null, quadN: set.quadN || null,
       createdAt: now, updatedAt: now, synced: false, _auto: [],
     };
     await putCard(card);
@@ -3786,6 +3933,7 @@ async function openDoc(d) {
   openDocRef = d;
   fillDocLink(d);
   $("docTitle").textContent = d.title || "資料";
+  $("docMemo").value = d.memo || ""; $("docMemoState").textContent = "";
   $("docSub").textContent = [d.kind, d.company, d.size && fmtSize(d.size)].filter(Boolean).join("・");
   // まとめ（要約と抜き出した内容）を資料の上に出す
   const sum = $("docSummary");
@@ -4102,6 +4250,35 @@ async function init() {
     try { await linkDoc(d, co); toast(`${co.company} の資料にしました`); dismissDocNotice(d.id, 0); }
     catch (err) { alert("変更できませんでした: " + err.message); }
   });
+  // 名刺の詳細のメモ: 入力をやめて1秒たったら保存（閉じたときもすぐ保存）
+  let cardMemoTimer = null;
+  const saveCardMemo = async () => {
+    clearTimeout(cardMemoTimer); cardMemoTimer = null;
+    const c = cards.find((x) => x.id === detailId);
+    const v = $("detailMemo").value;
+    if (!c || (c.memo || "") === v) return;
+    c.memo = v;
+    $("detailMemoState").textContent = "保存中…";
+    await persistCards([c]);
+    $("detailMemoState").textContent = c.synced === true || !cloudConfigured() ? "✓ 保存しました" : "端末に保存（あとで同期）";
+  };
+  $("detailMemo").addEventListener("input", () => { clearTimeout(cardMemoTimer); $("detailMemoState").textContent = "…"; cardMemoTimer = setTimeout(saveCardMemo, 1000); });
+  $("detailMemo").addEventListener("blur", () => { if (cardMemoTimer) saveCardMemo(); });
+  $("detailDialog").addEventListener("close", () => { if (cardMemoTimer) saveCardMemo(); });
+  // 資料のメモ
+  let docMemoTimer = null, docMemoId = null;
+  const saveDocMemo = async () => {
+    clearTimeout(docMemoTimer); docMemoTimer = null;
+    const d = docs.find((x) => x.id === docMemoId);
+    const v = $("docMemo").value;
+    if (!d || (d.memo || "") === v) return;
+    $("docMemoState").textContent = "保存中…";
+    try { await linkDoc(d, { memo: v }); $("docMemoState").textContent = "✓ 保存しました"; }
+    catch (e) { $("docMemoState").textContent = "⚠ 保存できませんでした"; }
+  };
+  $("docMemo").addEventListener("input", () => { docMemoId = openDocRef && openDocRef.id; clearTimeout(docMemoTimer); $("docMemoState").textContent = "…"; docMemoTimer = setTimeout(saveDocMemo, 1000); });
+  $("docMemo").addEventListener("blur", () => { if (docMemoTimer) saveDocMemo(); });
+  $("docDialog").addEventListener("close", () => { if (docMemoTimer) saveDocMemo(); });
   // 会社メモ: 入力をやめて1秒たったら保存
   let memoTimer = null;
   $("coMemo").addEventListener("input", () => {
@@ -4127,7 +4304,7 @@ async function init() {
   document.addEventListener("click", (e) => { if (!menu.hidden && !menu.contains(e.target)) closeMenu(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
   $("sortSelect").addEventListener("change", () => closeMenu());
-  menu.addEventListener("click", (e) => {
+  menu.addEventListener("click", async (e) => {
     if (e.target.closest(".seg button")) { closeMenu(); return; }
     const b = e.target.closest("button[data-act]");
     if (!b) return;
@@ -4137,7 +4314,7 @@ async function init() {
       case "dups": openDupDialog(); break;
       case "folders": openFolderDialog(); break;
       case "docs": pickDocs({ auto: true }); break;
-      case "salesdesk": sendToSalesDesk(list); break;
+      case "salesdesk": { const n = await pushAllSalesDesk(); toast(n ? `${n}件を Sales Desk に送りました` : "未登録の名刺はありません"); break; }
       case "batch": openBatchDialog(); break;
       case "sync": syncFromCloud(); break;
       case "tags": openTagDialog(); break;
@@ -4173,6 +4350,7 @@ async function init() {
     if (!cropOriginal) return;
     pendingImage = cropOriginal;
     cropOriginal = null;
+    if (cropSrc) cropSrc = { blob: cropSrc.blob, quadN: null };
     $("imgPreview").src = makeUrl(pendingImage);
     showCropNote(false);
     toast("元の写真に戻しました");
@@ -4232,7 +4410,7 @@ async function init() {
       if (sets.length > 1) {
         const common = formCommon();
         $("editDialog").close();
-        startBatch(sets.map((x) => ({ ready: x.blob })), common);
+        startBatch(sets.map((x) => ({ ready: x.blob, src: x.src, quadN: x.quadN })), common);
         toast(`名刺を${sets.length}枚見つけました。1枚ずつ登録します`);
         return;
       }
@@ -4240,6 +4418,7 @@ async function init() {
       if (sets[0].crowded) toast("名刺が何枚か写っているようですが、分けられませんでした（重ならないように並べると分けられます）");
       pendingImage = blob;
       cropOriginal = original;
+      cropSrc = { blob: sets[0].src || original || blob, quadN: sets[0].quadN || null };
       showCropNote(!!original);
       const prev = $("imgPreview");
       prev.src = makeUrl(blob);
@@ -4329,6 +4508,20 @@ async function init() {
     if (u && item) undoBack(item);
   });
   $("ocrBtn").addEventListener("click", () => runOcr({ force: true }));
+  setupCropEditor();
+  $("cropEditBtn").addEventListener("click", () => {
+    const src = cropSrc || (currentEditImageBlob() ? { blob: currentEditImageBlob(), quadN: null } : null);
+    openCropEditor(src, (blob, newSrc) => {
+      pendingImage = blob;
+      cropSrc = newSrc;
+      cropOriginal = null;
+      showCropNote(false);
+      $("imgPreview").src = makeUrl(blob);
+      $("imgPreview").hidden = false;
+      toast("切り抜きを直しました");
+      runOcr(); // 切り抜きで欠けていた文字があれば読み直す（手で直した欄はそのまま）
+    });
+  });
   $("ocrRawCopyBtn").addEventListener("click", async () => {
     const ta = $("ocrRawText");
     let done = false;

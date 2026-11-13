@@ -406,7 +406,7 @@ function cleanupJobs_() {
  *       companyKey（会社名を正規化したもの）で会社に、cardId で名刺（人）にひもづく。
  * 会社: 会社ごとのメモ。key は companyKey。
  */
-const DOC_TABLE = { tab: '資料', key: 'id', cols: ['id', 'companyKey', 'company', 'cardId', 'title', 'fileId', 'mime', 'size', 'note', 'createdAt', 'updatedAt', 'kind', 'detail', 'hint'], nums: { size: true, createdAt: true, updatedAt: true } };
+const DOC_TABLE = { tab: '資料', key: 'id', cols: ['id', 'companyKey', 'company', 'cardId', 'title', 'fileId', 'mime', 'size', 'note', 'createdAt', 'updatedAt', 'kind', 'detail', 'hint', 'memo'], nums: { size: true, createdAt: true, updatedAt: true } };
 const CO_TABLE = { tab: '会社', key: 'key', cols: ['key', 'name', 'memo', 'updatedAt'], nums: { updatedAt: true } };
 const DOC_FOLDER_NAME = '名刺管理_資料';
 const DOC_MAX_BYTES = 25 * 1024 * 1024;
