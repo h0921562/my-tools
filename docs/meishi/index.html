@@ -879,6 +879,8 @@ let editingId = null;      // 編集中カードID（nullなら新規）
 let detailId = null;       // 詳細表示中カードID
 let cropOriginal = null;   // 自動トリミング前の写真（「元に戻す」用）
 let cropSrc = null;        // 切り抜きを直すときの元の写真 { blob, quadN }
+let localCrop = null;      // 端末で自動に切り抜いた画像（Opus が四隅を答えられなかったときに使う）
+let cropManual = false;    // 手で切り抜きを直した（Opus の切り抜きで上書きしない）
 let pendingImage = null;   // 編集フォームで選択された画像Blob（undefined=変更なし, null=削除, Blob=新規）
 let pendingBack = undefined; // 編集フォームの裏面（同じく undefined=変更なし, null=外す, Blob=新規）
 let backTargetId = null;   // 裏面の写真を選んでいる対象: 名刺のID＝詳細から追加 / null＝編集フォーム
@@ -1919,6 +1921,7 @@ function openEdit(card, carry) {
   setOpusStatus("");
   cropOriginal = null;
   cropSrc = card && (card.src || card.image) ? { blob: card.src || card.image, quadN: card.src ? card.quadN : null } : null;
+  localCrop = null; cropManual = false;
   showCropNote(false);
   clearOcrMarks();
   updateOcrBtn();
@@ -2994,10 +2997,11 @@ async function runOcr(opts = {}) {
   try {
     if (cloudConfigured()) {
       // 初めから Opus の精読だけで埋める。Google の読み取りは裏面の判定と、Opus が使えないときの予備にだけ使う
-      const opus = runOpusOcr(blob, alive, force);
+      const inp = cropSrc && !cropManual ? await opusInputFor(cropSrc.blob, cropSrc.quadN).catch(() => null) : null;
+      const opus = runOpusOcr(inp ? inp.blob : blob, alive, force, inp);
       const text = force ? "" : await runCloudOcr(blob, alive);
       if (text === null) return;                              // 直前の名刺の裏面として付けた
-      if (!(await opus) && alive() && !force) applyOcrText(text, "Google OCR");
+      if (!(await opus) && alive()) { fallbackLocalCrop(); if (!force) applyOcrText(text, "Google OCR"); }
     } else await runBrowserOcr(blob, alive);                  // 未設定=ブラウザ内OCR（設定不要・端末内完結）
   } catch (err) {
     if (alive()) setOcrStatus("⚠ 読み取りに失敗しました: " + (err && err.message ? err.message : err) + "（claude.aiのArtifact版はセキュリティ制限でブラウザ内OCRを取得できません。github.io版や端末保存のHTMLを、通信できる状態でお試しください）");
@@ -3013,7 +3017,7 @@ function setOpusStatus(msg) {
   el.hidden = !msg;
 }
 // Opus で読み取って欄を埋める。埋められたら true（使えない・失敗・時間切れなら false。呼び出し側が Google の結果で埋める）
-async function runOpusOcr(blob, alive, force) {
+async function runOpusOcr(blob, alive, force, inp) {
   setOpusStatus("");
   let start;
   try {
@@ -3033,7 +3037,7 @@ async function runOpusOcr(blob, alive, force) {
     while (alive() && Date.now() - t0 < 3 * 60 * 1000) {
       const r = await cloudPost({ action: "ocrPoll", id: start.id });
       if (!alive()) return false;
-      if (r.status === "done") { applyOpusFields(r.fields || {}, force); return true; }
+      if (r.status === "done") { applyOpusFields(r.fields || {}, force); await applyOpusCrop((r.fields || {}).corners, inp); return true; }
       if (r.status === "error" || r.status === "gone") { setOpusStatus((force ? "🤖 Opusの読み取りに失敗しました。入力内容は変えていません" : "🤖 Opusの読み取りに失敗したので、通常の読み取りで入力しました") + (r.error ? `（${r.error}）` : "")); return false; }
       await new Promise((res) => setTimeout(res, 3000));
     }
@@ -3045,6 +3049,29 @@ async function runOpusOcr(blob, alive, force) {
   }
 }
 // 空欄と、自動入力のまま手を付けていない欄（オレンジ枠）だけを Opus の値で置き換える
+// Opus の答えた四隅で切り抜く（だめなら端末で切り抜いた画像にする）
+async function applyOpusCrop(corners, inp) {
+  if (cropManual || !cropSrc || !inp) return;
+  const q = opusQuad(corners, inp);
+  let out = null;
+  if (q) { try { out = await cropFromSrc(cropSrc.blob, q); } catch (e) { out = null; } }
+  if (out) { cropSrc.quadN = q; }
+  else if (localCrop && pendingImage === cropSrc.blob) out = localCrop;
+  if (!out || !$("editDialog").open) return;
+  pendingImage = out;
+  $("imgPreview").src = makeUrl(out);
+  cropOriginal = cropSrc.blob;
+  $("cropNote").firstChild.textContent = q ? "✂ Opus が名刺の部分を切り抜きました（ずれていたら「✂ 切り抜きを直す」） " : "✂ 名刺の部分を自動で切り抜きました（ずれていたら「✂ 切り抜きを直す」） ";
+  showCropNote(true);
+  setOcrStatus("");
+}
+// 読み取りがうまくいかなかったときも、端末で切り抜いた画像は使う
+function fallbackLocalCrop() {
+  if (cropManual || !localCrop || !cropSrc || pendingImage !== cropSrc.blob || !$("editDialog").open) return;
+  pendingImage = localCrop; cropOriginal = cropSrc.blob;
+  $("imgPreview").src = makeUrl(localCrop); showCropNote(true); setOcrStatus("");
+}
+
 // force: 入力済みの欄も置き換える（もう一度読み取ったとき）。置き換えた欄は「元に戻す」で戻せる
 let opusUndo = null;
 function applyOpusFields(fields, force) {
@@ -3258,6 +3285,53 @@ async function undoBack(u) {
   }
   render();
   startBatch([{ ready: u.blob, noPair: true }], u.common);
+}
+
+/* ---------- Opus による切り抜き ----------
+ * 読み取りと一緒に、Opus に名刺の四隅を答えてもらい、元の写真からその四隅で切り出す。
+ * Opus に渡すのは元の写真（名刺が小さく写っている・何枚か並んでいるときは、その名刺のまわりだけ）。 */
+async function opusInputFor(src, quadN) {
+  if (!src) return null;
+  const bmp = await createImageBitmap(src);
+  let x0 = 0, y0 = 0, x1 = 1, y1 = 1;
+  if (quadN) {
+    const xs = quadN.map((p) => p[0]), ys = quadN.map((p) => p[1]);
+    const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys), m = 0.18 * Math.max(w, h);
+    const r = [Math.max(0, Math.min(...xs) - m), Math.max(0, Math.min(...ys) - m), Math.min(1, Math.max(...xs) + m), Math.min(1, Math.max(...ys) + m)];
+    if ((r[2] - r[0]) * (r[3] - r[1]) < 0.7) [x0, y0, x1, y1] = r; // 名刺が写真の大部分なら写真全体のまま
+  }
+  const sw = (x1 - x0) * bmp.width, sh = (y1 - y0) * bmp.height, k = Math.min(1, 1600 / Math.max(sw, sh));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(sw * k)); c.height = Math.max(1, Math.round(sh * k));
+  c.getContext("2d").drawImage(bmp, x0 * bmp.width, y0 * bmp.height, sw, sh, 0, 0, c.width, c.height);
+  bmp.close && bmp.close();
+  const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.88));
+  return { blob, x0, y0, x1, y1, W: c.width, H: c.height };
+}
+// Opus の答え（"x,y;x,y;x,y;x,y"）を、元の写真の中の割合の四隅にする。名刺らしくなければ null
+function opusQuad(corners, inp) {
+  if (!corners || !inp) return null;
+  const pts = String(corners).split(";").map((q) => q.split(",").map(Number));
+  if (pts.length !== 4 || pts.some((p) => p.length !== 2 || p.some((v) => !isFinite(v)))) return null;
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  // 凸な四角形か（角の向きがそろっている）
+  const cr = pts.map((p, i) => { const a = pts[(i + 1) % 4], b = pts[(i + 2) % 4]; return (a[0] - p[0]) * (b[1] - a[1]) - (a[1] - p[1]) * (b[0] - a[0]); });
+  if (!(cr.every((v) => v > 0) || cr.every((v) => v < 0))) return null;
+  const area = Math.abs(pts.reduce((s, p, i) => { const q = pts[(i + 1) % 4]; return s + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+  if (area < inp.W * inp.H * 0.04) return null;
+  const ws = Math.max(d(pts[0], pts[1]), d(pts[3], pts[2])), hs = Math.max(d(pts[0], pts[3]), d(pts[1], pts[2]));
+  const ratio = ws > hs ? ws / hs : hs / ws;
+  if (ratio < 1.15 || ratio > 2.4) return null;
+  return pts.map(([x, y]) => [inp.x0 + (Math.min(inp.W, Math.max(0, x)) / inp.W) * (inp.x1 - inp.x0), inp.y0 + (Math.min(inp.H, Math.max(0, y)) / inp.H) * (inp.y1 - inp.y0)]);
+}
+// 元の写真から、割合の四隅で名刺を切り出す
+async function cropFromSrc(src, quadN) {
+  const bmp = await createImageBitmap(src);
+  const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
+  const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bmp, 0, 0);
+  const out = await warpCard(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, quadN.map(([u, v]) => [u * c.width, v * c.height]), 1);
+  bmp.close && bmp.close();
+  return out;
 }
 
 /* ---------- 切り抜きを手で直す ----------
@@ -3477,13 +3551,14 @@ async function runPool(items, n, fn) {
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
 }
 
-async function saveBatchCard(card) {
+// imageChanged: 画像を差し替えたとき（Opus で切り抜き直した など）は画像も送る
+async function saveBatchCard(card, imageChanged) {
   card.updatedAt = Date.now();
   card.synced = false;
   await putCard(card);
   render();
   if (cloudConfigured()) {
-    try { await pushCard(card); card.synced = true; await putCard(card); } catch {}
+    try { await pushCard(card, imageChanged && card.image ? await blobToDataURL(card.image) : undefined); card.synced = true; await putCard(card); } catch {}
     updateSyncUI();
   }
 }
@@ -3493,7 +3568,8 @@ async function startBatchOpus(card) {
   let start, ok = false;
   batch.opusWaiting++; // 起動を待つ間も「読み取り中」に数える
   updateBatchBar();
-  try { start = await cloudPost({ action: "ocrStart", image: await blobToDataURL(card.image) }); }
+  const inp = card.src ? await opusInputFor(card.src, card.quadN).catch(() => null) : null;
+  try { start = await cloudPost({ action: "ocrStart", image: await blobToDataURL(inp ? inp.blob : card.image) }); }
   catch { batch.opusWaiting--; updateBatchBar(); return false; }
   const t0 = Date.now();
   await new Promise((r) => setTimeout(r, 10000));
@@ -3502,7 +3578,14 @@ async function startBatchOpus(card) {
       const r = await cloudPost({ action: "ocrPoll", id: start.id });
       if (r.status === "done") {
         const cur = cards.find((x) => x.id === card.id);
-        if (cur) { fillCardFields(cur, r.fields || {}, true); await saveBatchCard(cur); }
+        if (cur) {
+          fillCardFields(cur, r.fields || {}, true);
+          // Opus の答えた四隅で、元の写真から切り抜き直す
+          let changed = false;
+          const q = opusQuad((r.fields || {}).corners, inp);
+          if (q && cur.src) { try { const out = await cropFromSrc(cur.src, q); if (out) { cur.image = out; cur.quadN = q; changed = true; } } catch (e) {} }
+          await saveBatchCard(cur, changed);
+        }
         ok = true;
         break;
       }
@@ -4425,10 +4508,14 @@ async function init() {
       }
       const { blob, original } = sets[0];
       if (sets[0].crowded) toast("名刺が何枚か写っているようですが、分けられませんでした（重ならないように並べると分けられます）");
-      pendingImage = blob;
-      cropOriginal = original;
       cropSrc = { blob: sets[0].src || original || blob, quadN: sets[0].quadN || null };
-      showCropNote(!!original);
+      // 切り抜きは Opus の読み取りが終わってから Opus が決める。それまでは写真全体を出しておく
+      const useOpusCrop = cloudConfigured() && !!sets[0].src;
+      localCrop = original ? blob : null; cropManual = false;
+      pendingImage = useOpusCrop ? cropSrc.blob : blob;
+      cropOriginal = useOpusCrop ? null : original;
+      showCropNote(!useOpusCrop && !!original);
+      if (useOpusCrop) setOcrStatus("✂ 切り抜きは Opus が読み取りと一緒に行います");
       const prev = $("imgPreview");
       prev.src = makeUrl(blob);
       prev.hidden = false;
@@ -4522,6 +4609,7 @@ async function init() {
     const src = cropSrc || (currentEditImageBlob() ? { blob: currentEditImageBlob(), quadN: null } : null);
     openCropEditor(src, (blob, newSrc) => {
       pendingImage = blob;
+      cropManual = true;
       cropSrc = newSrc;
       cropOriginal = null;
       showCropNote(false);
