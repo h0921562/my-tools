@@ -1333,7 +1333,7 @@ async function prepareCardImages(file, opts = {}) {
     if (many || (det.cards.length === 1 && autoCropOn())) {
       const sd = fctx.getImageData(0, 0, W, H).data, out = [];
       for (const q of det.cards) { const b = await warpCard(sd, W, H, q, det.s); if (b) out.push({ blob: b, quadN: norm(q) }); }
-      if (many && out.length > 1) return out.map((x) => ({ blob: x.blob, original: null, src, quadN: x.quadN }));
+      if (many && out.length > 1) return out.map((x) => ({ blob: x.blob, original: null, src, quadN: x.quadN, split: true }));
       if (!many && out.length === 1) return [{ blob: out[0].blob, original: await compressImage(file), src, quadN: out[0].quadN }];
     }
     if (det.cards.length === 1) return [{ blob: await compressImage(file), original: null, src, quadN: norm(det.cards[0]) }];
@@ -2998,7 +2998,7 @@ async function runOcr(opts = {}) {
   try {
     if (cloudConfigured()) {
       // 初めから Opus の精読だけで埋める。Google の読み取りは裏面の判定と、Opus が使えないときの予備にだけ使う
-      const inp = cropSrc && !cropManual ? await opusInputFor(cropSrc.blob, cropSrc.quadN).catch(() => null) : null;
+      const inp = cropSrc && !cropManual ? await opusInputFor(cropSrc.blob, cropSrc.quadN, false).catch(() => null) : null;
       const opus = runOpusOcr(inp ? inp.blob : blob, alive, force, inp);
       const text = force ? "" : await runCloudOcr(blob, alive);
       if (text === null) return;                              // 直前の名刺の裏面として付けた
@@ -3038,7 +3038,15 @@ async function runOpusOcr(blob, alive, force, inp) {
     while (alive() && Date.now() - t0 < 3 * 60 * 1000) {
       const r = await cloudPost({ action: "ocrPoll", id: start.id });
       if (!alive()) return false;
-      if (r.status === "done") { applyOpusFields(r.fields || {}, force); await applyOpusCrop((r.fields || {}).corners, inp); return true; }
+      if (r.status === "done") {
+        applyOpusFields(r.fields || {}, force);
+        await applyOpusCrop((r.fields || {}).corners, inp);
+        if (!editingId && cropSrc) registerOtherCards(r.fields, inp, cropSrc.blob, {
+          metAt: $("fMetAt").value || "", metPlace: $("fMetPlace").value.trim(),
+          folder: $("fFolder").value === NEW_PROJECT ? "" : normFolder($("fFolder").value), tags: [],
+        });
+        return true;
+      }
       if (r.status === "error" || r.status === "gone") { setOpusStatus((force ? "🤖 Opusの読み取りに失敗しました。入力内容は変えていません" : "🤖 Opusの読み取りに失敗したので、通常の読み取りで入力しました") + (r.error ? `（${r.error}）` : "")); return false; }
       await new Promise((res) => setTimeout(res, 3000));
     }
@@ -3265,7 +3273,7 @@ async function attachBack(front, blob, info = {}) {
 // 返り値 { fields, blob（Opus の切り抜き。だめなら null）, quadN }。Opus が使えなければ null
 async function opusReadImage(src, quadN, fallbackBlob) {
   if (!cloudConfigured()) return null;
-  const inp = src ? await opusInputFor(src, quadN).catch(() => null) : null;
+  const inp = src ? await opusInputFor(src, quadN, false).catch(() => null) : null;
   let start;
   try { start = await cloudPost({ action: "ocrStart", image: await blobToDataURL(inp ? inp.blob : fallbackBlob) }); } catch (e) { return null; }
   const t0 = Date.now();
@@ -3348,11 +3356,13 @@ async function undoBack(u) {
 /* ---------- Opus による切り抜き ----------
  * 読み取りと一緒に、Opus に名刺の四隅を答えてもらい、元の写真からその四隅で切り出す。
  * Opus に渡すのは元の写真（名刺が小さく写っている・何枚か並んでいるときは、その名刺のまわりだけ）。 */
-async function opusInputFor(src, quadN) {
+// zoom: 何枚か並んだ写真から切り分けた名刺のときだけ、その名刺のまわりを拡大して渡す。
+// それ以外は写真全体を渡す（Opus が写っている名刺をすべて見つけられるように）
+async function opusInputFor(src, quadN, zoom) {
   if (!src) return null;
   const bmp = await createImageBitmap(src);
   let x0 = 0, y0 = 0, x1 = 1, y1 = 1;
-  if (quadN) {
+  if (quadN && zoom) {
     const xs = quadN.map((p) => p[0]), ys = quadN.map((p) => p[1]);
     const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys), m = 0.18 * Math.max(w, h);
     const r = [Math.max(0, Math.min(...xs) - m), Math.max(0, Math.min(...ys) - m), Math.min(1, Math.max(...xs) + m), Math.min(1, Math.max(...ys) + m)];
@@ -3381,6 +3391,22 @@ function opusQuad(corners, inp) {
   const ratio = ws > hs ? ws / hs : hs / ws;
   if (ratio < 1.15 || ratio > 2.4) return null;
   return pts.map(([x, y]) => [inp.x0 + (Math.min(inp.W, Math.max(0, x)) / inp.W) * (inp.x1 - inp.x0), inp.y0 + (Math.min(inp.H, Math.max(0, y)) / inp.H) * (inp.y1 - inp.y0)]);
+}
+// Opus が同じ写真に名刺をほかにも見つけたら、それぞれ切り出して別の名刺として登録する（読み取りも Opus で）
+async function registerOtherCards(fields, inp, src, common) {
+  if (!fields || !fields.cards || !src || !inp) return 0;
+  const quads = String(fields.cards).split("|").map((c) => opusQuad(c, inp)).filter(Boolean);
+  if (quads.length < 2) return 0;
+  const ctr = (q) => [q.reduce((a, p) => a + p[0], 0) / 4, q.reduce((a, p) => a + p[1], 0) / 4];
+  const first = opusQuad(fields.corners, inp) || quads[0], fc = ctr(first);
+  // 1枚目（いま読んだ名刺）と同じ位置のものを除いた残り
+  const rest = quads.filter((q) => { const c = ctr(q); return Math.hypot(c[0] - fc[0], c[1] - fc[1]) > 0.04; });
+  const items = [];
+  for (const q of rest.slice(0, 30)) { try { const b = await cropFromSrc(src, q); if (b) items.push({ ready: b, src, quadN: q, split: true, noPair: true }); } catch (e) {} }
+  if (!items.length) return 0;
+  toast(`写真に名刺が${items.length + 1}枚写っていたので、残りの${items.length}枚も登録します`);
+  startBatch(items, common);
+  return items.length;
 }
 // 元の写真から、割合の四隅で名刺を切り出す
 async function cropFromSrc(src, quadN) {
@@ -3519,7 +3545,7 @@ async function startBatch(files, common) {
   for (const file of files) {
     let sets;
     try {
-      sets = file.ready ? [{ blob: file.ready, src: file.src || null, quadN: file.quadN || null }] : await prepareCardImages(file);
+      sets = file.ready ? [{ blob: file.ready, src: file.src || null, quadN: file.quadN || null, split: !!file.split }] : await prepareCardImages(file);
       if (sets[0].crowded) crowdedN++;
     } catch { batch.read++; updateBatchBar(); continue; }
     if (sets.length > 1) { splitPhotos++; splitCardsN += sets.length; batch.total += sets.length - 1; updateBatchBar(); }
@@ -3530,7 +3556,7 @@ async function startBatch(files, common) {
       id: uuid(), name: NAME_PENDING, kana: "", company: "", companyKana: "", title: "",
       phone: "", email: "", address: "", website: "",
       metAt: common.metAt, metPlace: common.metPlace, folder: common.folder,
-      tags: [...common.tags], memo: "", image: blob, src: set.src || null, quadN: set.quadN || null,
+      tags: [...common.tags], memo: "", image: blob, src: set.src || null, quadN: set.quadN || null, zoom: !!set.split,
       createdAt: now, updatedAt: now, synced: false, _auto: [],
     };
     await putCard(card);
@@ -3626,7 +3652,7 @@ async function startBatchOpus(card) {
   let start, ok = false;
   batch.opusWaiting++; // 起動を待つ間も「読み取り中」に数える
   updateBatchBar();
-  const inp = card.src ? await opusInputFor(card.src, card.quadN).catch(() => null) : null;
+  const inp = card.src ? await opusInputFor(card.src, card.quadN, !!card.zoom).catch(() => null) : null;
   try { start = await cloudPost({ action: "ocrStart", image: await blobToDataURL(inp ? inp.blob : card.image) }); }
   catch { batch.opusWaiting--; updateBatchBar(); return false; }
   const t0 = Date.now();
@@ -3643,6 +3669,7 @@ async function startBatchOpus(card) {
           const q = opusQuad((r.fields || {}).corners, inp);
           if (q && cur.src) { try { const out = await cropFromSrc(cur.src, q); if (out) { cur.image = out; cur.quadN = q; changed = true; } } catch (e) {} }
           await saveBatchCard(cur, changed);
+          if (!cur.zoom && cur.src) registerOtherCards(r.fields, inp, cur.src, { metAt: cur.metAt || "", metPlace: cur.metPlace || "", folder: cur.folder || "", tags: [] });
         }
         ok = true;
         break;
@@ -4560,7 +4587,7 @@ async function init() {
       if (sets.length > 1) {
         const common = formCommon();
         $("editDialog").close();
-        startBatch(sets.map((x) => ({ ready: x.blob, src: x.src, quadN: x.quadN })), common);
+        startBatch(sets.map((x) => ({ ready: x.blob, src: x.src, quadN: x.quadN, split: true })), common);
         toast(`名刺を${sets.length}枚見つけました。1枚ずつ登録します`);
         return;
       }
