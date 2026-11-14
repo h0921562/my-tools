@@ -1246,7 +1246,7 @@ async function warpCard(sd, W, H, quad, s) {
   ]);
   let outW = Math.round(Math.max(d(src[0], src[1]), d(src[3], src[2])));
   let outH = Math.round(Math.max(d(src[0], src[3]), d(src[1], src[2])));
-  const lim = 1400 / Math.max(outW, outH);
+  const lim = 2000 / Math.max(outW, outH); // 名刺1枚の画像は長辺2000pxまで（細かい文字もつぶれないように）
   if (lim < 1) { outW = Math.round(outW * lim); outH = Math.round(outH * lim); }
   if (outW < 8 || outH < 8) return null;
   const Hm = homography([[0, 0], [outW, 0], [outW, outH], [0, outH]], src);
@@ -1270,7 +1270,7 @@ async function warpCard(sd, W, H, quad, s) {
     od.data[o + 3] = 255;
   }
   octx.putImageData(od, 0, 0);
-  return await new Promise((res) => out.toBlob(res, "image/jpeg", 0.85));
+  return await new Promise((res) => out.toBlob(res, "image/jpeg", 0.9));
 }
 
 // 写真を解析・切り出し用のキャンバスに読み込む（向きを直し、長辺を maxDim までに縮める）
@@ -1327,9 +1327,10 @@ function homography(from, to) {
 async function prepareCardImages(file, opts = {}) {
   let src = null;
   try {
-    const { full, fctx, W, H } = await loadCardCanvas(file, 2800);
-    const small = () => { const c = document.createElement("canvas"); const k = Math.min(1, 2000 / Math.max(W, H)); c.width = Math.round(W * k); c.height = Math.round(H * k); c.getContext("2d").drawImage(full, 0, 0, c.width, c.height); return c; };
-    src = await new Promise((res) => small().toBlob(res, "image/jpeg", 0.85));
+    // 元の写真はスマホで撮ったままの大きさ（長辺4096pxまで）で残す。何枚も並べた写真でも、1枚ずつ切り出したときに画質が落ちないように
+    const { full, fctx, W, H } = await loadCardCanvas(file, 4096);
+    const small = () => { const c = document.createElement("canvas"); const k = Math.min(1, 4096 / Math.max(W, H)); c.width = Math.round(W * k); c.height = Math.round(H * k); c.getContext("2d").drawImage(full, 0, 0, c.width, c.height); return c; };
+    src = await new Promise((res) => small().toBlob(res, "image/jpeg", 0.92));
     const det = detectCards(full, W, H, 480);
     const many = det.cards.length > 1;
     const norm = (q) => q.map(([x, y]) => [x / det.s / W, y / det.s / H]);
@@ -3317,7 +3318,7 @@ async function attachBack(front, blob, info = {}) {
 }
 // 1枚の写真を Opus に読ませて、項目と四隅を受け取り、四隅で切り抜いた画像も作る（裏面で使う）。
 // 返り値 { fields, blob（Opus の切り抜き。だめなら null）, quadN }。Opus が使えなければ null
-async function opusReadImage(src, quadN, fallbackBlob) {
+async function opusReadImage(src, quadN, fallbackBlob, opts = {}) {
   if (!cloudConfigured()) return null;
   const inp = src ? await opusInputFor(src, quadN, false).catch(() => null) : null;
   let start;
@@ -3329,10 +3330,10 @@ async function opusReadImage(src, quadN, fallbackBlob) {
     try { r = await cloudPost({ action: "ocrPoll", id: start.id }); } catch (e) { return null; }
     if (r.status === "done") {
       const fields = r.fields || {};
-      const q = src ? opusQuad(fields.corners, inp) : null;
+      const q = src && !opts.whole ? opusQuad(fields.corners, inp) : null;
       let blob = null;
       if (q) { try { blob = await cropFromSrc(src, q); } catch (e) { blob = null; } }
-      return { fields, blob, quadN: q };
+      return { fields, blob, quadN: q, inp };
     }
     if (r.status === "error" || r.status === "gone") return null;
     await new Promise((res) => setTimeout(res, 3000));
@@ -3448,11 +3449,26 @@ async function registerOtherCards(fields, inp, src, common) {
   // 1枚目（いま読んだ名刺）と同じ位置のものを除いた残り
   const rest = quads.filter((q) => { const c = ctr(q); return Math.hypot(c[0] - fc[0], c[1] - fc[1]) > 0.04; });
   const items = [];
-  for (const q of rest.slice(0, 30)) { try { const b = await cropFromSrc(src, q); if (b) items.push({ ready: b, src, quadN: q, split: true, noPair: true }); } catch (e) {} }
+  for (const q of rest.slice(0, 30)) { try { const b = await cropFromSrc(src, q); if (b) items.push({ ready: b, src, quadN: q, split: true, noPair: true, fromOpus: true }); } catch (e) {} }
   if (!items.length) return 0;
   toast(`写真に名刺が${items.length + 1}枚写っていたので、残りの${items.length}枚も登録します`);
   startBatch(items, common);
   return items.length;
+}
+// 端末で見つけた名刺（found の四隅）以外に、Opus が写真の中で見つけた名刺があれば、切り出して登録する
+async function findMissedCards(src, found, common) {
+  const res = await opusReadImage(src, null, null, { whole: true }).catch(() => null);
+  if (!res || !res.inp || !res.fields || !res.fields.cards) return;
+  const quads = String(res.fields.cards).split("|").map((c) => opusQuad(c, res.inp)).filter(Boolean);
+  const ctr = (q) => [q.reduce((a, p) => a + p[0], 0) / 4, q.reduce((a, p) => a + p[1], 0) / 4];
+  // 端末で見つけた名刺の中に中心が入っていれば同じ名刺
+  const inside = (pt, q) => { let x = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = q[i], [xj, yj] = q[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) x = !x; } return x; };
+  const missed = quads.filter((q) => !found.some((f) => inside(ctr(q), f)));
+  const items = [];
+  for (const q of missed.slice(0, 30)) { try { const b = await cropFromSrc(src, q); if (b) items.push({ ready: b, src, quadN: q, split: true, noPair: true, fromOpus: true }); } catch (e) {} }
+  if (!items.length) return;
+  toast(`見落としていた名刺が${items.length}枚あったので、追加で登録します`);
+  startBatch(items, common);
 }
 // 元の写真から、割合の四隅で名刺を切り出す
 async function cropFromSrc(src, quadN) {
@@ -3602,7 +3618,7 @@ async function startBatch(files, common) {
       id: uuid(), name: NAME_PENDING, kana: "", company: "", companyKana: "", title: "",
       phone: "", email: "", address: "", website: "",
       metAt: common.metAt, metPlace: common.metPlace, folder: common.folder,
-      tags: [...common.tags], memo: "", image: blob, src: set.src || null, quadN: set.quadN || null, zoom: !!set.split, noPair: !!file.noPair,
+      tags: [...common.tags], memo: "", image: blob, src: set.src || null, quadN: set.quadN || null, zoom: !!set.split, noPair: !!file.noPair, fromOpus: !!file.fromOpus,
       createdAt: now, updatedAt: now, synced: false, _auto: [],
     };
     await putCard(card);
@@ -3612,6 +3628,12 @@ async function startBatch(files, common) {
     if (file.noPair) noPair.add(card.id);
    }
    photoNo++;
+  }
+  // 何枚か並んだ写真は、端末が見落とした名刺がないか Opus に写真全体で確かめてもらう
+  if (cloudConfigured()) {
+    const bySrc = new Map();
+    for (const c of created) if (c.zoom && c.src && !c.fromOpus) { if (!bySrc.has(c.src)) bySrc.set(c.src, []); bySrc.get(c.src).push(c.quadN); }
+    for (const [src, quads] of bySrc) findMissedCards(src, quads.filter(Boolean), common);
   }
   if (crowdedN) toast(`写真${crowdedN}枚は名刺を分けられませんでした（重なっていると分けられません）。写真のまま登録しています`);
   else if (splitPhotos) toast(`写真${splitPhotos}枚から名刺を${splitCardsN}枚見つけて、1枚ずつに分けました`);
