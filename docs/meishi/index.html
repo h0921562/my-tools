@@ -680,7 +680,11 @@
     <div class="cfg-hint" id="docSub"></div>
     <div style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap">
       <span class="cfg-hint" style="margin:0">紐づけ先:</span>
-      <select id="docLink" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px"></select>
+      <input type="text" id="docLink" list="coNames" autocomplete="off" placeholder="会社名を入力・選択（空欄＝未分類）" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:16px">
+      <button type="button" class="primary" id="docLinkSave" style="font-size:13px">紐づける</button>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
+      <span class="cfg-hint" id="docLinkState" style="margin:0;flex:1"></span>
       <button type="button" id="docAuto" style="font-size:12px">🤖 判定・まとめ直す</button>
     </div>
     <div id="docSummary" class="doc-summary" hidden></div>
@@ -688,7 +692,7 @@
     <textarea id="docMemo" class="page-memo" placeholder="この資料についてのメモ（自動で保存）"></textarea>
     <div id="docView" style="margin-top:10px"></div>
     <div class="dialog-actions">
-      <a id="docOpen" class="btn" target="_blank" rel="noopener" style="text-decoration:none"><button type="button">開く／保存</button></a>
+      <button type="button" id="docShare">📤 ファイルを保存・共有</button>
       <button class="primary" id="docCloseBtn">閉じる</button>
     </div>
   </div>
@@ -4089,13 +4093,37 @@ async function deleteDoc(d) {
 }
 let openDocRef = null;
 function fillDocLink(d) {
-  const sel = $("docLink");
-  const opts = [["", "未分類"]];
-  const seen = new Set();
-  for (const [k, info] of knownCompanies()) { if (!seen.has(k)) { seen.add(k); opts.push([k, info.name]); } }
-  opts.sort((a, b) => a[0] === "" ? -1 : b[0] === "" ? 1 : a[1].localeCompare(b[1], "ja"));
-  sel.innerHTML = opts.map(([k, n]) => `<option value="${esc(k)}">${esc(n)}</option>`).join("");
-  sel.value = d.companyKey || "";
+  fillCoNames();
+  $("docLink").value = d.companyKey ? d.company || "" : "";
+  $("docLinkState").textContent = d.companyKey ? "" : "どこの会社の資料か入力して「紐づける」を押してください";
+}
+// 資料の紐づけ先を保存する（ボタン・Enter・欄を離れたとき）
+async function saveDocLink() {
+  const d = openDocRef; if (!d) return;
+  const v = $("docLink").value.trim();
+  const co = coTargetOf(v);
+  if ((co ? co.companyKey : "") === (d.companyKey || "")) { $("docLinkState").textContent = co ? "✓ 紐づいています" : ""; return; }
+  $("docLinkState").textContent = "保存中…";
+  try {
+    await linkDoc(d, co || { companyKey: "", company: "" });
+    $("docLink").value = co ? co.company : "";
+    $("docLinkState").textContent = co ? `✓ ${co.company} に紐づけて保存しました` : "✓ 未分類にしました";
+    $("docSub").textContent = [d.kind, d.company, d.size && fmtSize(d.size)].filter(Boolean).join("・");
+    dismissDocNotice(d.id, 0);
+  } catch (err) { $("docLinkState").textContent = "⚠ 保存できませんでした: " + err.message; }
+}
+let docShareBlob = null;
+// ファイルの保存・共有は、画面を移動しない方法（共有シート）で行う。ホーム画面のアプリで別画面に飛ぶと、戻ったときに入力中の内容が消えるため
+async function shareDocFile() {
+  const d = openDocRef; if (!d || !docShareBlob) { toast("ファイルを読み込み中です"); return; }
+  const ext = /pdf/.test(docShareBlob.type || d.mime) ? ".pdf" : /png/.test(docShareBlob.type) ? ".png" : ".jpg";
+  const name = (d.title || "資料").replace(/[\\/:*?"<>|]/g, "_").replace(/\.(pdf|png|jpe?g)$/i, "") + ext;
+  const file = new File([docShareBlob], name, { type: docShareBlob.type || d.mime || "application/octet-stream" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: d.title || "資料" }); } catch (e) { /* 閉じただけ */ }
+    return;
+  }
+  const a = document.createElement("a"); a.href = makeUrl(docShareBlob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
 }
 async function openDoc(d) {
   openDocRef = d;
@@ -4110,7 +4138,7 @@ async function openDoc(d) {
   sum.hidden = false;
   const view = $("docView");
   view.innerHTML = `<div class="detail-img-loading">読み込み中…</div>`;
-  $("docOpen").removeAttribute("href");
+  docShareBlob = null;
   $("docDialog").showModal();
   try {
     let blob = docBlobCache.get(d.fileId);
@@ -4120,8 +4148,7 @@ async function openDoc(d) {
       docBlobCache.set(d.fileId, blob);
     }
     const url = makeUrl(blob);
-    $("docOpen").href = url;
-    $("docOpen").setAttribute("download", d.title || "資料");
+    docShareBlob = blob;
     view.innerHTML = /pdf/.test(blob.type || d.mime)
       ? `<iframe src="${url}" title="${esc(d.title)}"></iframe>`
       : `<img src="${url}" alt="${esc(d.title)}">`;
@@ -4377,13 +4404,11 @@ async function init() {
   $("viewCompany").addEventListener("click", () => { lsSet(VIEW_KEY, "company"); render(); loadCompanyData(); });
   $("coCloseBtn").addEventListener("click", () => $("coDialog").close());
   $("docCloseBtn").addEventListener("click", () => $("docDialog").close());
-  $("docLink").addEventListener("change", async (e) => {
-    const d = openDocRef; if (!d) return;
-    const k = e.target.value;
-    const name = k ? e.target.selectedOptions[0].textContent : "";
-    try { await linkDoc(d, { companyKey: k, company: name }); toast(k ? `${name} に紐づけました` : "未分類にしました"); }
-    catch (err) { alert("変更できませんでした: " + err.message); }
-  });
+  $("docLinkSave").addEventListener("click", saveDocLink);
+  $("docLink").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveDocLink(); } });
+  $("docLink").addEventListener("change", saveDocLink); // 候補から選んだとき・欄を離れたときも保存
+  $("docShare").addEventListener("click", shareDocFile);
+  $("docDialog").addEventListener("close", () => saveDocLink()); // 入力したまま閉じても保存する（変わっていなければ何もしない）
   $("docAuto").addEventListener("click", () => {
     const d = openDocRef; if (!d) return;
     $("docDialog").close();
