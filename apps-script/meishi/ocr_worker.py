@@ -21,7 +21,7 @@ import sys
 import tempfile
 import urllib.request
 
-FIELDS = ["name", "kana", "company", "companyKana", "title", "phone", "email", "address", "website", "industry"]
+FIELDS = ["name", "kana", "company", "companyKana", "title", "phone", "email", "address", "website", "industry", "corners"]
 
 PROMPT = """名刺画像 {path} を Read ツールで読み、次のキーだけを持つ JSON を1つだけ出力してください。説明文は不要です。
 
@@ -36,7 +36,12 @@ PROMPT = """名刺画像 {path} を Read ツールで読み、次のキーだけ
 - website: Webサイトの URL
 - industry: 会社の業態を次から1つ（会社名・役職・ロゴ・URLから判断）: 抹茶・茶葉の生産／卸, カフェ・喫茶, 飲食店・レストラン, 和菓子・洋菓子, 食品・飲料メーカー, 商社・卸売, 小売・EC, ホテル・旅館, 輸出入・海外バイヤー, 歯科医院, 医療・クリニック, 美容・サロン, IT・ソフトウェア, 広告・マーケティング, 士業・コンサル, その他
 
-kana・companyKana・industry 以外で、読めない・載っていない項目は空文字にしてください（推測で埋めない）。"""
+- corners: 画像の中の名刺（紙そのもの）の四隅の位置。画像は横{w}×縦{h}ピクセルで、左上が0,0。
+  名刺の向きに関係なく、画面上の 左上;右上;右下;左下 の順に "x,y;x,y;x,y;x,y" の形で整数で書く。
+  机・手・影・背景は含めず、紙の角そのものに合わせる。角が指などで隠れていれば、見えている辺をのばした交点で答える。
+  名刺が見つからない・画像がすでに名刺だけでほぼ埋まっているときは空文字。
+
+kana・companyKana・industry・corners 以外で、読めない・載っていない項目は空文字にしてください（推測で埋めない）。"""
 
 
 DOC_FIELDS = ["company", "title", "summary", "person", "kind", "detail"]
@@ -74,9 +79,32 @@ def api(payload):
     return data
 
 
+def image_size(path):
+    """JPEG / PNG の幅と高さを返す（読めなければ None）。Opus に座標で答えてもらうために使う"""
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    i = 2
+    while i < len(data) - 9 and data[:2] == b"\xff\xd8":
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        marker = data[i + 1]
+        if marker in (0xC0, 0xC1, 0xC2):
+            return int.from_bytes(data[i + 7:i + 9], "big"), int.from_bytes(data[i + 5:i + 7], "big")
+        i += 2 + int.from_bytes(data[i + 2:i + 4], "big")
+    return None
+
+
 def run_claude(img_path, kind="card", hint=""):
     prompt, fields = (DOC_PROMPT, DOC_FIELDS) if kind == "doc" else (PROMPT, FIELDS)
-    text = prompt.format(path=img_path)
+    if kind == "doc":
+        text = prompt.format(path=img_path)
+    else:
+        size = image_size(img_path) if not img_path.endswith(".pdf") else None
+        w, h = size or ("?", "?")
+        text = prompt.format(path=img_path, w=w, h=h)
     if kind == "doc" and hint:
         # 利用者が資料を入れるときに書いた補足（どこの会社の資料か など）。資料から分からないことはこれに従う
         text += "\n\n利用者からの補足（資料に書かれていないことは、これを正として使う）:\n" + hint[:500]

@@ -87,7 +87,8 @@ function api(payload) {
       case 'coUpsert': return withLock_(function () { return { ok: true, row: tableUpsert_(CO_TABLE, payload.company) }; });
       // Opus（Claude CLI on GitHub Actions）による精読
       // 読み取りが終わった／保存した名刺を、待たずに Sales Desk へ送る（アプリが名刺ごとに呼ぶ）
-      case 'sdPush': return { ok: true, result: pushSalesDesk_((payload.ids || []).slice(0, 50).map(String)) };
+      // force: 登録済みの名刺も送り直す（Sales Desk 側の振り分けを直したときなど。Sales Desk は二重登録しない）
+      case 'sdPush': return { ok: true, result: pushSalesDesk_((payload.ids || []).slice(0, 50).map(String), !!payload.force) };
       case 'ocrStart': return opusStart_(payload.image);
       case 'ocrPoll': return opusPoll_(payload.id);
       case 'ocrJob': return opusJob_(payload.id);       // Actions のワーカーが画像を取りに来る
@@ -366,7 +367,7 @@ function opusResult_(id, fields, error) {
   const clean = {};
   const keys = job.kind === 'doc'
     ? ['company', 'title', 'summary', 'person', 'kind', 'detail']
-    : ['name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address', 'website', 'industry'];
+    : ['name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address', 'website', 'industry', 'corners'];
   if (fields && typeof fields === 'object') {
     // detail（資料から抜き出した内容のまとめ）だけは長くてよい。ジョブの一時保存（9KBまで）に収まる長さにする
     keys.forEach(function (k) { if (fields[k]) clean[k] = String(fields[k]).slice(0, k === 'detail' ? 2500 : 300); });
@@ -585,7 +586,7 @@ function sdHeaders_(body) {
 }
 
 // ids を渡すと、その名刺だけを待ち時間なしで送る。返り値の statuses は 名刺ID → 結果（ok / conflict:… / error:…）
-function pushSalesDesk_(ids) {
+function pushSalesDesk_(ids, force) {
   const only = ids && ids.length ? {} : null;
   if (only) ids.forEach(function (id) { only[id] = true; });
   const statuses = {};
@@ -601,7 +602,7 @@ function pushSalesDesk_(ids) {
   rows.forEach(function (r, i) {
     const c = rowToCard_(r, ci.idx);
     const status = String(r[ci.idx.sdStatus] || '');
-    if (status === 'ok' || status.indexOf('conflict') === 0) return;
+    if (!(force && only) && (status === 'ok' || status.indexOf('conflict') === 0)) return;
     if (!c.company || !c.name || c.name === '（読み取り中）') return;
     if (only) { if (!only[c.id]) return; }
     else if (now - (c.updatedAt || 0) < SD_SETTLE_MS) return; // 読み取りの途中かもしれないので少し待つ
