@@ -3044,6 +3044,8 @@ async function runOpusOcr(blob, alive, force, inp) {
       const r = await cloudPost({ action: "ocrPoll", id: start.id });
       if (!alive()) return false;
       if (r.status === "done") {
+        // 新しく入れた写真が名刺の裏面なら、登録済みの表の名刺に付ける（いつ登録した名刺でも）
+        if (!editingId && !force && cropSrc && await attachIfBack(r.fields || {}, inp)) return true;
         applyOpusFields(r.fields || {}, force);
         await applyOpusCrop((r.fields || {}).corners, inp);
         if (!editingId && cropSrc) registerOtherCards(r.fields, inp, cropSrc.blob, {
@@ -3063,6 +3065,24 @@ async function runOpusOcr(blob, alive, force, inp) {
   }
 }
 // 空欄と、自動入力のまま手を付けていない欄（オレンジ枠）だけを Opus の値で置き換える
+// Opus が裏面と判断し、表の名刺が見つかったら、入力画面を閉じてその名刺の裏面にする
+async function attachIfBack(fields, inp) {
+  const front = findFrontForBack(fields);
+  if (!front) return false;
+  // 手で入力し始めていたら、勝手に裏面にはしない
+  const typed = ["fName", "fCompany", "fTitle", "fPhone", "fEmail", "fMemo"].some((id) => $(id).value.trim() && !$(id).classList.contains("ocr-filled"));
+  if (typed || !$("editDialog").open) return false;
+  const q = opusQuad(fields.corners, inp);
+  let img = null;
+  if (q) { try { img = await cropFromSrc(cropSrc.blob, q); } catch (e) { img = null; } }
+  img = img || localCrop || cropSrc.blob;
+  ocrSeq++;
+  $("editDialog").close();
+  await attachBack(front, img, { text: fields.text || "", fields, notice: true, src: null, quadN: null, opusDone: true });
+  toast(`「${front.name}」の裏面として取り込みました`);
+  return true;
+}
+
 // Opus の答えた四隅で切り抜く（だめなら端末で切り抜いた画像にする）
 async function applyOpusCrop(corners, inp) {
   if (cropManual || !cropSrc || !inp) return;
@@ -3236,6 +3256,27 @@ function findFrontFor(fields, pool, prev) {
   }
   return null;
 }
+// Opus が「裏面」と判断した写真について、登録済みの名刺（いつ登録したものでも）から表を探す。
+// メール・電話が同じ名刺、なければ同じ会社（社名・サイトやメールのドメイン）の名刺。同じ会社が何人もいれば一番新しく登録した人
+function findFrontForBack(fields, excludeIds) {
+  const f = fields || {};
+  if (f.side !== "back") return null;
+  const pool = cards.filter((c) => !c.back && !c.backFileId && !backClaimed.has(c.id) && c.name && c.name !== NAME_PENDING && c.name !== NAME_UNKNOWN && !(excludeIds && excludeIds.has(c.id)));
+  if (!pool.length) return null;
+  const mail = (f.email || "").trim().toLowerCase(), dig = digitsOf(f.phone || "");
+  const byContact = pool.filter((c) => ((mail && (c.email || "").trim().toLowerCase() === mail) || (dig.length >= 9 && digitsOf(c.phone) === dig)) && !differentPerson(f.name, c.name));
+  if (byContact.length) return byContact.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+  const dom = (u) => { const h = siteHref(u); try { return h ? new URL(h).hostname.replace(/^www\./, "") : ""; } catch { return ""; } };
+  const mdom = (e) => { const d = (String(e || "").split("@")[1] || "").trim().toLowerCase(); return FREE_MAIL_DOMAINS.has(d) ? "" : d; };
+  const doms = [dom(f.website), mdom(f.email)].filter(Boolean);
+  const key = f.company ? coKeyOf(f.company) : "";
+  const byCo = pool.filter((c) => (key && c.company && coKeyOf(c.company) === key) || (doms.length && [dom(c.website), mdom(c.email)].filter(Boolean).some((d) => doms.includes(d))));
+  if (!byCo.length) return null;
+  return byCo.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+}
+const backClaimed = new Set(); // 裏面を付けている途中の名刺（同時に2枚付かないように）
+const FREE_MAIL_DOMAINS = new Set(["gmail.com", "googlemail.com", "yahoo.co.jp", "yahoo.com", "outlook.com", "outlook.jp", "hotmail.com", "icloud.com", "me.com", "docomo.ne.jp", "ezweb.ne.jp", "softbank.ne.jp", "au.com", "live.jp", "nifty.com"]);
+
 // 最近登録した名刺（裏面を自動で付ける相手の候補）
 function recentCards(ms, exceptIds) {
   const now = Date.now();
@@ -3272,7 +3313,7 @@ async function attachBack(front, blob, info = {}) {
   }
   if (info.notice) addBackNotice(undo);
   // 切り抜きと内容は、Opus の読み取りが終わってから Opus の結果で直す
-  if (cloudConfigured()) refineBackWithOpus(cur.id, blob, info.src || null, info.quadN || null);
+  if (cloudConfigured() && !info.opusDone) refineBackWithOpus(cur.id, blob, info.src || null, info.quadN || null);
 }
 // 1枚の写真を Opus に読ませて、項目と四隅を受け取り、四隅で切り抜いた画像も作る（裏面で使う）。
 // 返り値 { fields, blob（Opus の切り抜き。だめなら null）, quadN }。Opus が使えなければ null
@@ -3561,7 +3602,7 @@ async function startBatch(files, common) {
       id: uuid(), name: NAME_PENDING, kana: "", company: "", companyKana: "", title: "",
       phone: "", email: "", address: "", website: "",
       metAt: common.metAt, metPlace: common.metPlace, folder: common.folder,
-      tags: [...common.tags], memo: "", image: blob, src: set.src || null, quadN: set.quadN || null, zoom: !!set.split,
+      tags: [...common.tags], memo: "", image: blob, src: set.src || null, quadN: set.quadN || null, zoom: !!set.split, noPair: !!file.noPair,
       createdAt: now, updatedAt: now, synced: false, _auto: [],
     };
     await putCard(card);
@@ -3667,6 +3708,20 @@ async function startBatchOpus(card) {
       const r = await cloudPost({ action: "ocrPoll", id: start.id });
       if (r.status === "done") {
         const cur = cards.find((x) => x.id === card.id);
+        // 裏面だった（表は前に登録してある）→ 新しい名刺にせず、表の名刺の裏面にする
+        const front = cur && !cur.noPair ? findFrontForBack(r.fields || {}, new Set([cur.id, ...cards.filter((x) => x.src && x.src === cur.src).map((x) => x.id)])) : null;
+        if (front) {
+          backClaimed.add(front.id);
+          const q = opusQuad((r.fields || {}).corners, inp);
+          let img = null;
+          if (q && cur.src) { try { img = await cropFromSrc(cur.src, q); } catch (e) {} }
+          await removeCard(cur.id);
+          await attachBack(front, img || cur.image, { text: (r.fields || {}).text || "", fields: r.fields || {}, notice: true, src: null, quadN: null, opusDone: true });
+          backClaimed.delete(front.id);
+          batch.total--; updateBatchBar();
+          ok = true;
+          break;
+        }
         if (cur) {
           fillCardFields(cur, r.fields || {}, true);
           // Opus の答えた四隅で、元の写真から切り抜き直す

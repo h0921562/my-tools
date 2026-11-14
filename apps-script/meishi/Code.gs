@@ -367,7 +367,7 @@ function opusResult_(id, fields, error) {
   const clean = {};
   const keys = job.kind === 'doc'
     ? ['company', 'title', 'summary', 'person', 'kind', 'detail']
-    : ['name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address', 'website', 'industry', 'corners', 'text', 'cards'];
+    : ['name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address', 'website', 'industry', 'corners', 'text', 'cards', 'side'];
   if (fields && typeof fields === 'object') {
     // detail（資料から抜き出した内容のまとめ）だけは長くてよい。ジョブの一時保存（9KBまで）に収まる長さにする
     keys.forEach(function (k) { if (fields[k]) clean[k] = String(fields[k]).slice(0, k === 'detail' ? 2500 : k === 'text' ? 1200 : k === 'cards' ? 1500 : 300); });
