@@ -305,6 +305,7 @@
   #docBar .back-note button { font-size: 12px; padding: 4px 10px; }
   #docBar .ask { background: #fffbeb; color: #78350f; border-color: #fcd34d; }
   #docBar .ask span { flex-basis: 100%; }
+  #docBar .ask select { flex: 1 1 160px; min-width: 0; padding: 6px 8px; font-size: 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
   #docBar .ask input { flex: 1 1 160px; min-width: 0; padding: 6px 8px; font-size: 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
   @media (prefers-color-scheme: dark) { #docBar .ask { background: #422006; color: #fde68a; border-color: #92400e; } }
   .page-memo { width: 100%; min-height: 80px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 16px; font-family: inherit; line-height: 1.5; resize: vertical; }
@@ -3878,6 +3879,11 @@ function fillCoNames() {
   for (const d of docs) if (d.companyKey && d.company && !names.has(d.companyKey)) names.set(d.companyKey, d.company);
   $("coNames").innerHTML = [...names.values()].sort((a, b) => normComp(a).localeCompare(normComp(b), "ja")).map((n) => `<option value="${esc(n)}">`).join("");
 }
+// 会社を選ぶプルダウンの中身（登録済みの会社。最後に「新しい会社名を入力」）
+function coSelectOptions() {
+  const names = [...$("coNames").options].map((o) => o.value);
+  return `<option value="">会社を選ぶ…</option>` + names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("") + `<option value="__new__">＋ 新しい会社名を入力…</option>`;
+}
 // 入力された会社名 → 紐づけ先（登録済みの会社なら、その表記にそろえる）
 function coTargetOf(name) {
   name = String(name || "").trim();
@@ -3919,8 +3925,9 @@ function renderDocBar() {
     // 判定できなかった資料は、どこの会社の資料か聞く
     if (!d.companyKey && !d.cardId && !classifying.has(d.id)) {
       return `<div class="back-note ask"><span>❓ 「${esc(d.title || "資料")}」はどこの会社の資料ですか？</span>
-        <input type="text" list="coNames" data-doc-co="${esc(d.id)}" placeholder="会社名を入力・選択" autocomplete="off">
-        <button type="button" data-doc-set="${esc(d.id)}">決定</button><button type="button" data-doc-open="${esc(d.id)}">開く</button>
+        <select data-doc-sel="${esc(d.id)}">${coSelectOptions()}</select>
+        <input type="text" data-doc-co="${esc(d.id)}" placeholder="新しい会社名を入力" autocomplete="off" hidden>
+        <button type="button" data-doc-set="${esc(d.id)}" hidden>決定</button><button type="button" data-doc-open="${esc(d.id)}">開く</button>
         <button type="button" data-doc-ok="${esc(d.id)}" title="未分類のままにする">✕</button></div>`;
     }
     const where = classifying.has(d.id) && !d.companyKey ? "🤖 どの会社の資料か判定中…（1分ほど）"
@@ -4439,6 +4446,22 @@ async function init() {
     const co = coTargetOf($("daCompany").value);
     docTarget = { ...(co || { auto: true }), hint: $("daHint").value.trim() };
     addDocs(files);
+  });
+  // お知らせのプルダウンで会社を選んだら、その場で紐づける（「新しい会社名」を選んだら入力欄を出す）
+  $("docBar").addEventListener("change", async (e) => {
+    const sel = e.target.closest("[data-doc-sel]");
+    if (!sel) return;
+    const id = sel.dataset.docSel, row = sel.closest(".back-note");
+    if (sel.value === "__new__") {
+      const input = row.querySelector("[data-doc-co]"), btn = row.querySelector("[data-doc-set]");
+      sel.hidden = true; input.hidden = false; btn.hidden = false; input.focus();
+      return;
+    }
+    const d = docs.find((x) => x.id === id), co = coTargetOf(sel.value);
+    if (!d || !co) return;
+    sel.disabled = true;
+    try { await linkDoc(d, co); toast(`${co.company} の資料にしました`); dismissDocNotice(d.id, 0); }
+    catch (err) { sel.disabled = false; alert("変更できませんでした: " + err.message); }
   });
   // お知らせから会社を指定する
   $("docBar").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.dataset.docCo) e.target.closest(".back-note").querySelector("[data-doc-set]").click(); });
