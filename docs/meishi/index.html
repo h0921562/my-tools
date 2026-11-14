@@ -2976,7 +2976,8 @@ async function runCloudOcr(blob, alive) {
     if (front) {
       ocrSeq++;                     // この写真の読み取り（Opus）は使わない
       $("editDialog").close();
-      await attachBack(front, blob, { text, fields, notice: true });
+      const backImg = localCrop || blob;
+      await attachBack(front, backImg, { text, fields, notice: true, src: cropSrc ? cropSrc.blob : null, quadN: cropSrc ? cropSrc.quadN : null });
       toast(`「${front.name}」の裏面として追加しました`);
       return null;
     }
@@ -3237,7 +3238,7 @@ async function attachBack(front, blob, info = {}) {
   }
   const cur = cards.find((x) => x.id === front.id);
   if (!cur) return;
-  const undo = { frontId: cur.id, blob, memoBefore: cur.memo || "", filled: {}, common: { metAt: cur.metAt || "", metPlace: cur.metPlace || "", folder: cur.folder || "", tags: [] } };
+  const undo = { frontId: cur.id, blob, src: info.src || null, memoBefore: cur.memo || "", filled: {}, common: { metAt: cur.metAt || "", metPlace: cur.metPlace || "", folder: cur.folder || "", tags: [] } };
   cur.back = blob;
   cur.backFileId = "";
   for (const k of BACK_FILL) {
@@ -3257,6 +3258,63 @@ async function attachBack(front, blob, info = {}) {
     updateSyncUI();
   }
   if (info.notice) addBackNotice(undo);
+  // 切り抜きと内容は、Opus の読み取りが終わってから Opus の結果で直す
+  if (cloudConfigured()) refineBackWithOpus(cur.id, blob, info.src || null, info.quadN || null);
+}
+// 1枚の写真を Opus に読ませて、項目と四隅を受け取り、四隅で切り抜いた画像も作る（裏面で使う）。
+// 返り値 { fields, blob（Opus の切り抜き。だめなら null）, quadN }。Opus が使えなければ null
+async function opusReadImage(src, quadN, fallbackBlob) {
+  if (!cloudConfigured()) return null;
+  const inp = src ? await opusInputFor(src, quadN).catch(() => null) : null;
+  let start;
+  try { start = await cloudPost({ action: "ocrStart", image: await blobToDataURL(inp ? inp.blob : fallbackBlob) }); } catch (e) { return null; }
+  const t0 = Date.now();
+  await new Promise((r) => setTimeout(r, 10000));
+  while (Date.now() - t0 < 4 * 60 * 1000) {
+    let r;
+    try { r = await cloudPost({ action: "ocrPoll", id: start.id }); } catch (e) { return null; }
+    if (r.status === "done") {
+      const fields = r.fields || {};
+      const q = src ? opusQuad(fields.corners, inp) : null;
+      let blob = null;
+      if (q) { try { blob = await cropFromSrc(src, q); } catch (e) { blob = null; } }
+      return { fields, blob, quadN: q };
+    }
+    if (r.status === "error" || r.status === "gone") return null;
+    await new Promise((res) => setTimeout(res, 3000));
+  }
+  return null;
+}
+// 裏面を Opus で読み直す: 切り抜きを Opus の四隅で直し、空いている欄とメモ（【裏面】）を Opus の結果で入れ直す
+async function refineBackWithOpus(frontId, back, src, quadN) {
+  const res = await opusReadImage(src, quadN, back);
+  if (!res) return;
+  const cur = cards.find((x) => x.id === frontId);
+  if (!cur || cur.back !== back) return; // そのあと裏面を変えた・外した
+  const f = res.fields || {};
+  for (const k of BACK_FILL) {
+    const v = (f[k] || "").trim();
+    if (v && (!(cur[k] || "").trim() || (cur._auto || []).includes(k))) { cur[k] = v; cur._auto = [...new Set([...(cur._auto || []), k])]; }
+  }
+  const t = backMemoText(f.text || "");
+  if (t) {
+    const memo = cur.memo || "", i = memo.indexOf("【裏面】");
+    cur.memo = (i >= 0 ? memo.slice(0, i).replace(/\n+$/, "") : memo);
+    cur.memo = (cur.memo ? cur.memo + "\n" : "") + "【裏面】\n" + t;
+  }
+  let backArg;
+  if (res.blob) {
+    cur.back = res.blob; cur.backFileId = ""; backArg = await blobToDataURL(res.blob);
+    for (const u of backNotices) if (u.frontId === frontId && u.blob === back) u.blob = res.blob; // 取り消しできるように
+  }
+  cur.updatedAt = Date.now(); cur.synced = false;
+  await putCard(cur);
+  render();
+  if ($("detailDialog").open && detailId === cur.id) openDetail(cur.id);
+  if (cloudConfigured()) {
+    try { await pushCard(cur, undefined, backArg); cur.synced = true; await putCard(cur); } catch (e) { /* あとで送られる */ }
+    updateSyncUI();
+  }
 }
 const backNotices = [];
 function addBackNotice(undo) { backNotices.push(undo); renderBackBar(); }
@@ -3284,7 +3342,7 @@ async function undoBack(u) {
     }
   }
   render();
-  startBatch([{ ready: u.blob, noPair: true }], u.common);
+  startBatch([{ ready: u.blob, noPair: true, src: u.src || null }], u.common);
 }
 
 /* ---------- Opus による切り抜き ----------
@@ -3527,7 +3585,7 @@ async function startBatch(files, common) {
     const front = noPair.has(c.id) || !info.ok ? null : findFrontFor(info.fields, before.concat(fronts.filter(other)), prev && withQuick(prev));
     if (front && front.id !== c.id) {
       await removeCard(c.id);                       // 裏面だった方は名刺としては消す（写真は表の名刺に移る）
-      await attachBack(front, c.image, { text: info.text, fields: info.fields, notice: true });
+      await attachBack(front, c.image, { text: info.text, fields: info.fields, notice: true, src: c.src || null, quadN: c.quadN || null });
       backs++;
       batch.total--; batch.read--; updateBatchBar();
     } else fronts.push(withQuick(c));
@@ -4559,25 +4617,35 @@ async function init() {
     e.target.value = "";
     if (!file) return;
     try {
-      const blob = (await prepareCardImage(file)).blob;
+      const set = (await prepareCardImages(file, { single: true }))[0];
+      const blob = set.blob;
       if (backTargetId) {
-        // 詳細から: その名刺にすぐ付ける（内容も読み取って、空いている欄とメモに補う）
+        // 詳細から: その名刺にすぐ付ける（内容も読み取って、空いている欄とメモに補う。切り抜きと内容は Opus が仕上げる）
         const front = cards.find((x) => x.id === backTargetId);
         if (!front) return;
         toast("裏面を追加しています…");
-        await attachBack(front, blob, {});
-        toast("裏面を追加しました");
+        await attachBack(front, blob, { src: set.src, quadN: set.quadN });
+        toast("裏面を追加しました（Opus が切り抜きと内容を仕上げます）");
       } else {
         // 編集フォーム: 保存したときに反映。内容は読み取って、空いている欄とメモに補う
         pendingBack = blob;
         showEditBack(blob, true);
-        ocrTextFor(blob).then((text) => {
-          if (!$("editDialog").open || pendingBack !== blob) return;
-          const fields = parseCardText(text).fields;
-          for (const k of BACK_FILL) { const el = $(FIELD_MAP[k]); const v = (fields[k] || "").trim(); if (v && !el.value.trim()) el.value = v; }
+        const fillFrom = (fields, text, replace) => {
+          for (const k of BACK_FILL) { const el = $(FIELD_MAP[k]); const v = (fields[k] || "").trim(); if (v && (!el.value.trim() || (replace && el.dataset.fromBack === "1"))) { el.value = v; el.dataset.fromBack = "1"; } }
           const t = backMemoText(text), memo = $("fMemo");
-          if (t && !memo.value.includes("【裏面】")) memo.value = (memo.value.trim() ? memo.value.trim() + "\n" : "") + "【裏面】\n" + t;
-        }).catch(() => {});
+          if (!t) return;
+          const i = memo.value.indexOf("【裏面】");
+          if (i >= 0 && !replace) return;
+          const head = i >= 0 ? memo.value.slice(0, i).trim() : memo.value.trim();
+          memo.value = (head ? head + "\n" : "") + "【裏面】\n" + t;
+        };
+        // まず速い読み取りで入れ、Opus の結果が届いたら切り抜きと内容を Opus のものに置き換える
+        ocrTextFor(blob).then((text) => { if ($("editDialog").open && pendingBack === blob) fillFrom(parseCardText(text).fields, text, false); }).catch(() => {});
+        opusReadImage(set.src, set.quadN, blob).then((res) => {
+          if (!res || !$("editDialog").open || pendingBack !== blob) return;
+          if (res.blob) { pendingBack = res.blob; showEditBack(res.blob, true); }
+          fillFrom(res.fields || {}, (res.fields || {}).text || "", true);
+        });
       }
     } catch (err) {
       alert("画像の読み込みに失敗しました: " + err.message);

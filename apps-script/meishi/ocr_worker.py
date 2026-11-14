@@ -21,7 +21,7 @@ import sys
 import tempfile
 import urllib.request
 
-FIELDS = ["name", "kana", "company", "companyKana", "title", "phone", "email", "address", "website", "industry", "corners"]
+FIELDS = ["name", "kana", "company", "companyKana", "title", "phone", "email", "address", "website", "industry", "corners", "text"]
 
 PROMPT = """名刺画像 {path} を Read ツールで読み、次のキーだけを持つ JSON を1つだけ出力してください。説明文は不要です。
 
@@ -41,7 +41,9 @@ PROMPT = """名刺画像 {path} を Read ツールで読み、次のキーだけ
   机・手・影・背景は含めず、紙の角そのものに合わせる。角が指などで隠れていれば、見えている辺をのばした交点で答える。
   名刺が見つからない・画像がすでに名刺だけでほぼ埋まっているときは空文字。
 
-kana・companyKana・industry・corners 以外で、読めない・載っていない項目は空文字にしてください（推測で埋めない）。"""
+- text: 名刺に書かれている文字をすべて、上から順に改行で区切って書き起こしたもの（ロゴの文字・英語表記・事業内容も含む。800文字以内）
+
+kana・companyKana・industry・corners・text 以外で、読めない・載っていない項目は空文字にしてください（推測で埋めない）。"""
 
 
 DOC_FIELDS = ["company", "title", "summary", "person", "kind", "detail"]
