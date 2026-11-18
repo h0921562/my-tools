@@ -311,6 +311,16 @@
   .page-memo { width: 100%; min-height: 80px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 16px; font-family: inherit; line-height: 1.5; resize: vertical; }
   #cropStage { position: relative; touch-action: none; user-select: none; -webkit-user-select: none; margin: 10px 0; display: flex; justify-content: center; }
   #cropCanvas { max-width: 100%; display: block; border-radius: 6px; background: #000; touch-action: none; }
+  .da-pages { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 8px; }
+  .da-pages:empty { display: none; }
+  .da-page { position: relative; flex: 0 0 auto; width: 74px; height: 96px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-sub); text-align: center; }
+  .da-page img { width: 100%; height: 100%; object-fit: cover; }
+  .da-page .n { position: absolute; left: 3px; top: 3px; background: rgba(0,0,0,.6); color: #fff; font-size: 10px; border-radius: 8px; padding: 0 5px; }
+  .da-page .x { position: absolute; right: 2px; top: 2px; width: 22px; height: 22px; padding: 0; border-radius: 50%; font-size: 12px; line-height: 20px; }
+  .da-add { display: flex; gap: 8px; }
+  .da-add button { flex: 1; padding: 11px 8px; font-size: 15px; }
+  #docAddDialog label.da-merge { display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 14px; margin: 10px 0 0; }
+  #docAddDialog label.da-merge input { width: auto; }
   #docAddDialog label { display: block; font-size: 13px; color: var(--text-sub); margin: 12px 0 4px; }
   #docAddDialog input, #docAddDialog textarea { width: 100%; padding: 9px 10px; font-size: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-family: inherit; }
   @media (prefers-color-scheme: dark) { #docBar .back-note { background: #172554; color: #bfdbfe; border-color: #1e3a8a; } }
@@ -720,8 +730,15 @@
 <dialog id="docAddDialog">
   <div class="dialog-body">
     <h2>📎 資料を追加</h2>
-    <div class="cfg-hint" id="daFiles"></div>
-    <label for="daCompany">どこの会社の資料？</label>
+    <!-- 撮った・選んだ資料（ページ）。続けて何枚でも撮れる -->
+    <div id="daPages" class="da-pages"></div>
+    <div class="da-add">
+      <button type="button" id="daShoot" class="primary">📷 撮る</button>
+      <button type="button" id="daPick">🖼 写真・PDFを選ぶ</button>
+    </div>
+    <label class="da-merge" id="daMergeRow" hidden><input type="checkbox" id="daMerge" checked> 撮った写真を1つの資料（PDF）にまとめる</label>
+    <div class="cfg-hint" id="daFixed" hidden></div>
+    <label for="daCompany" id="daCompanyLabel">どこの会社の資料？</label>
     <input type="text" id="daCompany" list="coNames" autocomplete="off" placeholder="空欄なら資料の内容から自動で判定">
     <label for="daHint">補足・指示（任意）</label>
     <textarea id="daHint" rows="3" placeholder="例: 展示会で〇〇さんにもらった価格表。裏の手書きの数字は値引き後の価格"></textarea>
@@ -733,6 +750,8 @@
   </div>
 </dialog>
 <input type="file" id="backInput" accept="image/*" hidden>
+<input type="file" id="daCam" accept="image/*" capture="environment" hidden>
+<input type="file" id="daFiles2" accept="image/*,application/pdf" multiple hidden>
 
 <!-- フォルダダイアログ -->
 <dialog id="folderDialog">
@@ -3971,13 +3990,67 @@ function coTargetOf(name) {
 }
 // 資料を入れる前の確認（どこの会社か・補足）。どこの資料か決まっていないときだけ出す
 let docAddFiles = null;
-function askBeforeAddDocs(files) {
-  docAddFiles = files;
+/* ---------- 写真を1つの PDF にまとめる ----------
+ * 資料を何枚か続けて撮ったとき、1つの資料（ページの順番どおり）にする。各ページは JPEG のまま埋め込む。 */
+async function imagesToPdf(blobs) {
+  const pages = [];
+  for (const b of blobs) {
+    const bmp = await createImageBitmap(b, { imageOrientation: "from-image" }).catch(() => createImageBitmap(b));
+    const k = Math.min(1, 2200 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close && bmp.close();
+    const jpg = new Uint8Array(await (await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85))).arrayBuffer());
+    pages.push({ jpg, w: c.width, h: c.height });
+  }
+  const enc = new TextEncoder(), parts = [], offsets = [];
+  let size = 0;
+  const push = (d) => { const u = typeof d === "string" ? enc.encode(d) : d; parts.push(u); size += u.length; };
+  const obj = (n, body) => { offsets[n] = size; push(`${n} 0 obj\n`); body(); push("\nendobj\n"); };
+  push("%PDF-1.4\n%âãÏÓ\n");
+  const n = pages.length, kids = pages.map((_, i) => `${3 + i * 3} 0 R`).join(" ");
+  obj(1, () => push("<< /Type /Catalog /Pages 2 0 R >>"));
+  obj(2, () => push(`<< /Type /Pages /Kids [${kids}] /Count ${n} >>`));
+  pages.forEach((p, i) => {
+    const pageN = 3 + i * 3, imgN = pageN + 1, cntN = pageN + 2;
+    const W = 595, H = Math.round((595 * p.h) / p.w); // 幅をA4（595pt）にそろえる
+    const content = `q ${W} 0 0 ${H} 0 0 cm /Im0 Do Q`;
+    obj(pageN, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /XObject << /Im0 ${imgN} 0 R >> >> /Contents ${cntN} 0 R >>`));
+    obj(imgN, () => { push(`<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpg.length} >>\nstream\n`); push(p.jpg); push("\nendstream"); });
+    obj(cntN, () => push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`));
+  });
+  const total = 3 + n * 3, xref = size;
+  push(`xref\n0 ${total}\n0000000000 65535 f \n`);
+  for (let i = 1; i < total; i++) push(String(offsets[i]).padStart(10, "0") + " 00000 n \n");
+  push(`trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(parts, { type: "application/pdf" });
+}
+
+// 資料を入れる画面: 続けて撮る・選ぶ → どこの会社か・補足 → まとめて追加
+let daTarget = null;
+function askBeforeAddDocs(files, target) {
+  docAddFiles = [...(files || [])];
+  daTarget = target || { auto: true };
   fillCoNames();
-  $("daFiles").textContent = files.map((f) => f.name || "資料").join("、");
   $("daCompany").value = "";
   $("daHint").value = "";
-  $("docAddDialog").showModal();
+  const fixed = !daTarget.auto;
+  const person = daTarget.cardId ? cards.find((c) => c.id === daTarget.cardId) : null;
+  $("daFixed").hidden = !fixed;
+  $("daFixed").textContent = fixed ? `📎 ${person ? person.name + " さん（" + (daTarget.company || "会社なし") + "）" : daTarget.company || "この会社"} の資料として追加します` : "";
+  $("daCompany").hidden = fixed; $("daCompanyLabel").hidden = fixed;
+  renderDaPages();
+  if (!$("docAddDialog").open) $("docAddDialog").showModal();
+}
+const isPdfFile = (f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name || "");
+function renderDaPages() {
+  const imgs = docAddFiles.filter((f) => !isPdfFile(f)).length;
+  $("daPages").innerHTML = docAddFiles.map((f, i) => `<div class="da-page">${isPdfFile(f) ? `📄<br>${esc((f.name || "PDF").slice(0, 14))}` : `<img src="${makeUrl(f)}" alt="">`}<span class="n">${i + 1}</span><button type="button" class="x" data-da-del="${i}" aria-label="外す">✕</button></div>`).join("");
+  $("daMergeRow").hidden = imgs < 2;
+  $("daShoot").textContent = docAddFiles.length ? "📷 続けて撮る" : "📷 撮る";
+  $("daOk").disabled = !docAddFiles.length;
+  $("daOk").textContent = docAddFiles.length ? `追加する（${docAddFiles.length}）` : "追加する";
+  const last = $("daPages").lastElementChild; if (last) last.scrollIntoView({ block: "nearest", inline: "end" });
 }
 
 /* 入れた資料がどこに紐づいたかのお知らせ（自分で閉じるまで残す）。判定中 → 紐づけ先 → 「開く」で確認できる */
@@ -4020,7 +4093,7 @@ function renderDocBar() {
 function pickDocs(target) {
   if (!cloudConfigured()) { alert("資料の保存には、クラウドへの接続が必要です。"); return; }
   docTarget = target;
-  $("docFiles").click();
+  askBeforeAddDocs([], target); // 撮る・選ぶはこの画面で（続けて何枚でも）
 }
 async function addDocs(files) {
   const t = docTarget;
@@ -4513,16 +4586,35 @@ async function init() {
   $("docFiles").addEventListener("change", (e) => {
     const fs = [...e.target.files]; e.target.value = "";
     if (!fs.length) return;
-    if (docTarget && docTarget.auto) askBeforeAddDocs(fs); else addDocs(fs);
+    askBeforeAddDocs(fs, docTarget);
   });
-  $("daCancel").addEventListener("click", () => { docAddFiles = null; $("docAddDialog").close(); });
-  $("daOk").addEventListener("click", () => {
+  $("daCancel").addEventListener("click", () => { if (docAddFiles && docAddFiles.length > 1 && !confirm(`撮った${docAddFiles.length}枚を追加せずに閉じますか？`)) return; docAddFiles = null; $("docAddDialog").close(); });
+  // 続けて撮る・選ぶ・外す
+  $("daShoot").addEventListener("click", () => $("daCam").click());
+  $("daPick").addEventListener("click", () => $("daFiles2").click());
+  const daAdd = (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) { docAddFiles.push(...fs); renderDaPages(); } };
+  $("daCam").addEventListener("change", daAdd);
+  $("daFiles2").addEventListener("change", daAdd);
+  $("daPages").addEventListener("click", (e) => { const b = e.target.closest("[data-da-del]"); if (b) { docAddFiles.splice(Number(b.dataset.daDel), 1); renderDaPages(); } });
+  $("daOk").addEventListener("click", async () => {
     const files = docAddFiles; docAddFiles = null;
+    if (!files || !files.length) return;
+    const target = daTarget && !daTarget.auto ? { ...daTarget } : (coTargetOf($("daCompany").value) || { auto: true });
+    const hint = $("daHint").value.trim();
     $("docAddDialog").close();
-    if (!files) return;
-    const co = coTargetOf($("daCompany").value);
-    docTarget = { ...(co || { auto: true }), hint: $("daHint").value.trim() };
-    addDocs(files);
+    let list = files;
+    const imgs = files.filter((f) => !isPdfFile(f));
+    // 撮った写真は1つの PDF にまとめる（ページは撮った順）
+    if (imgs.length >= 2 && $("daMerge").checked) {
+      toast(`${imgs.length}枚の写真を1つの資料にまとめています…`);
+      try {
+        const pdf = await imagesToPdf(imgs);
+        const d = new Date(), stamp = `${d.getMonth() + 1}月${d.getDate()}日`;
+        list = [new File([pdf], `資料（${imgs.length}ページ・${stamp}）.pdf`, { type: "application/pdf" }), ...files.filter(isPdfFile)];
+      } catch (e) { alert("写真をまとめられませんでした。1枚ずつ追加します: " + e.message); }
+    }
+    docTarget = { ...target, hint };
+    addDocs(list);
   });
   // お知らせのプルダウンで会社を選んだら、その場で紐づける（「新しい会社名」を選んだら入力欄を出す）
   $("docBar").addEventListener("change", async (e) => {
@@ -4695,7 +4787,7 @@ async function init() {
       // 名刺を編集中ならその名刺（会社）の資料として、新規なら内容から会社を自動で判定
       const ec = editingId ? cards.find((x) => x.id === editingId) : null;
       docTarget = ec ? { companyKey: ec.company ? coKeyOf(ec.company) : "", company: ec.company || "", cardId: ec.id } : { auto: true };
-      if (docTarget.auto) askBeforeAddDocs(pdfs); else addDocs(pdfs);
+      askBeforeAddDocs(pdfs, docTarget);
     }
     const file = files[0];
     if (!file) return;
