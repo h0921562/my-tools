@@ -559,8 +559,8 @@ function opusStartFile_(fileId, hint) {
  * 会社が決まっている資料は、Sales Desk の商品の一覧へ送る（仕入先＝その会社。仕入れ値は仕入先ごとの価格に入る）。
  * 送った結果は sdProducts 列（ok:<内容の印>:<結果>）。会社や商品が変わったら送り直す。Sales Desk は同じ商品を二重に入れない。
  */
-const DOC_PRODUCT_KEYS = ['name', 'category', 'spec', 'variety', 'origin', 'harvest', 'milling', 'flush', 'price', 'moq', 'lead_time', 'code'];
-const DOC_PRODUCT_MAX = { name: 160, category: 40, spec: 600 };
+const DOC_PRODUCT_KEYS = ['name', 'category', 'spec', 'variety', 'origin', 'harvest', 'milling', 'flush', 'price', 'moq', 'lead_time', 'code', 'cert', 'stock', 'grade'];
+const DOC_PRODUCT_MAX = { name: 160, category: 40, spec: 600, cert: 200 };
 function cleanDocProducts_(raw) {
   let list = raw;
   if (typeof list === 'string') { try { list = JSON.parse(list); } catch (e) { list = []; } }
