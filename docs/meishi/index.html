@@ -723,7 +723,8 @@
       <button type="button" id="docAuto" style="font-size:12px">🤖 判定・まとめ直す</button>
     </div>
     <div class="dialog-actions">
-      <button type="button" id="docShare">📤 ファイルを保存・共有</button>
+      <button type="button" id="docDelete" class="danger" style="margin-right:auto">🗑 削除</button>
+      <button type="button" id="docShare">📤 保存・共有</button>
       <button class="primary" id="docCloseBtn">閉じる</button>
     </div>
   </div>
@@ -3857,9 +3858,83 @@ async function startBatchOpus(card) {
  * 資料はクラウド（Driveの「名刺管理_資料」）にだけ置き、一覧は開いたときに取ってくる。
  * 会社は「会社名を正規化したもの」（株式会社などの表記ゆれを無視）でまとめる。
  */
-let docs = [];                 // 資料の一覧（中身はクラウド）
+let docs = [];                 // 資料の一覧（中身はクラウド。前回の控えがあればまずそれを出す）
+try { const kept = JSON.parse(localStorage.getItem("meishi.docsCache") || "[]"); if (Array.isArray(kept)) docs = kept; } catch (e) {}
 const coInfo = new Map();      // companyKey → { key, name, memo, updatedAt }
 const docBlobCache = new Map();// fileId → Blob（一度開いた資料）
+/* 資料のファイルは端末にも置いておく（開くたびにクラウドから取り直さない）。
+ * 一覧を取ったあと、新しい資料から順に裏で先に取っておくので、タップしたらすぐ出る。 */
+const FILE_DB = "meishi-files", FILE_STORE = "files";
+let fileDbPromise = null;
+function fileDb() {
+  if (!fileDbPromise) fileDbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(FILE_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(FILE_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return fileDbPromise;
+}
+async function fileStore(mode, fn) {
+  const dbf = await fileDb();
+  return new Promise((resolve, reject) => {
+    const t = dbf.transaction(FILE_STORE, mode);
+    const r = fn(t.objectStore(FILE_STORE));
+    t.oncomplete = () => resolve(r && "result" in r ? r.result : undefined);
+    t.onerror = t.onabort = () => reject(t.error);
+  });
+}
+const docBlobLoading = new Map(); // fileId → 取得中の Promise（同じ資料を二重に取らない）
+async function getDocBlob(fileId) {
+  if (docBlobCache.has(fileId)) return docBlobCache.get(fileId);
+  if (docBlobLoading.has(fileId)) return docBlobLoading.get(fileId);
+  const job = (async () => {
+    let blob = null;
+    try { const hit = await fileStore("readonly", (st) => st.get(fileId)); if (hit && hit.blob) blob = hit.blob; } catch (e) {}
+    if (!blob) {
+      const r = await cloudPost({ action: "docFile", fileId });
+      blob = await dataURLToBlob(r.dataUrl);
+      keepDocBlob(fileId, blob);
+    }
+    docBlobCache.set(fileId, blob);
+    return blob;
+  })();
+  docBlobLoading.set(fileId, job);
+  try { return await job; } finally { docBlobLoading.delete(fileId); }
+}
+function keepDocBlob(fileId, blob) {
+  if (!fileId || !blob) return;
+  docBlobCache.set(fileId, blob);
+  fileStore("readwrite", (st) => st.put({ blob, at: Date.now() }, fileId)).catch(() => {});
+}
+function dropDocBlob(fileId) {
+  docBlobCache.delete(fileId); pdfPagesCache.delete(fileId);
+  fileStore("readwrite", (st) => st.delete(fileId)).catch(() => {});
+}
+let prefetchRunning = false;
+async function prefetchDocFiles() {
+  if (prefetchRunning || !cloudConfigured()) return;
+  prefetchRunning = true;
+  try {
+    let have = new Set();
+    try { have = new Set(await fileStore("readonly", (st) => st.getAllKeys())); } catch (e) {}
+    // もう無い資料のファイルは端末からも消す
+    const live = new Set(docs.map((d) => d.fileId));
+    for (const k of have) if (!live.has(k)) dropDocBlob(k);
+    const todo = docs.filter((d) => d.fileId && !have.has(d.fileId) && !docBlobCache.has(d.fileId))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 60);
+    let i = 0;
+    const worker = async () => {
+      while (i < todo.length) {
+        const d = todo[i++];
+        if (document.hidden) return;
+        try { await getDocBlob(d.fileId); } catch (e) { /* 開いたときにもう一度取りに行く */ }
+      }
+    };
+    await Promise.all([worker(), worker()]);
+  } finally { prefetchRunning = false; }
+}
+const DOCS_CACHE_KEY = "meishi.docsCache"; // 資料の一覧の控え（開いてすぐ出すため）
 let openCoKey = null;
 let docTarget = null;          // 次に追加する資料のひもづけ先 { companyKey, company, cardId }
 const coKeyOf = (name) => normComp(name || "");
@@ -3869,10 +3944,12 @@ async function loadCompanyData() {
   try {
     const [d, c] = await Promise.all([cloudPost({ action: "docList" }), cloudPost({ action: "coList" })]);
     docs = d.docs || [];
+    try { lsSet(DOCS_CACHE_KEY, JSON.stringify(docs)); } catch (e) {}
     summarizeOldDocs();
+    prefetchDocFiles();
     coInfo.clear();
     for (const row of c.companies || []) coInfo.set(row.key, row);
-    if (lsGet(VIEW_KEY, "list") === "company") render();
+    render();
     if ($("coDialog").open && openCoKey != null) renderCompany(openCoKey);
     if ($("detailDialog").open && detailId) renderDetailDocs(cards.find((x) => x.id === detailId));
   } catch (e) { /* 資料の一覧が取れなくても名刺は使える */ }
@@ -4017,10 +4094,8 @@ function renderDocList(box, list, showPerson, viewer) {
     const el = document.createElement("div");
     el.className = "doc-item";
     el.innerHTML = `<span class="ic">${/pdf/.test(d.mime) ? "📄" : "🖼"}</span>
-      <div class="t"><div class="tt">${esc(d.title || "資料")}</div>${classifying.has(d.id) ? `<div class="sub">🤖 ${d.companyKey ? "内容をまとめ中…" : "会社を判定中…"}</div>` : ""}${d.note ? `<div class="note">${esc(d.note)}</div>` : ""}<div class="sub">${d.kind ? `<span class="doc-kind">${esc(d.kind)}</span>` : ""}${esc([fmtDate(new Date(d.createdAt || 0).toISOString().slice(0, 10)), scope, person && "👤 " + person.name].filter(Boolean).join("・"))}</div></div>
-      <button data-act="del" class="danger">削除</button>`;
+      <div class="t"><div class="tt">${esc(d.title || "資料")}</div>${classifying.has(d.id) ? `<div class="sub">🤖 ${d.companyKey ? "内容をまとめ中…" : "会社を判定中…"}</div>` : ""}${d.note ? `<div class="note">${esc(d.note)}</div>` : ""}<div class="sub">${d.kind ? `<span class="doc-kind">${esc(d.kind)}</span>` : ""}${esc([fmtDate(new Date(d.createdAt || 0).toISOString().slice(0, 10)), scope, person && "👤 " + person.name].filter(Boolean).join("・"))}</div></div>`;
     el.addEventListener("click", (e) => {
-      if (e.target.closest("button")) return deleteDoc(d);
       openDoc(d);
     });
     box.appendChild(el);
@@ -4185,6 +4260,7 @@ async function addDocs(files) {
         title: f.name || "資料", note: "", hint: t.hint || "", size, createdAt: now, updatedAt: now };
       const r = await cloudPost({ action: "docUpsert", doc, file: dataUrl });
       const saved = r.doc || doc;
+      if (saved.fileId) { try { keepDocBlob(saved.fileId, await dataURLToBlob(dataUrl)); } catch (e) {} } // 入れた端末ではすぐ開ける
       docs.push(saved);
       docNotices.push(saved.id);
       ok++;
@@ -4312,6 +4388,8 @@ async function deleteDoc(d) {
   try {
     await cloudPost({ action: "docDelete", id: d.id });
     docs = docs.filter((x) => x.id !== d.id);
+    if (d.fileId) dropDocBlob(d.fileId);
+    if (openDocRef === d && $("docDialog").open) { openDocRef = null; $("docLink").value = ""; $("docDialog").close(); }
     refreshDocViews();
     toast("削除しました");
   } catch (e) { alert("削除できませんでした: " + e.message); }
@@ -4459,12 +4537,8 @@ async function openDoc(d) {
   docShareBlob = null;
   $("docDialog").showModal();
   try {
-    let blob = docBlobCache.get(d.fileId);
-    if (!blob) {
-      const r = await cloudPost({ action: "docFile", fileId: d.fileId });
-      blob = await dataURLToBlob(r.dataUrl);
-      docBlobCache.set(d.fileId, blob);
-    }
+    const blob = await getDocBlob(d.fileId);
+    if (openDocRef !== d) return;
     const url = makeUrl(blob);
     docShareBlob = blob;
     if (/pdf/.test(blob.type || d.mime)) {
@@ -4728,6 +4802,7 @@ async function init() {
   $("coCloseBtn").addEventListener("click", () => $("coDialog").close());
   $("docCloseBtn").addEventListener("click", () => $("docDialog").close());
   setupZoom();
+  $("docDelete").addEventListener("click", () => { if (openDocRef) deleteDoc(openDocRef); });
   $("docLinkSave").addEventListener("click", saveDocLink);
   $("docLink").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveDocLink(); } });
   $("docLink").addEventListener("change", saveDocLink); // 候補から選んだとき・欄を離れたときも保存
