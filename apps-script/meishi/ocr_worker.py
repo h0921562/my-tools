@@ -51,7 +51,7 @@ PROMPT = """名刺画像 {path} を Read ツールで読み、次のキーだけ
 kana・companyKana・industry・corners・cards・side・text 以外で、読めない・載っていない項目は空文字にしてください（推測で埋めない）。"""
 
 
-DOC_FIELDS = ["company", "title", "summary", "person", "kind", "detail"]
+DOC_FIELDS = ["company", "title", "summary", "person", "kind", "detail", "products"]
 
 DOC_PROMPT = """資料ファイル {path} を Read ツールで読み、次のキーだけを持つ JSON を1つだけ出力してください。説明文は不要です。
 
@@ -68,7 +68,15 @@ DOC_PROMPT = """資料ファイル {path} を Read ツールで読み、次の�
   ■価格・取引条件（単価、最低ロット、卸値、送料、支払い条件、納期。金額と単位は資料のまま正確に）
   ■日付・期限（有効期限、開催日、締切）
   ■連絡先（担当者、電話、メール、URL）
-  資料にない情報を推測で書かないこと。数字・固有名詞は資料の表記どおりに写すこと"""
+  資料にない情報を推測で書かないこと。数字・固有名詞は資料の表記どおりに写すこと
+- products: この資料に載っている「仕入れられる商品」（抹茶・茶葉・食品原料など）の配列。商品が載っていなければ []。最大40件。
+  同じ商品でも容量・等級が違えば別の要素にする。各要素は次のキーを持つ（分からない項目は空文字。推測で埋めない）:
+  name（商品名。資料の表記どおり。容量や等級で区別が要るときは名前に含める）,
+  category（抹茶 / 茶葉 / デキストリン / 砂糖 / その他 のどれか。抹茶以外の茶は「茶葉」、茶道具・包装・サービスなどは「その他」）,
+  spec（容量・等級・用途・認証・特徴など。80文字以内。価格や金額は書かない）,
+  variety（品種）, origin（産地）, harvest（手摘み / 機械摘み）, milling（石臼 / 機械）, flush（一番茶・二番茶 など摘採時期）,
+  price（単価。金額と単位を資料のまま。例「3,800円/100g」。数量で変わるときは「10kg〜 9,500円/kg、50kg〜 9,000円/kg」のように書く）,
+  moq（最低注文量）, lead_time（納期）, code（品番）"""
 
 
 def api(payload):
@@ -130,7 +138,12 @@ def run_claude(img_path, kind="card", hint=""):
     if not m:
         raise RuntimeError("Claude の出力に JSON がありません")
     raw = json.loads(m.group(0))
-    return {k: str(raw.get(k) or "").strip() for k in fields if str(raw.get(k) or "").strip()}
+    out_fields = {k: str(raw.get(k) or "").strip() for k in fields if k != "products" and str(raw.get(k) or "").strip()}
+    if "products" in fields:
+        # 商品は配列のまま返す（商品なしでも「読んだが無かった」と分かるよう空の配列を返す）
+        items = raw.get("products")
+        out_fields["products"] = [p for p in items if isinstance(p, dict)][:40] if isinstance(items, list) else []
+    return out_fields
 
 
 def main():

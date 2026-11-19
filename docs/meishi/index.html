@@ -2132,7 +2132,7 @@ async function saveCard(e) {
         await pushCard(card, imageArg, backArg);
         card.synced = true;
         await putCard(card);
-        pushSalesDeskNow([card.id]); // 保存できたら、待たずに Sales Desk へ
+        pushSalesDeskNow([card.id], true); // 保存できたら、待たずに Sales Desk へ（登録済みなら直した内容を反映）
       } catch (e) {
         card.synced = false;
       }
@@ -2317,10 +2317,11 @@ async function pushAllSalesDesk() {
   for (let i = 0; i < ids.length; i += 50) await pushSalesDeskNow(ids.slice(i, i + 50));
   return ids.length;
 }
-async function pushSalesDeskNow(ids) {
+// edited: 登録済みの名刺を直したとき。直した内容を Sales Desk の関係者にも反映する（変わっていなければ保存先が何もしない）
+async function pushSalesDeskNow(ids, edited) {
   if (!cloudConfigured()) return;
   const list = ids.map((id) => cards.find((c) => c.id === id)).filter((c) => c && c.synced === true && c.company && c.name
-    && c.name !== NAME_PENDING && c.sdStatus !== "ok" && !String(c.sdStatus || "").startsWith("conflict"));
+    && c.name !== NAME_PENDING && (edited || c.sdStatus !== "ok") && !String(c.sdStatus || "").startsWith("conflict"));
   if (!list.length) return;
   try {
     const r = await cloudPost({ action: "sdPush", ids: list.map((c) => c.id) });
@@ -3961,7 +3962,8 @@ async function summarizeOldDocs() {
   if (oldDocsRunning || !cloudConfigured()) return;
   let tried = {};
   try { tried = JSON.parse(lsGet("meishi.docTried", "{}")) || {}; } catch (e) {}
-  const todo = docs.filter((d) => d.fileId && !d.detail && !classifying.has(d.id) && Date.now() - (tried[d.id] || 0) > 24 * 3600 * 1000);
+  // まとめがまだ無い資料と、商品をまだ読み取っていない資料（products が空。読んで商品が無かった資料は "[]"）
+  const todo = docs.filter((d) => d.fileId && (!d.detail || d.products === "") && !classifying.has(d.id) && Date.now() - (tried[d.id] || 0) > 24 * 3600 * 1000);
   if (!todo.length) return;
   oldDocsRunning = true;
   try {
@@ -4366,6 +4368,7 @@ async function classifyDoc(d, opts = {}) {
         if (patch.companyKey) toast(`資料を ${patch.company} に紐づけ、内容をまとめました`);
         else if (!matched) toast(`資料「${d.title}」の会社は判断できませんでした（未分類に置いています）`);
         else if (patch.detail) toast(`資料「${d.title}」の内容をまとめました`);
+        setTimeout(loadCompanyData, 4000); // 資料から読み取った商品（保存先が書く）を取り直す
         return;
       }
       if (r.status === "error" || r.status === "gone") break;
@@ -4521,6 +4524,18 @@ function setupZoom() {
   $("zoomOut").addEventListener("click", () => setZoom(zoomScale / 1.5));
   $("zoomClose").addEventListener("click", () => $("zoomDialog").close());
 }
+// 資料から読み取った商品（Sales Desk の商品の一覧に入れた結果つき）
+function docProductsHtml(d) {
+  let list = [];
+  try { list = JSON.parse(d.products || "[]"); } catch (e) {}
+  if (!Array.isArray(list) || !list.length) return "";
+  const st = String(d.sdProducts || "");
+  const state = st.startsWith("ok:") ? "✓ Sales Desk の商品に登録済み" + (st.split(":")[2] ? `（${st.split(":").slice(2).join(":")}）` : "")
+    : st.startsWith("error") ? "⚠ Sales Desk へ送れていません（あとで自動で送り直します）"
+    : d.companyKey ? "Sales Desk の商品へ送ります…" : "会社を紐づけると Sales Desk の商品に入ります";
+  return `<div class="dd-h">🍵 商品 ${list.length}件</div><div class="dd-l" style="color:var(--text-sub);font-size:12px">${esc(state)}</div>`
+    + list.map((p) => `<div class="dd-l">・${esc(p.name)}${p.price ? `　${esc(p.price)}` : ""}</div>`).join("");
+}
 async function openDoc(d) {
   openDocRef = d;
   fillDocLink(d);
@@ -4529,7 +4544,7 @@ async function openDoc(d) {
   $("docSub").textContent = [d.kind, d.company, d.size && fmtSize(d.size)].filter(Boolean).join("・");
   // まとめ（要約と抜き出した内容）を資料の上に出す
   const sum = $("docSummary");
-  sum.innerHTML = (d.note ? `<div class="dd-note">${esc(d.note)}</div>` : "") + docDetailHtml(d.detail)
+  sum.innerHTML = docProductsHtml(d) + (d.note ? `<div class="dd-note">${esc(d.note)}</div>` : "") + docDetailHtml(d.detail)
     || (classifying.has(d.id) ? `<div class="dd-l">🤖 内容をまとめています…（1分ほど）</div>` : `<div class="dd-l">まだ内容のまとめがありません。「🤖 判定・まとめ直す」でまとめられます。</div>`);
   sum.hidden = false;
   const view = $("docView");

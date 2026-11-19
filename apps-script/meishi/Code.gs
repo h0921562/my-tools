@@ -21,10 +21,11 @@ const IMAGE_FOLDER_NAME = '名刺管理_画像';
 // 列の並び（見出し行の名前で列を探すので、後から列を足しても壊れない）
 const COLS = ['id', 'name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address',
   'website', 'industry', 'metAt', 'metPlace', 'folder', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt', 'sdStatus',
-  'backFileId']; // backFileId: 名刺の裏面の画像
+  'backFileId', // backFileId: 名刺の裏面の画像
+  'sdSent'];     // sdSent: Sales Desk に最後に送った内容（名刺を直したときに、変わった所だけ反映するための控え）
 const NUMBER_COLS = { createdAt: true, updatedAt: true };
 // sdStatus はサーバーだけが書く（アプリからの保存では上書きしない）
-const SERVER_ONLY_COLS = { sdStatus: true };
+const SERVER_ONLY_COLS = { sdStatus: true, sdSent: true };
 
 /* ================= 合鍵の確認 ================= */
 
@@ -183,7 +184,7 @@ function listCards_() {
   const ci = colIndex_(sh);
   return sh.getRange(2, 1, n, ci.width).getValues()
     .filter(function (r) { return ci.idx.id >= 0 && r[ci.idx.id]; })
-    .map(function (r) { return rowToCard_(r, ci.idx); });
+    .map(function (r) { const c = rowToCard_(r, ci.idx); delete c.sdSent; return c; });
 }
 
 function findRow_(sh, idCol, id) {
@@ -373,6 +374,10 @@ function opusResult_(id, fields, error) {
     keys.forEach(function (k) { if (fields[k]) clean[k] = String(fields[k]).slice(0, k === 'detail' ? 2500 : k === 'text' ? 1200 : k === 'cards' ? 1500 : 300); });
   }
   setJob_(id, { status: error ? 'error' : 'done', fields: clean, error: error ? String(error).slice(0, 200) : '', at: job.at });
+  // 資料に載っていた商品は、資料の行に直接書く（長いのでジョブの一時保存には入れない）。会社が決まっていれば Sales Desk の商品へ
+  if (job.kind === 'doc' && !error && fields && typeof fields === 'object') {
+    try { saveDocProducts_(job.fileId, fields.products); } catch (e) { /* 読み取り結果の受け取りは止めない */ }
+  }
   return { ok: true };
 }
 
@@ -407,7 +412,9 @@ function cleanupJobs_() {
  *       companyKey（会社名を正規化したもの）で会社に、cardId で名刺（人）にひもづく。
  * 会社: 会社ごとのメモ。key は companyKey。
  */
-const DOC_TABLE = { tab: '資料', key: 'id', cols: ['id', 'companyKey', 'company', 'cardId', 'title', 'fileId', 'mime', 'size', 'note', 'createdAt', 'updatedAt', 'kind', 'detail', 'hint', 'memo'], nums: { size: true, createdAt: true, updatedAt: true } };
+const DOC_TABLE = { tab: '資料', key: 'id', cols: ['id', 'companyKey', 'company', 'cardId', 'title', 'fileId', 'mime', 'size', 'note', 'createdAt', 'updatedAt', 'kind', 'detail', 'hint', 'memo',
+  'products', 'sdProducts'], // products: 資料から読み取った商品（JSON）。sdProducts: Sales Desk の商品へ送った結果。どちらもサーバーだけが書く
+  nums: { size: true, createdAt: true, updatedAt: true } };
 const CO_TABLE = { tab: '会社', key: 'key', cols: ['key', 'name', 'memo', 'updatedAt'], nums: { updatedAt: true } };
 const DOC_FOLDER_NAME = '名刺管理_資料';
 const DOC_MAX_BYTES = 25 * 1024 * 1024;
@@ -494,7 +501,10 @@ function docUpsert_(doc, file) {
     doc.mime = m[1];
     doc.size = bytes.length;
   }
+  delete doc.products; delete doc.sdProducts; // サーバーだけが書く
   tableUpsert_(DOC_TABLE, doc);
+  // 会社が決まった・変わったときに、読み取ってある商品を Sales Desk の商品へ
+  try { pushDocProducts_(doc.id); } catch (e) { /* 資料の保存は止めない */ }
   return { ok: true, doc: doc };
 }
 
@@ -544,6 +554,71 @@ function opusStartFile_(fileId, hint) {
   return { ok: true, id: id };
 }
 
+/* ================= 資料の商品を Sales Desk の商品へ =================
+ * Opus が資料（価格表・カタログ）から読み取った商品を、資料の行の products 列に JSON で持つ。
+ * 会社が決まっている資料は、Sales Desk の商品の一覧へ送る（仕入先＝その会社。仕入れ値は仕入先ごとの価格に入る）。
+ * 送った結果は sdProducts 列（ok:<内容の印>:<結果>）。会社や商品が変わったら送り直す。Sales Desk は同じ商品を二重に入れない。
+ */
+const DOC_PRODUCT_KEYS = ['name', 'category', 'spec', 'variety', 'origin', 'harvest', 'milling', 'flush', 'price', 'moq', 'lead_time', 'code'];
+const DOC_PRODUCT_MAX = { name: 160, category: 40, spec: 600 };
+function cleanDocProducts_(raw) {
+  let list = raw;
+  if (typeof list === 'string') { try { list = JSON.parse(list); } catch (e) { list = []; } }
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  list.slice(0, 60).forEach(function (p) {
+    if (!p || typeof p !== 'object') return;
+    const o = {};
+    DOC_PRODUCT_KEYS.forEach(function (k) { const v = String(p[k] == null ? '' : p[k]).trim().slice(0, DOC_PRODUCT_MAX[k] || 100); if (v) o[k] = v; });
+    if (o.name) out.push(o);
+  });
+  return out;
+}
+function saveDocProducts_(fileId, raw) {
+  const tb = table_(DOC_TABLE);
+  const rowNo = tableFindRow_(tb, 'fileId', fileId);
+  if (rowNo <= 0) return;
+  tb.sh.getRange(rowNo, tb.idx.products + 1).setNumberFormat('@').setValue(JSON.stringify(cleanDocProducts_(raw)));
+  pushDocProducts_(String(tb.sh.getRange(rowNo, tb.idx.id + 1).getValue()));
+}
+function pushDocProducts_(docId) {
+  if (!sdAuthReady_()) return;
+  const tb = table_(DOC_TABLE);
+  const rowNo = tableFindRow_(tb, 'id', docId);
+  if (rowNo <= 0) return;
+  const row = tb.sh.getRange(rowNo, 1, 1, tb.width).getValues()[0];
+  const get = function (k) { return String(row[tb.idx[k]] == null ? '' : row[tb.idx[k]]); };
+  const company = get('company').trim(), products = cleanDocProducts_(get('products'));
+  if (!company || !get('companyKey') || !products.length) return;
+  const digest = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, company + '|' + JSON.stringify(products), Utilities.Charset.UTF_8)).slice(0, 12);
+  if (get('sdProducts').indexOf('ok:' + digest) === 0) return;
+  const base = (PropertiesService.getScriptProperties().getProperty('SALES_DESK_URL') || SALES_DESK_URL_DEFAULT).replace(/\/+$/, '');
+  const body = JSON.stringify({
+    doc_id: docId, company: company.slice(0, 160), title: get('title').slice(0, 160),
+    doc_url: get('fileId') ? 'https://drive.google.com/file/d/' + get('fileId') + '/view' : '', products: products,
+  });
+  const res = UrlFetchApp.fetch(base + '/api/meishi-intake/products', {
+    method: 'post', contentType: 'application/json; charset=utf-8', headers: sdHeaders_(body),
+    payload: Utilities.newBlob(body).getBytes(), muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  let text = 'error:' + code;
+  if (code === 200) { let msg = ''; try { msg = JSON.parse(res.getContentText()).message || ''; } catch (e) {} text = 'ok:' + digest + ':' + msg; }
+  else if (code === 400) text = 'error:400:' + res.getContentText().slice(0, 150);
+  tb.sh.getRange(rowNo, tb.idx.sdProducts + 1).setNumberFormat('@').setValue(text.slice(0, 300));
+}
+// 送りそびれた資料の商品を拾う（アプリが使われるたび・45秒に1回まで。1回に3件まで）
+function pushPendingDocProducts_() {
+  const rows = tableList_(DOC_TABLE);
+  let n = 0;
+  rows.forEach(function (d) {
+    if (n >= 3 || !d.companyKey || !d.company || !d.products || d.products === '[]') return;
+    if (d.sdProducts.indexOf('ok:') === 0 || d.sdProducts.indexOf('error:400') === 0) return;
+    n++;
+    try { pushDocProducts_(d.id); } catch (e) { /* 次の機会に */ }
+  });
+}
+
 /* ================= Sales Desk の共通マスターへ自動登録 =================
  * 会社名のある名刺を、Sales Desk に自動で送る（全件マスターへ、業態に合う事業へ。抹茶なら抹茶の営業リスト）。
  * ふだんは、アプリが「読み取りが終わった・保存した」時点で sdPush を呼び、その名刺をすぐ送る。
@@ -562,6 +637,7 @@ function maybePushSalesDesk_() {
     if (cache.get('sdPushLock')) return;
     cache.put('sdPushLock', '1', 45);
     pushSalesDesk_();
+    pushPendingDocProducts_();
   } catch (e) { /* 名刺の操作は止めない */ }
 }
 
@@ -585,6 +661,22 @@ function sdHeaders_(body) {
   return { 'X-Meishi-Time': time, 'X-Meishi-Signature': Utilities.base64Encode(sig) };
 }
 
+function sdItem_(c) {
+  return {
+    card_id: c.id, company: c.company, name: c.name === '（氏名を確認）' ? '' : c.name, title: c.title,
+    email: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.email) ? c.email : '', phone: c.phone, website: c.website,
+    address: String(c.address || '').slice(0, 300), met: [c.metAt, c.metPlace].filter(String).join(' ').slice(0, 300),
+    memo: String(c.memo || '').slice(0, 1500), card_url: c.imageFileId ? 'https://drive.google.com/file/d/' + c.imageFileId + '/view' : '',
+    industry: String(c.industry || '').slice(0, 80), project: c.folder || '',
+  };
+}
+// Sales Desk の関係者に入る項目だけの控え（この内容が変わったら送り直す）
+function sdSentText_(item) {
+  const o = {};
+  ['name', 'title', 'email', 'phone', 'met', 'memo', 'card_url'].forEach(function (k) { o[k] = String(item[k] || '').trim(); });
+  return JSON.stringify(o);
+}
+
 // ids を渡すと、その名刺だけを待ち時間なしで送る。返り値の statuses は 名刺ID → 結果（ok / conflict:… / error:…）
 function pushSalesDesk_(ids, force) {
   const only = ids && ids.length ? {} : null;
@@ -602,24 +694,24 @@ function pushSalesDesk_(ids, force) {
   rows.forEach(function (r, i) {
     const c = rowToCard_(r, ci.idx);
     const status = String(r[ci.idx.sdStatus] || '');
-    if (!(force && only) && (status === 'ok' || status.indexOf('conflict') === 0)) return;
     if (!c.company || !c.name || c.name === '（読み取り中）') return;
-    if (only) { if (!only[c.id]) return; }
-    else if (now - (c.updatedAt || 0) < SD_SETTLE_MS) return; // 読み取りの途中かもしれないので少し待つ
-    pending.push({ row: i + 2, card: c });
+    if (only && !only[c.id]) return;
+    const item = sdItem_(c), sent = ci.idx.sdSent >= 0 ? String(r[ci.idx.sdSent] || '') : '';
+    if (!(force && only)) {
+      if (status.indexOf('conflict') === 0) return;
+      // 登録済みの名刺は、最後に送った内容から変わったときだけ送り直す（控えがまだ無い名刺は一度送って控えを作る）
+      if (status === 'ok' && ci.idx.sdSent >= 0 && sent === sdSentText_(item)) return;
+      if (status === 'ok' && ci.idx.sdSent < 0) return;
+    }
+    if (!only && now - (c.updatedAt || 0) < SD_SETTLE_MS) return; // 読み取り・編集の途中かもしれないので少し待つ
+    let prev = null;
+    if (status === 'ok' && sent) { try { prev = JSON.parse(sent); } catch (e) { prev = null; } }
+    if (prev) item.prev = prev;
+    pending.push({ row: i + 2, card: c, item: item });
   });
   if (!pending.length) return { sent: 0 };
   const batch = pending.slice(0, 50);
-  const items = batch.map(function (p) {
-    const c = p.card;
-    return {
-      card_id: c.id, company: c.company, name: c.name === '（氏名を確認）' ? '' : c.name, title: c.title,
-      email: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.email) ? c.email : '', phone: c.phone, website: c.website,
-      address: String(c.address || '').slice(0, 300), met: [c.metAt, c.metPlace].filter(String).join(' ').slice(0, 300),
-      memo: String(c.memo || '').slice(0, 1500), card_url: c.imageFileId ? 'https://drive.google.com/file/d/' + c.imageFileId + '/view' : '',
-      industry: String(c.industry || '').slice(0, 80), project: c.folder || '',
-    };
-  });
+  const items = batch.map(function (p) { return p.item; });
   const send = function (list) {
     const body = JSON.stringify({ items: list });
     return UrlFetchApp.fetch(base + '/api/meishi-intake/auto', {
@@ -637,7 +729,10 @@ function pushSalesDesk_(ids, force) {
     (results || []).forEach(function (x) { byId[x.card_id] = x; });
     batch.forEach(function (p) {
       const x = byId[p.card.id];
-      if (x) mark(p.row, x.status === 'conflict' ? 'conflict:' + (x.candidates || []).join('、') : 'ok', p.card.id);
+      if (!x) return;
+      mark(p.row, x.status === 'conflict' ? 'conflict:' + (x.candidates || []).join('、') : 'ok', p.card.id);
+      // 送った内容を控える（次に名刺を直したとき、Sales Desk 側で手直ししていない項目だけを置き換えるため）
+      if (x.status !== 'conflict' && ci.idx.sdSent >= 0) sh.getRange(p.row, ci.idx.sdSent + 1).setNumberFormat('@').setValue(sdSentText_(p.item));
     });
   };
   const res = send(items);
