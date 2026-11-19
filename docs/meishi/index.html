@@ -396,7 +396,14 @@
     padding: 9px 10px; border-radius: 6px; font-size: 14px;
   }
   .menu button:hover { background: var(--bg); }
+  .kind-bar { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 8px; -webkit-overflow-scrolling: touch; }
+  .kind-bar button { flex: 0 0 auto; font-size: 12px; padding: 4px 12px; border-radius: 999px; }
+  .kind-bar button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .doc-group { cursor: pointer; }
+  .menu .seg button { padding-left: 4px; padding-right: 4px; font-size: 12px; white-space: nowrap; }
   .menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+  .menu-more summary { padding: 9px 10px; font-size: 13px; color: var(--text-sub); cursor: pointer; border-top: 1px solid var(--border); margin-top: 4px; }
+  .menu-more button { padding-left: 22px; }
 
   /* ---------- 詳細のアクション ---------- */
   .detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
@@ -519,6 +526,7 @@
             <button id="viewList" title="リスト表示">☰ リスト</button>
             <button id="viewGrid" title="カード表示">▦ カード</button>
             <button id="viewCompany" title="会社ごとに見る（会社データベース）">🏢 会社</button>
+            <button id="viewDocs" title="資料を会社ごとにまとめて見る">📎 資料</button>
           </div>
           <select id="sortSelect" title="並び替え">
             <option value="updated">更新が新しい順</option>
@@ -528,21 +536,17 @@
           </select>
         </div>
         <hr>
-        <button data-act="sync" id="menuSync" hidden>☁ 今すぐ同期</button>
         <button data-act="folders">📁 プロジェクトを整理</button>
-        <button data-act="docs">📎 資料を追加（会社は自動で判定）</button>
-        <button data-act="salesdesk">📤 未登録の名刺を今すぐ Sales Desk に送る（通常は自動）</button>
-        <hr>
         <button data-act="dups">🔍 重複をチェック・統合</button>
-        <hr>
-        <button data-act="vcf">📇 表示中を連絡先ファイル(vCard)に</button>
-        <button data-act="csv">📊 表示中をCSVに書き出し</button>
-        <hr>
-        <button data-act="export">💾 バックアップを書き出し(JSON)</button>
-        <button data-act="import">📂 バックアップから読み込み</button>
-        <hr>
-        <button data-act="crop" id="cropToggle">✂ 自動トリミング：オン</button>
-        <button data-act="cfg">⚙ クラウド保存の設定</button>
+        <button data-act="vcf">📇 連絡先に書き出す</button>
+        <details class="menu-more">
+          <summary>その他</summary>
+          <button data-act="csv">📊 CSVに書き出し</button>
+          <button data-act="export">💾 バックアップを書き出し</button>
+          <button data-act="import">📂 バックアップから読み込み</button>
+          <button data-act="crop" id="cropToggle">✂ 自動トリミング：オン</button>
+          <button data-act="cfg">⚙ クラウド保存の設定</button>
+        </details>
       </div>
     </div>
     <input type="file" id="importFile" accept="application/json,.json">
@@ -1599,10 +1603,12 @@ function render() {
   $("stats").textContent = $("searchBox").value.trim() ? `${list.length}件` : "";
 
   const view = lsGet(VIEW_KEY, "list");
-  grid.classList.toggle("list", view === "list" || view === "company");
+  grid.classList.toggle("list", view === "list" || view === "company" || view === "docs");
   $("viewGrid").classList.toggle("on", view === "grid");
   $("viewList").classList.toggle("on", view === "list");
   $("viewCompany").classList.toggle("on", view === "company");
+  $("viewDocs").classList.toggle("on", view === "docs");
+  if (view === "docs") { renderDocsView(); renderTagBar(); renderFolderUI(); return; }
   if (view === "company") { renderCompanyList(list); renderTagBar(); renderFolderUI(); return; }
 
   // 会社ごと表示: 会社名の見出しで区切る（会社名なしは最後にまとめる）
@@ -1644,6 +1650,47 @@ function render() {
   grid.appendChild(frag);
   renderTagBar();
   renderFolderUI();
+}
+
+/* ---------- 資料の一覧（会社ごとにまとめて、全社を横断して見る） ---------- */
+let docKindFilter = "";
+function renderDocsView() {
+  const grid = $("cardGrid"), empty = $("empty");
+  const q = $("searchBox").value.trim().toLowerCase();
+  const kinds = [...new Set(docs.map((d) => d.kind).filter(Boolean))];
+  if (docKindFilter && !kinds.includes(docKindFilter)) docKindFilter = "";
+  const list = docs.filter((d) => (!docKindFilter || d.kind === docKindFilter)
+    && (!q || [d.title, d.company, d.kind, d.note, d.detail, d.memo].some((v) => String(v || "").toLowerCase().includes(q))));
+  $("stats").textContent = q || docKindFilter ? `${list.length}件` : "";
+  empty.hidden = list.length > 0;
+  if (!list.length) empty.textContent = docs.length ? "該当する資料がありません。" : "資料がまだありません。＋ の「📎 資料を追加」から入れられます。";
+  if (kinds.length > 1) {
+    const bar = document.createElement("div");
+    bar.className = "kind-bar";
+    bar.innerHTML = ["", ...kinds].map((k) => `<button type="button" data-k="${esc(k)}" class="${k === docKindFilter ? "on" : ""}">${esc(k || "すべて")}</button>`).join("");
+    bar.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; docKindFilter = b.dataset.k; render(); });
+    grid.appendChild(bar);
+  }
+  const groups = new Map();
+  for (const d of list) {
+    const k = d.companyKey || "";
+    if (!groups.has(k)) groups.set(k, { key: k, name: d.company || "", docs: [], last: 0 });
+    const g = groups.get(k);
+    g.docs.push(d); g.last = Math.max(g.last, d.createdAt || 0);
+    if (!g.name && d.company) g.name = d.company;
+  }
+  const sorted = [...groups.values()].sort((a, b) => (!a.key) - (!b.key) || b.last - a.last);
+  for (const g of sorted) {
+    g.docs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const h = document.createElement("div");
+    h.className = "group-head doc-group";
+    h.innerHTML = `${esc(g.key ? g.name || "会社" : "未分類（会社が決まっていない資料）")}<span class="cnt">${g.docs.length}件${g.key ? " ›" : ""}</span>`;
+    if (g.key) h.addEventListener("click", () => openCompany(g.key, g.name));
+    grid.appendChild(h);
+    const box = document.createElement("div");
+    renderDocList(box, g.docs, true, null);
+    grid.appendChild(box);
+  }
 }
 
 function renderTagBar() { activeTag = null; } // タグはプロジェクトに置き換えた
@@ -2434,7 +2481,7 @@ function updateSyncUI() {
   const bar = $("syncBar");
   // 同期できているときは何も出さない（問題があるときだけ知らせる）。手動の同期は ☰ メニューから。
   $("cloudSyncBtn").hidden = true;
-  $("menuSync").hidden = !cloudConfigured();
+
   // 常にクラウド保存: つながっていない端末では、つなぐ画面を全面に出す
   const gated = !cloudConfigured();
   $("cloudGate").hidden = !gated;
@@ -4677,6 +4724,7 @@ async function init() {
   $("viewGrid").addEventListener("click", () => { lsSet(VIEW_KEY, "grid"); render(); });
   $("viewList").addEventListener("click", () => { lsSet(VIEW_KEY, "list"); render(); });
   $("viewCompany").addEventListener("click", () => { lsSet(VIEW_KEY, "company"); render(); loadCompanyData(); });
+  $("viewDocs").addEventListener("click", () => { lsSet(VIEW_KEY, "docs"); render(); });
   $("coCloseBtn").addEventListener("click", () => $("coDialog").close());
   $("docCloseBtn").addEventListener("click", () => $("docDialog").close());
   setupZoom();
@@ -4812,6 +4860,7 @@ async function init() {
   $("menuBtn").addEventListener("click", (e) => {
     e.stopPropagation();
     menu.hidden = !menu.hidden;
+    menu.querySelector(".menu-more").open = false;
     $("menuBtn").setAttribute("aria-expanded", String(!menu.hidden));
   });
   document.addEventListener("click", (e) => { if (!menu.hidden && !menu.contains(e.target)) closeMenu(); });
