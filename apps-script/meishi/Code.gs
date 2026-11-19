@@ -581,8 +581,14 @@ function saveDocProducts_(fileId, raw) {
   tb.sh.getRange(rowNo, tb.idx.products + 1).setNumberFormat('@').setValue(JSON.stringify(cleanDocProducts_(raw)));
   pushDocProducts_(String(tb.sh.getRange(rowNo, tb.idx.id + 1).getValue()));
 }
+// 同じ資料を同時に2回送らないよう、1つずつ送る（読み取りの完了と、送りそびれの拾い直しが重なることがある）
 function pushDocProducts_(docId) {
   if (!sdAuthReady_()) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(25000)) return; // 混んでいるときは次の機会に（送りそびれは後で拾う）
+  try { pushDocProductsLocked_(docId); } finally { lock.releaseLock(); }
+}
+function pushDocProductsLocked_(docId) {
   const tb = table_(DOC_TABLE);
   const rowNo = tableFindRow_(tb, 'id', docId);
   if (rowNo <= 0) return;
