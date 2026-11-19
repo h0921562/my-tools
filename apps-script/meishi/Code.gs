@@ -588,7 +588,8 @@ function pushDocProducts_(docId) {
   if (rowNo <= 0) return;
   const row = tb.sh.getRange(rowNo, 1, 1, tb.width).getValues()[0];
   const get = function (k) { return String(row[tb.idx[k]] == null ? '' : row[tb.idx[k]]); };
-  const company = get('company').trim(), products = cleanDocProducts_(get('products'));
+  // 「その他」（加工品・茶道具・サービスなど）は Sales Desk の商品（原料）には入れない
+  const company = get('company').trim(), products = cleanDocProducts_(get('products')).filter(function (p) { return p.category !== 'その他'; });
   if (!company || !get('companyKey') || !products.length) return;
   const digest = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, company + '|' + JSON.stringify(products), Utilities.Charset.UTF_8)).slice(0, 12);
   if (get('sdProducts').indexOf('ok:' + digest) === 0) return;
