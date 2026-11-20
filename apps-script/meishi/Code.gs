@@ -22,7 +22,8 @@ const IMAGE_FOLDER_NAME = '名刺管理_画像';
 const COLS = ['id', 'name', 'kana', 'company', 'companyKana', 'title', 'phone', 'email', 'address',
   'website', 'industry', 'metAt', 'metPlace', 'folder', 'tags', 'memo', 'imageFileId', 'createdAt', 'updatedAt', 'sdStatus',
   'backFileId', // backFileId: 名刺の裏面の画像
-  'sdSent'];     // sdSent: Sales Desk に最後に送った内容（名刺を直したときに、変わった所だけ反映するための控え）
+  'sdSent',      // sdSent: Sales Desk に最後に送った内容（名刺を直したときに、変わった所だけ反映するための控え）
+  'face'];       // face: 顔写真（小さな正方形の JPEG を dataURL で。1マスに収まる大きさ）
 const NUMBER_COLS = { createdAt: true, updatedAt: true };
 // sdStatus はサーバーだけが書く（アプリからの保存では上書きしない）
 const SERVER_ONLY_COLS = { sdStatus: true, sdSent: true };
@@ -238,6 +239,12 @@ function upsertCard_(card, image, back) {
     if (k === 'imageFileId') row[i] = imageFileId;
     else if (k === 'backFileId') row[i] = backFileId;
     else if (k === 'tags') row[i] = (card.tags || []).map(String).join(', ');
+    else if (k === 'face') {
+      // 顔写真は小さな JPEG/PNG の dataURL だけ受け取る（それ以外・大きすぎるものは今のまま）
+      if (card.face === undefined) return;
+      const f = String(card.face || '');
+      if (!f || (/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(f) && f.length <= 48000)) row[i] = f;
+    }
     else if (card[k] !== undefined) row[i] = card[k] == null ? '' : String(card[k]);
   });
 

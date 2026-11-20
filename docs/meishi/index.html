@@ -239,6 +239,12 @@
     border-radius: 50%; color: #fff; font-weight: 700; flex-shrink: 0;
   }
   .card .thumb-placeholder .avatar { width: 56px; height: 56px; font-size: 24px; }
+  img.avatar.face { object-fit: cover; background: var(--surface); }
+  .card .row-face { display: none; }
+  #cardGrid.list .card .row-face { display: inline-flex; margin-right: -2px; }
+  .card { position: relative; }
+  #cardGrid.list .card .face-badge { display: none; }
+  .card .face-badge { position: absolute; left: 6px; top: 6px; width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; object-fit: cover; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
   .card .met { color: var(--text-sub); font-size: 11px; margin-top: 4px; }
   /* リスト表示（スマホで件数を多く見る用） */
   #cardGrid.list { grid-template-columns: 1fr; gap: 0; }
@@ -407,7 +413,16 @@
 
   /* ---------- 詳細のアクション ---------- */
   .detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
-  .detail-head .avatar { width: 44px; height: 44px; font-size: 18px; }
+  .detail-head .avatar { width: 56px; height: 56px; font-size: 22px; }
+  .face-wrap { position: relative; flex-shrink: 0; cursor: pointer; border: 0; padding: 0; background: none; border-radius: 50%; }
+  .face-wrap .face-cam { position: absolute; right: -4px; bottom: -4px; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); font-size: 12px; display: flex; align-items: center; justify-content: center; }
+  .face-menu { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 6px; }
+  .face-menu button { font-size: 13px; padding: 6px 12px; }
+  #faceDialog { width: min(420px, 100vw); }
+  #faceStage { position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; background: #111; border-radius: 10px; touch-action: none; user-select: none; }
+  #faceStage img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; pointer-events: none; }
+  #faceStage .ring { position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 9999px rgba(0,0,0,.55); pointer-events: none; outline: 2px solid rgba(255,255,255,.8); outline-offset: -2px; }
+  #faceZoom { width: 100%; margin: 10px 0 2px; }
   .detail-head h2 { margin: 0 !important; }
   .detail-sub { color: var(--text-sub); font-size: 13px; margin: 2px 0 12px; }
   .actions-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 8px; margin: 4px 0 16px; }
@@ -665,11 +680,20 @@
     <div class="detail-img-loading" id="detailImgLoading" hidden>名刺画像を読み込み中…</div>
     <button type="button" id="detailBackBtn" hidden>＋ 裏面を追加</button>
     <div class="detail-head">
-      <span class="avatar" id="detailAvatar"></span>
+      <button type="button" class="face-wrap" id="detailFaceBtn" title="顔写真"><span id="detailAvatarBox"></span><span class="face-cam">📷</span></button>
       <div>
         <h2 id="detailName"></h2>
       </div>
     </div>
+    <div class="face-menu" id="detailFaceMenu" hidden>
+      <button type="button" id="faceShoot">📷 撮る</button>
+      <button type="button" id="facePick">🖼 写真から選ぶ</button>
+      <button type="button" id="faceFromCard">🪪 名刺の写真から</button>
+      <button type="button" id="faceView">🔍 大きく見る</button>
+      <button type="button" id="faceRemove" class="danger">外す</button>
+    </div>
+    <input type="file" id="faceCam" accept="image/*" capture="user" hidden>
+    <input type="file" id="faceFile" accept="image/*" hidden>
     <div class="detail-sub" id="detailSub"></div>
     <div class="actions-row" id="detailActions"></div>
     <button class="co-link" id="detailCoLink" hidden>🏢 <span></span> の会社ページ</button>
@@ -726,6 +750,19 @@
       <button type="button" id="docDelete" class="danger" style="margin-right:auto">🗑 削除</button>
       <button type="button" id="docShare">📤 保存・共有</button>
       <button class="primary" id="docCloseBtn">閉じる</button>
+    </div>
+  </div>
+</dialog>
+<!-- 顔写真の切り抜き -->
+<dialog id="faceDialog">
+  <div class="dialog-body">
+    <h2 style="margin:0 0 8px">顔写真</h2>
+    <div class="cfg-hint" style="margin:0 0 8px">指で動かして、丸の中に顔を合わせてください（2本指・下のつまみで拡大）</div>
+    <div id="faceStage"><img id="faceImg" alt=""><div class="ring"></div></div>
+    <input type="range" id="faceZoom" min="1" max="5" step="0.01" value="1">
+    <div class="dialog-actions">
+      <button type="button" id="faceCancel">やめる</button>
+      <button type="button" class="primary" id="faceSave">この顔写真にする</button>
     </div>
   </div>
 </dialog>
@@ -944,7 +981,7 @@ function lsGet(k, d) { try { const v = localStorage.getItem(k); return v == null
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 
 // 後から追加した項目（古いデータ・バックアップ・クラウドには無いことがある）
-const EXTRA_FIELDS = ["website", "metAt", "metPlace", "folder", "industry", "sdStatus"];
+const EXTRA_FIELDS = ["website", "metAt", "metPlace", "folder", "industry", "sdStatus", "face"]; // face: 顔写真（小さな正方形の画像を dataURL で）
 
 let toastTimer = null;
 function toast(msg) {
@@ -961,9 +998,11 @@ function avatarColor(s) {
   for (const ch of String(s || "?")) h = (h * 31 + ch.codePointAt(0)) >>> 0;
   return `hsl(${h % 360} 55% 48%)`;
 }
-function avatarHtml(c) {
+function avatarHtml(c, size) {
+  const st = size ? `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.44)}px;` : "";
+  if (c.face) return `<img class="avatar face" src="${esc(c.face)}" alt="" style="${st}">`;
   const ch = esc(Array.from((c.name || "?").trim())[0] || "?");
-  return `<span class="avatar" style="background:${avatarColor(c.name)}">${ch}</span>`;
+  return `<span class="avatar" style="${st}background:${avatarColor(c.name)}">${ch}</span>`;
 }
 function fmtDate(ymd) {
   if (!ymd) return "";
@@ -1631,7 +1670,7 @@ function render() {
     el.className = "card" + (cloudConfigured() && c.synced !== true ? " unsynced" : "");
     el.dataset.id = c.id;
     const thumb = c.image
-      ? `<img class="thumb" src="${makeUrl(c.image)}" alt="" loading="lazy">`
+      ? `<img class="thumb" src="${makeUrl(c.image)}" alt="" loading="lazy">${c.face ? `<img class="face-badge" src="${esc(c.face)}" alt="">` : ""}`
       : `<div class="thumb-placeholder">${avatarHtml(c)}</div>`;
     // 会社ごと表示では見出しに会社名があるので役職だけ出す
     const sub = grouped ? c.title : [c.company, c.title].filter(Boolean).join(" / ");
@@ -1640,6 +1679,7 @@ function render() {
     const metHtml = `<span class="met-ic">🤝 </span>${esc(metDate)}${c.metPlace ? `<span class="met-place">${metDate ? "・" : ""}${esc(c.metPlace)}</span>` : ""}`;
     el.innerHTML = `
       ${thumb}
+      <span class="row-face">${avatarHtml(c, 28)}</span>
       <div class="info">
         <div class="name">${esc(c.name)}</div>
         <div class="company">${esc(sub)}</div>
@@ -1716,10 +1756,10 @@ function openDetail(id) {
   if (c.back) { bimg.src = makeUrl(c.back); bimg.hidden = false; }
   else { bimg.hidden = true; bimg.removeAttribute("src"); if (c.backFileId && cloudConfigured()) fetchDetailBack(c); }
   $("detailBackBtn").hidden = !!(c.back || c.backFileId);
-  const av = $("detailAvatar");
-  av.textContent = Array.from((c.name || "?").trim())[0] || "?";
-  av.style.background = avatarColor(c.name);
-  av.hidden = !!c.image; // 画像があるときはアバター不要
+  $("detailAvatarBox").innerHTML = avatarHtml(c, 56);
+  $("detailFaceMenu").hidden = true;
+  $("faceView").hidden = $("faceRemove").hidden = !c.face;
+  $("faceFromCard").hidden = !(c.image || c.src);
   $("detailName").textContent = c.name + (c.kana ? `（${c.kana}）` : "");
   $("detailSub").textContent = [c.company, c.title].filter(Boolean).join(" ／ ");
 
@@ -1837,6 +1877,9 @@ async function cardToVcard(c, withPhoto) {
     c.memo || "",
   ].filter(Boolean).join("\n");
   if (note) L.push(`NOTE:${vcfEsc(note)}`);
+  // 顔写真があれば連絡先の写真にも入れる（vCard は75文字ごとに折り返す）
+  const fm = /^data:image\/(jpeg|png);base64,(.+)$/.exec(c.face || "");
+  if (fm) L.push(`PHOTO;ENCODING=b;TYPE=${fm[1] === "png" ? "PNG" : "JPEG"}:${fm[2]}`.replace(/(.{75})/g, "$1\r\n "));
   if (withPhoto && c.image) {
     try {
       const b64 = (await blobToDataURL(c.image)).split(",")[1];
@@ -2101,6 +2144,7 @@ async function saveCard(e) {
       imageFileId: existing?.imageFileId || "",
       backFileId: pendingBack === undefined ? (existing?.backFileId || "") : "",
       sdStatus: existing?.sdStatus || "",
+      face: existing?.face || "",
       createdAt: existing?.createdAt || now,
       updatedAt: now,
       synced: false,
@@ -2293,7 +2337,7 @@ function cardMeta(c) {
     id: c.id, name: c.name, kana: c.kana, company: c.company, companyKana: c.companyKana, title: c.title,
     phone: c.phone, email: c.email, address: c.address, tags: c.tags || [],
     website: c.website || "", metAt: c.metAt || "", metPlace: c.metPlace || "", folder: c.folder || "", industry: c.industry || "",
-    memo: c.memo, createdAt: c.createdAt, updatedAt: c.updatedAt,
+    memo: c.memo, face: c.face || "", createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
 }
 
@@ -4050,7 +4094,7 @@ function renderCompany(key) {
   for (const c of people) {
     const el = document.createElement("div");
     el.className = "person-item";
-    el.innerHTML = `${avatarHtml(c).replace('class="avatar"', 'class="avatar" style="width:30px;height:30px;font-size:13px;background:' + avatarColor(c.name) + '"')}
+    el.innerHTML = `${avatarHtml(c, 30)}
       <div style="min-width:0"><div>${esc(c.name)}</div><div class="sub">${esc([c.title, c.metAt && fmtDate(c.metAt), c.metPlace].filter(Boolean).join("・"))}</div></div>`;
     el.addEventListener("click", () => { $("coDialog").close(); openDetail(c.id); });
     $("coPeople").appendChild(el);
@@ -4570,6 +4614,110 @@ async function openDoc(d) {
 
 /* ---------- 複数カードの保存・削除（整理機能用） ---------- */
 // 変更済みのカードを保存し、クラウド設定があれば送る。imageArgs: Map(id → dataURL) 画像を差し替えるものだけ。
+/* ---------- 顔写真 ----------
+ * 名刺ごとに1枚。正方形に切り抜いた小さな画像（240px）を名刺のデータ（face）に入れて、保存先にもそのまま送る。
+ * 一覧・会社ページ・詳細の丸いアイコンに出る。 */
+const FACE_PX = 240;
+let faceCard = null, faceState = null;
+function faceCardNow() { return faceCard && cards.find((c) => c.id === faceCard); }
+async function openFaceCrop(blob) {
+  const url = makeUrl(blob);
+  const img = $("faceImg");
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; }).catch(() => null);
+  if (!img.naturalWidth) { toast("この画像は開けませんでした"); return; }
+  $("faceDialog").showModal();
+  const box = $("faceStage").clientWidth;
+  const base = box / Math.min(img.naturalWidth, img.naturalHeight); // 短い辺が枠にぴったり
+  // 人物写真は顔が上の方にあることが多いので、少し上寄せで始める
+  faceState = { base, zoom: 1, x: (box - img.naturalWidth * base) / 2, y: Math.min(0, (box - img.naturalHeight * base) / 3), box, w: img.naturalWidth, h: img.naturalHeight };
+  $("faceZoom").value = 1;
+  drawFace();
+}
+function clampFace() {
+  const f = faceState, sc = f.base * f.zoom;
+  f.x = Math.min(0, Math.max(f.box - f.w * sc, f.x));
+  f.y = Math.min(0, Math.max(f.box - f.h * sc, f.y));
+}
+function drawFace() {
+  clampFace();
+  const f = faceState;
+  $("faceImg").style.transform = `translate(${f.x}px,${f.y}px) scale(${f.base * f.zoom})`;
+}
+function zoomFace(z, cx, cy) {
+  const f = faceState; if (!f) return;
+  z = Math.max(1, Math.min(5, z));
+  if (cx == null) { cx = f.box / 2; cy = f.box / 2; }
+  const k = z / f.zoom;
+  f.x = cx - (cx - f.x) * k; f.y = cy - (cy - f.y) * k; f.zoom = z;
+  $("faceZoom").value = z;
+  drawFace();
+}
+async function saveFace() {
+  const f = faceState, c = faceCardNow();
+  if (!f || !c) { $("faceDialog").close(); return; }
+  const sc = f.base * f.zoom, cv = document.createElement("canvas");
+  cv.width = cv.height = FACE_PX;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, FACE_PX, FACE_PX);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage($("faceImg"), -f.x / sc, -f.y / sc, f.box / sc, f.box / sc, 0, 0, FACE_PX, FACE_PX);
+  let q = 0.86, data = cv.toDataURL("image/jpeg", q);
+  while (data.length > 40000 && q > 0.4) { q -= 0.1; data = cv.toDataURL("image/jpeg", q); } // 保存先の1マスに収まる大きさに
+  $("faceDialog").close();
+  c.face = data;
+  await persistCards([c]);
+  if ($("detailDialog").open && detailId === c.id) openDetail(c.id);
+  toast("顔写真を付けました");
+}
+function setupFace() {
+  $("detailFaceBtn").addEventListener("click", () => {
+    const c = cards.find((x) => x.id === detailId); if (!c) return;
+    faceCard = c.id;
+    if (!c.face) { $("faceFile").click(); return; } // まだ無いときはすぐ写真を選ぶ（カメラも選べる）
+    $("detailFaceMenu").hidden = !$("detailFaceMenu").hidden;
+  });
+  $("faceShoot").addEventListener("click", () => { faceCard = detailId; $("faceCam").click(); });
+  $("facePick").addEventListener("click", () => { faceCard = detailId; $("faceFile").click(); });
+  $("faceFromCard").addEventListener("click", () => {
+    const c = cards.find((x) => x.id === detailId); if (!c) return;
+    faceCard = c.id; openFaceCrop(c.src || c.image); // 名刺に顔写真が載っているとき、そこから切り抜く
+  });
+  $("faceView").addEventListener("click", () => { const c = cards.find((x) => x.id === detailId); if (c?.face) openZoom([c.face], 0); });
+  $("faceRemove").addEventListener("click", async () => {
+    const c = cards.find((x) => x.id === detailId); if (!c || !c.face) return;
+    if (!confirm("顔写真を外しますか？")) return;
+    c.face = ""; await persistCards([c]); openDetail(c.id);
+  });
+  for (const id of ["faceCam", "faceFile"]) $(id).addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = "";
+    if (f) openFaceCrop(f);
+  });
+  $("faceZoom").addEventListener("input", (e) => zoomFace(Number(e.target.value)));
+  $("faceCancel").addEventListener("click", () => $("faceDialog").close());
+  $("faceSave").addEventListener("click", saveFace);
+  const st = $("faceStage"), pts = new Map();
+  let start = null;
+  const snap = () => { const a = [...pts.values()]; return a.length >= 2 ? { d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y), cx: (a[0].x + a[1].x) / 2, cy: (a[0].y + a[1].y) / 2 } : { x: a[0].x, y: a[0].y }; };
+  const pos = (e) => { const r = st.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  st.addEventListener("pointerdown", (e) => { st.setPointerCapture(e.pointerId); pts.set(e.pointerId, pos(e)); start = { s: snap(), x: faceState.x, y: faceState.y, zoom: faceState.zoom }; });
+  st.addEventListener("pointermove", (e) => {
+    if (!pts.has(e.pointerId) || !faceState) return;
+    pts.set(e.pointerId, pos(e));
+    const now = snap();
+    if (now.d && start.s.d) {
+      faceState.x = start.x + (now.cx - start.s.cx); faceState.y = start.y + (now.cy - start.s.cy);
+      const keep = { x: faceState.x, y: faceState.y }; faceState.zoom = start.zoom;
+      faceState.x = keep.x; faceState.y = keep.y;
+      zoomFace(start.zoom * now.d / start.s.d, now.cx, now.cy);
+    } else if (now.x != null && start.s.x != null) {
+      faceState.x = start.x + (now.x - start.s.x); faceState.y = start.y + (now.y - start.s.y); drawFace();
+    }
+  });
+  const up = (e) => { pts.delete(e.pointerId); if (pts.size && faceState) start = { s: snap(), x: faceState.x, y: faceState.y, zoom: faceState.zoom }; };
+  st.addEventListener("pointerup", up); st.addEventListener("pointercancel", up);
+  st.addEventListener("wheel", (e) => { e.preventDefault(); const p = pos(e); zoomFace(faceState.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1), p.x, p.y); }, { passive: false });
+}
+
 async function persistCards(list, imageArgs) {
   const now = Date.now();
   for (const c of list) {
@@ -4817,6 +4965,7 @@ async function init() {
   $("coCloseBtn").addEventListener("click", () => $("coDialog").close());
   $("docCloseBtn").addEventListener("click", () => $("docDialog").close());
   setupZoom();
+  setupFace();
   $("docDelete").addEventListener("click", () => { if (openDocRef) deleteDoc(openDocRef); });
   $("docLinkSave").addEventListener("click", saveDocLink);
   $("docLink").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveDocLink(); } });
