@@ -1436,13 +1436,26 @@ async function prepareCardImage(file) {
 }
 
 /* ---------- 表示 ---------- */
+// 一覧のサムネイル用。一覧を描き直すたびに前の分を片付ける
 function revokeUrls() {
   objectUrls.forEach((u) => URL.revokeObjectURL(u));
   objectUrls = [];
 }
-function makeUrl(blob) {
+function makeListUrl(blob) {
   const u = URL.createObjectURL(blob);
   objectUrls.push(u);
+  return u;
+}
+// 詳細画面・取り込み画面などで表示中の画像用。一覧の描き直しでは消さない
+// （消すと、開いている名刺画像が「？」に壊れる）
+function makeUrl(blob) {
+  return URL.createObjectURL(blob);
+}
+// 詳細画面の名刺画像（表・裏）は、開き直すときに前の分だけ片付ける
+let detailUrls = [];
+function makeDetailUrl(blob) {
+  const u = URL.createObjectURL(blob);
+  detailUrls.push(u);
   return u;
 }
 
@@ -1670,7 +1683,7 @@ function render() {
     el.className = "card" + (cloudConfigured() && c.synced !== true ? " unsynced" : "");
     el.dataset.id = c.id;
     const thumb = c.image
-      ? `<img class="thumb" src="${makeUrl(c.image)}" alt="" loading="lazy">${c.face ? `<img class="face-badge" src="${esc(c.face)}" alt="">` : ""}`
+      ? `<img class="thumb" src="${makeListUrl(c.image)}" alt="" loading="lazy">${c.face ? `<img class="face-badge" src="${esc(c.face)}" alt="">` : ""}`
       : `<div class="thumb-placeholder">${avatarHtml(c)}</div>`;
     // 会社ごと表示では見出しに会社名があるので役職だけ出す
     const sub = grouped ? c.title : [c.company, c.title].filter(Boolean).join(" / ");
@@ -1741,10 +1754,11 @@ function openDetail(id) {
   const c = cards.find((x) => x.id === id);
   if (!c) return;
   detailId = id;
+  if (!$("zoomDialog").open) { detailUrls.forEach((u) => URL.revokeObjectURL(u)); detailUrls = []; }
   const img = $("detailImg");
   img.classList.remove("zoom");
   $("detailImgLoading").hidden = true;
-  if (c.image) { img.src = makeUrl(c.image); img.hidden = false; }
+  if (c.image) { img.src = makeDetailUrl(c.image); img.hidden = false; }
   else {
     img.hidden = true; img.removeAttribute("src");
     // クラウドに画像があるのに、この端末にまだ届いていなければ、その場で取りに行く
@@ -1753,7 +1767,7 @@ function openDetail(id) {
   // 裏面（あれば表の下に出す。クラウドにだけあるときは、その場で取りに行く）
   const bimg = $("detailBack");
   bimg.classList.remove("zoom");
-  if (c.back) { bimg.src = makeUrl(c.back); bimg.hidden = false; }
+  if (c.back) { bimg.src = makeDetailUrl(c.back); bimg.hidden = false; }
   else { bimg.hidden = true; bimg.removeAttribute("src"); if (c.backFileId && cloudConfigured()) fetchDetailBack(c); }
   $("detailBackBtn").hidden = !!(c.back || c.backFileId);
   $("detailAvatarBox").innerHTML = avatarHtml(c, 56);
@@ -1815,7 +1829,7 @@ async function fetchDetailBack(c) {
     const cur = cards.find((x) => x.id === c.id);
     if (cur && cur.backFileId === c.backFileId) { cur.back = blob; await putCard(cur); }
     if ($("detailDialog").open && detailId === c.id) {
-      $("detailBack").src = makeUrl(blob); $("detailBack").hidden = false;
+      $("detailBack").src = makeDetailUrl(blob); $("detailBack").hidden = false;
     }
   } catch (e) { /* 次に開いたときにもう一度取りに行く */ }
 }
@@ -1832,8 +1846,7 @@ async function fetchDetailImage(c) {
     // まだ同じ名刺の詳細を開いているときだけ表示を差し替える
     if ($("detailDialog").open && detailId === c.id) {
       const img = $("detailImg");
-      img.src = makeUrl(blob); img.hidden = false;
-      $("detailAvatar").hidden = true;
+      img.src = makeDetailUrl(blob); img.hidden = false;
       box.hidden = true;
     }
     render();
